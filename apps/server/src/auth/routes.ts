@@ -1,4 +1,5 @@
 import {
+  APPROVALS,
   DomainError,
   SHORTCUT_SCREENS,
   codeKey,
@@ -7,6 +8,7 @@ import {
   passwordSchema,
   pinSchema,
   validateKeyAssignment,
+  type ApprovalKind,
   type ShortcutScreen,
 } from '@aruna/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -14,6 +16,7 @@ import { z } from 'zod';
 import { audit } from '../core/audit';
 import { actorOf } from '../core/context';
 import { TX_OPTIONS } from '../db';
+import { requireApproval } from './approvals';
 import { hashPassword, normalizeRecoveryCode, pinHmac, sha256, verifyPassword } from './crypto';
 import { clearSessionCookie, createSession } from './session';
 
@@ -116,6 +119,31 @@ export async function authRoutes(app: FastifyInstance) {
       },
     );
     return { ok: true, switched };
+  });
+
+  /**
+   * Checks an approver's PIN the moment it is typed (e.g. a changed mix paint price), so the
+   * cashier sees right away whether it was accepted. The action itself checks it again.
+   */
+  app.post('/api/auth/verify-approval', async (req) => {
+    const body = z
+      .object({
+        kind: z.enum(Object.keys(APPROVALS) as [ApprovalKind, ...ApprovalKind[]]),
+        pin: pinSchema,
+      })
+      .parse(req.body);
+    const result = await requireApproval(
+      db,
+      req.ctx,
+      body.kind,
+      { pin: body.pin },
+      config.pinSecret,
+    );
+    const approver = await db.user.findUniqueOrThrow({
+      where: { id: result.approverId },
+      select: { fullName: true },
+    });
+    return { approver: approver.fullName, override: result.override };
   });
 
   /** Unlock with the password, for users without a PIN. */

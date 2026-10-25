@@ -331,6 +331,7 @@ export async function listHeld(tx: Tx, locationId: string) {
           }
         : {
             kind: 'BATCH' as const,
+            productId: l.productId,
             subProductId: l.subProductId,
             qty: l.qty.toFixed(3),
             discount: s.wholesale

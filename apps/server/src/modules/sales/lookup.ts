@@ -52,13 +52,23 @@ export async function describeItems(
       JOIN stock_balances b ON b.sub_product_id = sp.id AND b.location_id = ${locationId}::uuid
      WHERE sp.product_id = ANY(${ids}::uuid[]) AND sp.active AND b.qty > 0
      ORDER BY sp.first_received_at ASC NULLS FIRST, sp.seq ASC`;
-  const elsewhere = await tx.$queryRaw<{ product_id: string; qty: string }[]>`
-    SELECT sp.product_id, COALESCE(SUM(b.qty), 0)::text AS qty
+  const elsewhere = await tx.$queryRaw<
+    {
+      product_id: string;
+      sub_product_id: string;
+      code: string;
+      location_id: string;
+      location: string;
+      qty: string;
+    }[]
+  >`
+    SELECT sp.product_id, sp.id AS sub_product_id, sp.code, l.id AS location_id, l.name AS location, b.qty::text AS qty
       FROM sub_products sp
       JOIN stock_balances b ON b.sub_product_id = sp.id
       JOIN locations l ON l.id = b.location_id
-     WHERE sp.product_id = ANY(${ids}::uuid[]) AND b.location_id <> ${locationId}::uuid AND l.kind <> 'DAMAGED'
-     GROUP BY sp.product_id`;
+     WHERE sp.product_id = ANY(${ids}::uuid[]) AND b.location_id <> ${locationId}::uuid
+       AND l.kind <> 'DAMAGED' AND l.active AND b.qty > 0
+     ORDER BY sp.first_received_at ASC NULLS FIRST`;
   const mixIds = products.flatMap((p) =>
     p.mixProduct?.subProducts[0] ? [p.mixProduct.subProducts[0].id] : [],
   );
@@ -66,7 +76,6 @@ export async function describeItems(
     ? await tx.stockBalance.findMany({ where: { subProductId: { in: mixIds }, locationId } })
     : [];
   const mixBy = new Map(mixStock.map((m) => [m.subProductId, m.qty.toFixed(3)]));
-  const elsewhereBy = new Map(elsewhere.map((e) => [e.product_id, e.qty]));
   const byId = new Map(products.map((p) => [p.id, p]));
 
   return hits
@@ -85,7 +94,20 @@ export async function describeItems(
         allowLooseSale: p.allowLooseSale && Boolean(mix),
         matchedSubProductId: h.matchedSubProductId,
         stockHere: own.reduce((s, b) => s.plus(D(b.available)), D(0)).toFixed(3),
-        stockElsewhere: D(elsewhereBy.get(p.id) ?? 0).toFixed(3),
+        stockElsewhere: elsewhere
+          .filter((e) => e.product_id === p.id)
+          .reduce((s, e) => s.plus(D(e.qty)), D(0))
+          .toFixed(3),
+        /** For "Move 1 from Store?" when the shop has none here. */
+        elsewhere: elsewhere
+          .filter((e) => e.product_id === p.id)
+          .map((e) => ({
+            subProductId: e.sub_product_id,
+            code: e.code,
+            locationId: e.location_id,
+            location: e.location,
+            qty: D(e.qty).toFixed(3),
+          })),
         batches: own.map((b) => ({
           id: b.id,
           code: b.code,

@@ -6,7 +6,7 @@ import { canSeeItemCost, perm, shopOnly } from '../../auth/guard';
 import { TX_OPTIONS } from '../../db';
 import { peekNumber } from '../../core/numbering';
 import { dateOnly } from '../../lib/json';
-import { billingItems } from './lookup';
+import { billingItems, describeItems } from './lookup';
 import { printReturn, printSale } from './printing';
 import { createReturn } from './returns';
 import {
@@ -37,6 +37,25 @@ export async function salesRoutes(app: FastifyInstance) {
     async (req) => {
       const { q } = z.object({ q: z.string().default('') }).parse(req.query);
       return { items: await billingItems(db, q, req.ctx.locationId) };
+    },
+  );
+
+  /** Items by product id, e.g. to load a recalled held bill back onto the screen. */
+  app.get(
+    '/api/billing/items/by-products',
+    { preHandler: perm('billing.view', 'quotations.view') },
+    async (req) => {
+      const { ids } = z.object({ ids: z.string().default('') }).parse(req.query);
+      const list = ids.split(',').filter((x) => idSchema.safeParse(x).success);
+      return {
+        items: list.length
+          ? await describeItems(
+              db,
+              list.map((id) => ({ id, matchedSubProductId: null })),
+              req.ctx.locationId,
+            )
+          : [],
+      };
     },
   );
 

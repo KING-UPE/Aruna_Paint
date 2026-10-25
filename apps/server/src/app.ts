@@ -67,7 +67,9 @@ export async function buildApp(
 
   // In production the shop server also serves the built screens to every PC on the LAN.
   if (config.webDistDir && existsSync(config.webDistDir)) {
-    await app.register(fastifyStatic, { root: config.webDistDir, wildcard: false });
+    // Wildcard serving picks up files from a new build without a restart; unknown paths fall
+    // through to index.html so the screens' own routes work on reload.
+    await app.register(fastifyStatic, { root: config.webDistDir });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/')) {
         return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Not found.' } });
