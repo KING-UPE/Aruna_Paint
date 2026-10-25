@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import type { AppConfig } from './config';
 import { createPrisma } from './db';
 import type { Deps } from './deps';
+import { BackupService } from './core/backups';
 import { EventBus } from './core/events';
 import { SettingsService } from './core/settings';
 import { errorHandler } from './lib/errors';
@@ -35,12 +36,14 @@ export async function buildApp(
   });
 
   const db = overrides.db ?? createPrisma(config.databaseUrl);
+  const settings = overrides.settings ?? new SettingsService(db);
   const deps: Deps = {
     db,
     config,
-    settings: overrides.settings ?? new SettingsService(db),
+    settings,
     events: overrides.events ?? new EventBus(),
     printer: overrides.printer ?? new PrintService(db, config),
+    backups: overrides.backups ?? new BackupService(db, config, settings),
   };
   app.decorate('deps', deps);
   app.setErrorHandler(errorHandler);
@@ -73,7 +76,10 @@ export async function buildApp(
     });
   }
 
+  if (!config.disableSchedulers) deps.backups.startScheduler();
+
   app.addHook('onClose', async () => {
+    await deps.backups.close();
     await db.$disconnect();
   });
 
