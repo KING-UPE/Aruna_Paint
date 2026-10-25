@@ -86,7 +86,9 @@ export const ItemEntry = forwardRef<ItemEntryHandle, Props>(function ItemEntry(p
     enabled: searching,
     staleTime: 5_000,
   });
-  const list = searching ? (suggestions.data?.items ?? []) : [];
+  // Only suggestions for exactly what is typed now; while the search catches up, Enter fetches
+  // fresh results, so a fast typist never gets the previous item.
+  const list = searching && debounced === query ? (suggestions.data?.items ?? []) : [];
   const listOpen = !item && query.length >= minLen && list.length > 0;
 
   // Focus moves right after React commits, before the next key arrives.
