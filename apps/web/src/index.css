@@ -1,0 +1,125 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+/*
+ * Calm, simple screens: light background, white cards, one accent color, 12 px corners on cards
+ * and 8 px on inputs, soft borders, an 8 px spacing grid. Color always comes with words or icons.
+ */
+:root {
+  --bg: #f5f6f4;
+  --surface: #ffffff;
+  --surface-2: #f0f2ef;
+  --border: #dfe3de;
+  --text: #1b201d;
+  --muted: #5d6660;
+  --accent: #0f766e;
+  --accent-strong: #0b5c56;
+  --accent-soft: #e2f2ef;
+  --accent-text: #ffffff;
+  --ok: #157f3c;
+  --ok-soft: #e4f4e8;
+  --warn: #a15c00;
+  --warn-soft: #fdf1dc;
+  --danger: #b42318;
+  --danger-soft: #fde8e6;
+  --focus: #0f766e;
+  --selected: #e2f2ef;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #111513;
+    --surface: #1a201d;
+    --surface-2: #222a26;
+    --border: #2f3934;
+    --text: #e7ece9;
+    --muted: #9aa69f;
+    --accent: #2bb3a5;
+    --accent-strong: #5cc9bd;
+    --accent-soft: #17332f;
+    --accent-text: #06201d;
+    --ok: #4cc373;
+    --ok-soft: #173222;
+    --warn: #f0b04a;
+    --warn-soft: #3a2c12;
+    --danger: #ff7b6e;
+    --danger-soft: #3d1a17;
+    --focus: #5cc9bd;
+    --selected: #17332f;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #111513;
+  --surface: #1a201d;
+  --surface-2: #222a26;
+  --border: #2f3934;
+  --text: #e7ece9;
+  --muted: #9aa69f;
+  --accent: #2bb3a5;
+  --accent-strong: #5cc9bd;
+  --accent-soft: #17332f;
+  --accent-text: #06201d;
+  --ok: #4cc373;
+  --ok-soft: #173222;
+  --warn: #f0b04a;
+  --warn-soft: #3a2c12;
+  --danger: #ff7b6e;
+  --danger-soft: #3d1a17;
+  --focus: #5cc9bd;
+  --selected: #17332f;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-selected: var(--selected);
+  --font-sans: 'Inter Variable', 'Noto Sans', 'Noto Sans Sinhala', system-ui, sans-serif;
+  --radius-card: 12px;
+  --radius-input: 8px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard users must always see where they are. */
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+kbd {
+  font-family: var(--font-sans);
+}
