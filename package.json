@@ -1,0 +1,26 @@
+{
+  "name": "aruna-paint-pos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pannala Aruna Paint Center — keyboard-first POS (shop server + cloud mirror)",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @aruna/server --filter @aruna/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:migrate": "pnpm --filter @aruna/server db:migrate",
+    "db:seed": "pnpm --filter @aruna/server db:seed",
+    "db:reset": "pnpm --filter @aruna/server db:reset"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2",
+    "typescript": "5.9.3"
+  }
+}
