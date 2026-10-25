@@ -14,3 +14,4 @@ export * from './domain/format';
 export * from './domain/permissions';
 export * from './domain/shortcuts';
 export * from './schemas/common';
+export * from './schemas/stock';
