@@ -61,40 +61,16 @@ export function ProductForm({
   const [confirm, setConfirm] = useState<string | null>(null);
   const loose = form.watch('allowLooseSale');
   const unitId = form.watch('unitId');
-  const buyingUnitId = form.watch('buyingUnitId');
-  const piecesPerBox = form.watch('piecesPerBox') ?? 1;
   const units = useValues('units');
   const selectedUnit = units.data?.items.find((u) => u.id === unitId);
-  const selectedBuyingUnit = units.data?.items.find((u) => u.id === buyingUnitId);
-
-  const pieceUnit = units.data?.items.find(
-    (u) => u.name.toLowerCase() === 'piece' || u.name.toLowerCase() === 'pcs',
-  );
-  const boxUnit = units.data?.items.find(
-    (u) => u.name.toLowerCase() === 'box' || u.name.toLowerCase().includes('box'),
-  );
 
   const isCan =
     selectedUnit?.name.toLowerCase() === 'can' ||
     selectedUnit?.name.toLowerCase().includes('can') ||
     Boolean(product?.packSize);
 
-  const isSellingBox = Boolean(
-    selectedUnit?.name.toLowerCase() === 'box' ||
-      selectedUnit?.name.toLowerCase().includes('box'),
-  );
-
-  const isBuyingBox = Boolean(
-    selectedBuyingUnit?.name.toLowerCase() === 'box' ||
-      selectedBuyingUnit?.name.toLowerCase().includes('box'),
-  );
-
-  const isBox = isSellingBox || isBuyingBox;
-
   const canInputRef = useRef<HTMLInputElement>(null);
-  const boxInputRef = useRef<HTMLInputElement>(null);
   const prevIsCan = useRef(false);
-  const prevIsBox = useRef(false);
 
   useEffect(() => {
     if (isCan && !prevIsCan.current && !form.getValues('packSize')) {
@@ -102,13 +78,6 @@ export function ProductForm({
     }
     prevIsCan.current = isCan;
   }, [isCan, form]);
-
-  useEffect(() => {
-    if (isBox && !prevIsBox.current && (form.getValues('piecesPerBox') ?? 1) <= 1) {
-      setTimeout(() => boxInputRef.current?.focus(), 50);
-    }
-    prevIsBox.current = isBox;
-  }, [isBox, form]);
   const mixItems = useQuery({
     queryKey: ['products', 'mix-list'],
     queryFn: () =>
@@ -193,23 +162,6 @@ export function ProductForm({
                   if (!isUnitCan && !product?.packSize) {
                     form.setValue('packSize', null);
                   }
-                  const isUnitBox =
-                    u?.name.toLowerCase() === 'box' || u?.name.toLowerCase().includes('box');
-                  if (isUnitBox) {
-                    form.setValue('buyingUnitId', null);
-                    if ((form.getValues('piecesPerBox') ?? 1) <= 1) {
-                      form.setValue('piecesPerBox', 12);
-                    }
-                  } else {
-                    const bu = units.data?.items.find(
-                      (item) => item.id === form.getValues('buyingUnitId'),
-                    );
-                    const isBuBox =
-                      bu?.name.toLowerCase() === 'box' || bu?.name.toLowerCase().includes('box');
-                    if (!isBuBox) {
-                      form.setValue('piecesPerBox', 1);
-                    }
-                  }
                 }}
                 allowEmpty={false}
               />
@@ -269,78 +221,6 @@ export function ProductForm({
             ) : null}
           </div>
         ) : null}
-        {isSellingBox ? (
-          <div className="rounded-xl border border-accent/40 bg-accent/5 p-3.5 sm:col-span-2 transition-all shadow-sm">
-            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <label className="text-sm font-semibold text-text flex items-center gap-1.5">
-                  <span>Pieces per box</span>
-                  <span className="text-xs text-accent-strong font-normal">(Box packaging)</span>
-                </label>
-                <p className="text-xs text-muted mt-0.5">
-                  Select standard box pack quantity or enter custom pieces per box.
-                </p>
-                {pieceUnit && boxUnit ? (
-                  <div className="mt-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        form.setValue('unitId', pieceUnit.id);
-                        form.setValue('buyingUnitId', boxUnit.id);
-                        if ((form.getValues('piecesPerBox') ?? 1) <= 1) {
-                          form.setValue('piecesPerBox', 12);
-                        }
-                      }}
-                      className="inline-flex items-center gap-1 text-xs text-accent-strong underline hover:text-accent font-medium cursor-pointer"
-                    >
-                      💡 Bought in boxes &amp; sold singly? Click to set Unit: {pieceUnit.name} &amp; Buying unit: {boxUnit.name}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex flex-wrap items-center gap-1">
-                  {[6, 10, 12, 24, 36, 48, 100].map((count) => (
-                    <button
-                      key={count}
-                      type="button"
-                      onClick={() => form.setValue('piecesPerBox', count)}
-                      className={cn(
-                        'rounded-lg border px-2.5 py-1 text-xs font-semibold transition',
-                        piecesPerBox === count
-                          ? 'border-accent bg-accent text-surface shadow-sm'
-                          : 'border-border bg-surface hover:border-accent hover:text-accent-strong',
-                      )}
-                    >
-                      {count} pcs
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-1">
-                  <Controller
-                    control={form.control}
-                    name="piecesPerBox"
-                    render={({ field }) => (
-                      <Input
-                        ref={boxInputRef}
-                        type="number"
-                        min={1}
-                        placeholder="Pieces"
-                        className="num w-24 text-right font-semibold"
-                        value={field.value ?? 1}
-                        onChange={(ev) => field.onChange(Number(ev.target.value) || 1)}
-                      />
-                    )}
-                  />
-                  <span className="text-xs font-medium text-muted">pcs</span>
-                </div>
-              </div>
-            </div>
-            {e.piecesPerBox?.message ? (
-              <p className="mt-1 text-xs text-danger">{e.piecesPerBox.message}</p>
-            ) : null}
-          </div>
-        ) : null}
         <Field label="Category">
           <Controller
             control={form.control}
@@ -359,109 +239,6 @@ export function ProductForm({
             )}
           />
         </Field>
-        {!isSellingBox ? (
-          <>
-            <Field label="Buying unit" hint="For items bought in boxes and sold singly.">
-              <Controller
-                control={form.control}
-                name="buyingUnitId"
-                render={({ field }) => (
-                  <ValueSelect
-                    list="units"
-                    value={field.value}
-                    onChange={(v) => {
-                      field.onChange(v);
-                      const bu = units.data?.items.find((item) => item.id === v);
-                      const isBuBox =
-                        bu?.name.toLowerCase() === 'box' || bu?.name.toLowerCase().includes('box');
-                      if (isBuBox) {
-                        if ((form.getValues('piecesPerBox') ?? 1) <= 1) {
-                          form.setValue('piecesPerBox', 12);
-                        }
-                      } else {
-                        const u = units.data?.items.find(
-                          (item) => item.id === form.getValues('unitId'),
-                        );
-                        const isUnitBox =
-                          u?.name.toLowerCase() === 'box' || u?.name.toLowerCase().includes('box');
-                        if (!isUnitBox) {
-                          form.setValue('piecesPerBox', 1);
-                        }
-                      }
-                    }}
-                  />
-                )}
-              />
-            </Field>
-            {Boolean(buyingUnitId) && !isBuyingBox ? (
-              <Field label="Pieces per box" error={e.piecesPerBox?.message}>
-                <Input
-                  type="number"
-                  min={1}
-                  {...form.register('piecesPerBox', { valueAsNumber: true })}
-                />
-              </Field>
-            ) : null}
-            {isBuyingBox ? (
-              <div className="rounded-xl border border-accent/40 bg-accent/5 p-3.5 sm:col-span-2 transition-all shadow-sm">
-                <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <label className="text-sm font-semibold text-text flex items-center gap-1.5">
-                      <span>Pieces per box</span>
-                      <span className="text-xs text-accent-strong font-normal">(Box packaging)</span>
-                    </label>
-                    <p className="text-xs text-muted mt-0.5">
-                      Select standard box pack quantity or enter custom pieces per box.
-                    </p>
-                    <p className="text-[11px] text-accent-strong mt-1 font-medium">
-                      1 box on GRN purchase = {piecesPerBox} {selectedUnit?.name ?? 'item'}(s) added to stock.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex flex-wrap items-center gap-1">
-                      {[6, 10, 12, 24, 36, 48, 100].map((count) => (
-                        <button
-                          key={count}
-                          type="button"
-                          onClick={() => form.setValue('piecesPerBox', count)}
-                          className={cn(
-                            'rounded-lg border px-2.5 py-1 text-xs font-semibold transition',
-                            piecesPerBox === count
-                              ? 'border-accent bg-accent text-surface shadow-sm'
-                              : 'border-border bg-surface hover:border-accent hover:text-accent-strong',
-                          )}
-                        >
-                          {count} pcs
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Controller
-                        control={form.control}
-                        name="piecesPerBox"
-                        render={({ field }) => (
-                          <Input
-                            ref={boxInputRef}
-                            type="number"
-                            min={1}
-                            placeholder="Pieces"
-                            className="num w-24 text-right font-semibold"
-                            value={field.value ?? 1}
-                            onChange={(ev) => field.onChange(Number(ev.target.value) || 1)}
-                          />
-                        )}
-                      />
-                      <span className="text-xs font-medium text-muted">pcs</span>
-                    </div>
-                  </div>
-                </div>
-                {e.piecesPerBox?.message ? (
-                  <p className="mt-1 text-xs text-danger">{e.piecesPerBox.message}</p>
-                ) : null}
-              </div>
-            ) : null}
-          </>
-        ) : null}
         <Field label="Reorder level" error={e.reorderLevel?.message}>
           <Input className="num" {...form.register('reorderLevel')} />
         </Field>
