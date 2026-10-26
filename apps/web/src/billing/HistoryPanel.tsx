@@ -30,7 +30,7 @@ export function HistoryPanel({
 }) {
   const { can, me } = useAuth();
   const qc = useQueryClient();
-  const [type, setType] = useState<'ALL' | 'INVOICE' | 'QUOTATION'>('ALL');
+  const [type, setType] = useState<'INVOICE' | 'QUOTATION' | 'ALL'>('INVOICE');
   const [q, setQ] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -122,23 +122,8 @@ export function HistoryPanel({
   return (
     <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="flex min-h-0 flex-col gap-2.5">
-        {/* Type Selector: Show Quotation bills and Sales bills separately */}
+        {/* Type Selector: 1 Sales Bills, 2 Quotation Bills, 3 All Bills */}
         <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-2/60 p-1">
-          <button
-            type="button"
-            onClick={() => {
-              setType('ALL');
-              setHi(0);
-            }}
-            className={cn(
-              'flex-1 rounded-lg py-1.5 text-center text-xs font-semibold transition',
-              type === 'ALL'
-                ? 'bg-surface text-text shadow-sm'
-                : 'text-muted hover:text-text',
-            )}
-          >
-            All Bills
-          </button>
           <button
             type="button"
             onClick={() => {
@@ -170,6 +155,21 @@ export function HistoryPanel({
           >
             <FileText size={14} />
             <span>Quotation Bills</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setType('ALL');
+              setHi(0);
+            }}
+            className={cn(
+              'flex-1 rounded-lg py-1.5 text-center text-xs font-semibold transition',
+              type === 'ALL'
+                ? 'bg-surface text-text shadow-sm'
+                : 'text-muted hover:text-text',
+            )}
+          >
+            All Bills
           </button>
         </div>
 
