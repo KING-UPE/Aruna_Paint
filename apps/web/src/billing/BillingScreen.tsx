@@ -192,15 +192,22 @@ export function BillingScreen() {
     if (!line) return false;
     if (wholesale || line.kind === 'LOOSE') return false;
 
-    const trimmed = rawDiscount.trim();
+    const trimmed = rawDiscount.trim().replace('%', '').trim();
     if (trimmed === '' || trimmed === '0' || trimmed === '0.00') {
-      setLines((ls) => ls.map((l, i) => (i === index ? { ...l, discountText: '0' } : l)));
+      setLines((ls) => ls.map((l, i) => (i === index ? { ...l, discountText: '0%' } : l)));
       return true;
     }
 
-    const parsed = parseDiscountText(trimmed);
+    const val = Number(trimmed);
+    if (isNaN(val) || val < 0 || val > 100) {
+      toast.error('Enter a valid percentage between 0% and 100%.');
+      return false;
+    }
+
+    const pctText = `${D(trimmed).toString()}%`;
+    const parsed = parseDiscountText(pctText);
     if (!parsed) {
-      toast.error('Type a valid discount (e.g. 50 or 5%).');
+      toast.error('Enter a valid discount percentage.');
       return false;
     }
 
@@ -209,12 +216,15 @@ export function BillingScreen() {
       const max = D(pricing.purchaseDiscount);
       const unitDisc = discountPerUnit(pricing.rPrice, parsed);
       if (unitDisc.greaterThan(max)) {
-        toast.error(`Max allowed discount is Rs ${formatMoney(max)}.`);
+        const maxPct = D(pricing.rPrice).greaterThan(0)
+          ? max.dividedBy(D(pricing.rPrice)).times(100).toDecimalPlaces(1).toString()
+          : '0';
+        toast.error(`Max allowed discount is ${maxPct}% (Rs ${formatMoney(max)}).`);
         return false;
       }
     }
 
-    setLines((ls) => ls.map((l, i) => (i === index ? { ...l, discountText: trimmed } : l)));
+    setLines((ls) => ls.map((l, i) => (i === index ? { ...l, discountText: pctText } : l)));
     return true;
   };
 
@@ -498,7 +508,7 @@ export function BillingScreen() {
                   <th className="w-10 py-2 font-medium">#</th>
                   <th className="py-2 font-medium">Item description</th>
                   <th className="num py-2 font-medium">{wholesale ? 'W-price' : 'R-price'}</th>
-                  <th className="num w-28 py-2 font-medium">Discount</th>
+                  <th className="num w-28 py-2 font-medium">Discount (%)</th>
                   <th className="num w-36 py-2 font-medium">Qty</th>
                   <th className="num py-2 pr-1 font-medium">Amount</th>
                   <th className="w-8 py-2" />
@@ -711,22 +721,32 @@ function BillLineRow({
   onRemove: () => void;
   onDone: () => void;
 }) {
+  const getPercentDisplay = () => {
+    if (line.discountText) {
+      const t = line.discountText.trim().replace('%', '');
+      return t ? `${t}%` : '0%';
+    }
+    if (D(line.discountPerUnit).greaterThan(0) && D(line.unitPrice).greaterThan(0)) {
+      const pct = D(line.discountPerUnit)
+        .dividedBy(D(line.unitPrice))
+        .times(100)
+        .toDecimalPlaces(2)
+        .toNumber();
+      return pct > 0 ? `${pct}%` : '0%';
+    }
+    return '0%';
+  };
+
   const [qtyVal, setQtyVal] = useState(formatQty(line.qty));
-  const [discVal, setDiscVal] = useState(
-    line.discountText ||
-      (D(line.discountPerUnit).isZero() ? '' : formatMoney(line.discountPerUnit)),
-  );
+  const [discVal, setDiscVal] = useState(getPercentDisplay);
 
   useEffect(() => {
     setQtyVal(formatQty(line.qty));
   }, [line.qty]);
 
   useEffect(() => {
-    setDiscVal(
-      line.discountText ||
-        (D(line.discountPerUnit).isZero() ? '' : formatMoney(line.discountPerUnit)),
-    );
-  }, [line.discountText, line.discountPerUnit]);
+    setDiscVal(getPercentDisplay());
+  }, [line.discountText, line.discountPerUnit, line.unitPrice]);
 
   const commitQty = () => {
     if (qtyVal.trim() === formatQty(line.qty)) return;
@@ -737,10 +757,7 @@ function BillLineRow({
   const commitDiscount = () => {
     const ok = onUpdateDiscount(discVal);
     if (!ok) {
-      setDiscVal(
-        line.discountText ||
-          (D(line.discountPerUnit).isZero() ? '' : formatMoney(line.discountPerUnit)),
-      );
+      setDiscVal(getPercentDisplay());
     }
   };
 
@@ -767,19 +784,22 @@ function BillLineRow({
       <td className="num py-2 text-muted">{formatMoney(line.unitPrice)}</td>
       <td className="num py-2">
         {wholesale || line.kind === 'LOOSE' ? (
-          <span className="text-muted">0.00</span>
+          <span className="text-muted">0%</span>
         ) : (
-          <div className="flex items-center justify-end">
+          <div className="flex flex-col items-end">
             <input
               type="text"
-              aria-label={`Discount for ${line.description}`}
-              placeholder="0.00"
+              aria-label={`Discount percentage for ${line.description}`}
+              placeholder="0%"
               value={discVal}
               onClick={(e) => {
                 e.stopPropagation();
                 onSelect();
               }}
               onChange={(e) => setDiscVal(e.target.value)}
+              onFocus={(e) => {
+                e.target.select();
+              }}
               onBlur={commitDiscount}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -787,15 +807,17 @@ function BillLineRow({
                   commitDiscount();
                   onDone();
                 } else if (e.key === 'Escape') {
-                  setDiscVal(
-                    line.discountText ||
-                      (D(line.discountPerUnit).isZero() ? '' : formatMoney(line.discountPerUnit)),
-                  );
+                  setDiscVal(getPercentDisplay());
                   onDone();
                 }
               }}
               className="w-20 rounded border border-border/80 bg-surface px-2 py-1 text-right font-mono text-sm shadow-sm transition hover:border-accent focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
             />
+            {D(line.discountPerUnit).greaterThan(0) ? (
+              <span className="mt-0.5 text-[11px] text-muted">
+                -Rs {formatMoney(line.discountPerUnit)}
+              </span>
+            ) : null}
           </div>
         )}
       </td>

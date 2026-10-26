@@ -147,7 +147,10 @@ export const ItemEntry = forwardRef<ItemEntryHandle, Props>(function ItemEntry(p
   function goQty(it: BillingItem, batchId: string | null) {
     setStartBatch(batchId);
     const b = it.batches.find((x) => x.id === batchId);
-    const d = b && !props.wholesale ? D(b.salesDiscount).toFixed(2) : '0.00';
+    const d =
+      b && !props.wholesale && D(b.rPrice).greaterThan(0) && D(b.salesDiscount).greaterThan(0)
+        ? `${D(b.salesDiscount).dividedBy(D(b.rPrice)).times(100).toDecimalPlaces(2).toString()}%`
+        : '0%';
     setDefaultDisc(d);
     setDiscText(d);
     if (!it.batches.length && !it.allowLooseSale) {
@@ -242,8 +245,11 @@ export const ItemEntry = forwardRef<ItemEntryHandle, Props>(function ItemEntry(p
   function addUnits(qty: string) {
     if (!item) return;
     try {
+      const cleanDisc = discText.trim().replace('%', '').trim();
       const typed =
-        discText.trim() === defaultDisc || discText.trim() === '' ? '' : discText.trim();
+        cleanDisc === '' || cleanDisc === '0' || discText.trim() === defaultDisc
+          ? (defaultDisc === '0%' ? '0%' : '')
+          : `${cleanDisc}%`;
       const lines = splitIntoBatchLines(item, qty, startBatch, typed, props.existing);
       for (const l of lines) {
         const p = priceBillLine(l, props.wholesale);
@@ -391,15 +397,18 @@ export const ItemEntry = forwardRef<ItemEntryHandle, Props>(function ItemEntry(p
         ) : (
           <>
             <label className="sr-only" htmlFor="item-discount">
-              Discount
+              Discount (%)
             </label>
             <Input
               id="item-discount"
               ref={discRef}
-              placeholder="Discount"
+              placeholder="Discount (%)"
               autoComplete="off"
               value={discText}
               disabled={!item || step !== 'discount'}
+              onFocus={() => {
+                discRef.current?.select();
+              }}
               onChange={(e) => setDiscText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -433,7 +442,15 @@ export const ItemEntry = forwardRef<ItemEntryHandle, Props>(function ItemEntry(p
                 {batch ? `${batch.code} · ` : ''}Rs {formatMoney(shownPrice)} ·{' '}
                 {formatQty(item.stockHere)} {item.unit.name} here
                 {batch && !props.wholesale
-                  ? ` · up to Rs ${formatMoney(batch.maxDiscount)} off`
+                  ? ` · up to ${
+                      D(batch.rPrice).greaterThan(0)
+                        ? D(batch.maxDiscount)
+                            .dividedBy(D(batch.rPrice))
+                            .times(100)
+                            .toDecimalPlaces(1)
+                            .toString()
+                        : '0'
+                    }% off (max Rs ${formatMoney(batch.maxDiscount)})`
                   : ''}
                 {item.allowLooseSale ? ' · type L after the qty to sell loose (1.5L)' : ''}
               </>
