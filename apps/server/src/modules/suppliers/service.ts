@@ -97,7 +97,7 @@ export async function listSuppliers(
   const suppliers = await tx.supplier.findMany({
     where,
     include: { reps: { orderBy: { name: 'asc' } } },
-    orderBy: [{ active: 'desc' }, { name: 'asc' }],
+    orderBy: [{ code: 'asc' }],
     take: opts.limit ?? 500,
   });
   const balances = await supplierBalances(

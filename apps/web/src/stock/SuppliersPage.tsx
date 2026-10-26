@@ -1,7 +1,7 @@
 import { formatRs } from '@aruna/shared';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '@/auth/AuthProvider';
 import { DataTable } from '@/components/DataTable';
@@ -45,7 +45,10 @@ export function SuppliersPage() {
     queryFn: () =>
       api.get<{ items: Supplier[] }>(`/api/suppliers${qs({ q: term, includeInactive: inactive })}`),
   });
-  const items = list.data?.items ?? [];
+  const items = useMemo(() => {
+    const raw = list.data?.items ?? [];
+    return [...raw].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  }, [list.data?.items]);
   const owed = items.reduce((s, x) => s + Number(x.balance), 0);
   return (
     <div className="flex h-full flex-col gap-3">
