@@ -247,8 +247,6 @@ export async function deleteUser(tx: Tx, actor: ActorRef, id: string) {
   await tx.session.deleteMany({ where: { userId: id } });
   await tx.userShortcut.deleteMany({ where: { userId: id } });
   await tx.userRole.deleteMany({ where: { userId: id } });
-  await tx.auditLog.updateMany({ where: { userId: id }, data: { userId: null } });
-  await tx.auditLog.updateMany({ where: { approverId: id }, data: { approverId: null } });
 
   try {
     await tx.user.delete({ where: { id } });

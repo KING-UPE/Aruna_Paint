@@ -170,8 +170,8 @@ model AuditLog {
   note       String   @default("")
   counterId  String?  @map("counter_id") @db.Uuid
   ip         String   @default("")
-  user       User?    @relation("AuditUser", fields: [userId], references: [id])
-  approver   User?    @relation("AuditApprover", fields: [approverId], references: [id])
+  user       User?    @relation("AuditUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  approver   User?    @relation("AuditApprover", fields: [approverId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([at])
   @@index([entity, entityId])
