@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
+import { Trash2 } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
 import { usePinPrompt } from '@/components/PinPrompt';
 import { Badge } from '@/components/ui/badge';
@@ -438,7 +439,7 @@ export function PurchaseEntryPage() {
                 <th className="num px-2 py-2 font-medium">Sales price</th>
                 {canCost ? <th className="num px-2 py-2 font-medium">Margin</th> : null}
                 <th className="px-2 py-2 font-medium">Exp date</th>
-                <th className="w-8" />
+                <th className="w-10 px-1 py-2 text-center" />
               </tr>
             </thead>
             <tbody>
@@ -564,22 +565,38 @@ export function PurchaseEntryPage() {
                         className="h-8 w-36 px-2"
                       />
                     </td>
-                    <td className="px-1 py-1">
-                      {lines.length > 1 ? (
-                        <button
-                          className="px-1 text-muted hover:text-danger"
-                          aria-label={`Remove line ${i + 1}`}
-                          onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}
-                        >
-                          ×
-                        </button>
-                      ) : null}
+                    <td className="px-1 py-1 text-center align-middle">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (lines.length > 1) {
+                            setLines((ls) => ls.filter((_, j) => j !== i));
+                          } else {
+                            setLines([emptyLine()]);
+                          }
+                        }}
+                        className="rounded p-1 text-muted transition hover:bg-danger/10 hover:text-danger"
+                        title={lines.length > 1 ? `Delete row ${i + 1}` : 'Clear row'}
+                        aria-label={`Delete row ${i + 1}`}
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        </div>
+        <div className="border-t border-border px-3 py-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setLines((ls) => [...ls, emptyLine()])}
+          >
+            + Add row
+          </Button>
         </div>
       </Card>
 
