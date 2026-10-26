@@ -76,6 +76,24 @@ export const codeSchema = z
       }),
   );
 
+export const optionalCodeSchema = z
+  .union([z.string().transform((v) => v.trim()), z.null(), z.undefined()])
+  .pipe(
+    z.union([
+      z.literal(''),
+      z.null(),
+      z.undefined(),
+      z
+        .string()
+        .min(1)
+        .max(30, { message: 'At most 30 characters.' })
+        .regex(/^[A-Za-z0-9][A-Za-z0-9\-/_.]*$/, {
+          message: 'Use letters, digits and - / _ . only.',
+        }),
+    ]),
+  )
+  .transform((v) => (v ? v : null));
+
 export const phoneSchema = z.string().transform((v, ctx) => {
   const p = normalizePhone(v);
   if (!p) {

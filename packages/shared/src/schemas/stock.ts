@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   codeSchema,
+  optionalCodeSchema,
   dateSchema,
   discountInputSchema,
   idSchema,
@@ -27,7 +28,7 @@ export const supplierRepSchema = z.object({
 
 export const supplierInputSchema = z.object({
   /** Blank gets the next SUP- number; old codes are kept on import. */
-  code: codeSchema.optional().nullable(),
+  code: optionalCodeSchema,
   name: nameSchema,
   phones: z
     .array(phoneSchema)
@@ -76,7 +77,7 @@ export type SupplierPaymentInput = z.input<typeof supplierPaymentSchema>;
 
 export const productInputSchema = z.object({
   /** Blank gets the next 5-digit code. */
-  code: codeSchema.optional().nullable(),
+  code: optionalCodeSchema,
   name: nameSchema,
   /** Short name for the receipt. */
   printName: z
