@@ -140,6 +140,21 @@ export function PurchaseEntryPage() {
   } | null>(null);
   const [warning, setWarning] = useState<{ message: string; confirm: string } | null>(null);
   const [newItemFor, setNewItemFor] = useState<number | null>(null);
+
+  const handleNewItem = (rowIdx?: number) => {
+    if (rowIdx !== undefined) {
+      setNewItemFor(rowIdx);
+      return;
+    }
+    const emptyIdx = lines.findIndex((l) => !l.product);
+    if (emptyIdx !== -1) {
+      setNewItemFor(emptyIdx);
+    } else {
+      const nextIdx = lines.length;
+      setLines((ls) => [...ls, emptyLine()]);
+      setNewItemFor(nextIdx);
+    }
+  };
   const [busy, setBusy] = useState(false);
   const grid = useRef<HTMLDivElement>(null);
 
@@ -343,6 +358,11 @@ export function PurchaseEntryPage() {
         title={isNew ? 'New GRN' : `Edit ${existing.data?.no}`}
         description="Ctrl+S saves a draft (no stock change). Ctrl+Enter posts."
       >
+        {can('products.create') ? (
+          <Button type="button" variant="ghost" onClick={() => handleNewItem()}>
+            + New item
+          </Button>
+        ) : null}
         <Button onClick={() => void save(false)} disabled={busy} keyHint="Ctrl+S">
           Save draft
         </Button>
@@ -588,7 +608,7 @@ export function PurchaseEntryPage() {
             </tbody>
           </table>
         </div>
-        <div className="border-t border-border px-3 py-2">
+        <div className="flex items-center gap-2 border-t border-border px-3 py-2">
           <Button
             type="button"
             variant="ghost"
@@ -597,6 +617,17 @@ export function PurchaseEntryPage() {
           >
             + Add row
           </Button>
+          {can('products.create') ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-primary hover:text-primary"
+              onClick={() => handleNewItem()}
+            >
+              + New item
+            </Button>
+          ) : null}
         </div>
       </Card>
 
@@ -691,16 +722,19 @@ export function PurchaseEntryPage() {
         onClose={() => setNewItemFor(null)}
         onSaved={(p) => {
           if (newItemFor === null) return;
-          update(newItemFor, {
+          const target = newItemFor;
+          setNewItemFor(null);
+          update(target, {
             product: {
               id: p.product.id,
               code: p.product.code,
               name: p.product.name,
               piecesPerBox: p.product.piecesPerBox,
               unit: p.product.unit.name,
+              trackExpiry: p.product.trackExpiry,
             },
           });
-          focusCell(newItemFor, 1);
+          focusCell(target, 1);
         }}
       />
     </div>
@@ -840,7 +874,7 @@ function ItemCell({
   }, [open]);
 
   return (
-    <div className="relative">
+    <div className="relative flex items-center gap-1">
       <Input
         ref={inputRef}
         data-row={row}
@@ -873,8 +907,17 @@ function ItemCell({
             } else onEnterEmpty();
           } else if (e.key === 'Escape') setText('');
         }}
-        className="h-8 w-56 px-2"
+        className="h-8 w-52 px-2"
       />
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={onNew}
+        title="Add new product"
+        className="flex h-8 w-7 shrink-0 items-center justify-center rounded border border-border bg-surface-2 text-sm font-semibold text-muted transition hover:bg-surface-3 hover:text-primary"
+      >
+        +
+      </button>
       {open && coords && typeof document !== 'undefined'
         ? createPortal(
             <ul
