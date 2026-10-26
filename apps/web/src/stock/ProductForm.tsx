@@ -393,12 +393,11 @@ export function ProductForm({
                 )}
               />
             </Field>
-            {!isBuyingBox ? (
+            {Boolean(buyingUnitId) && !isBuyingBox ? (
               <Field label="Pieces per box" error={e.piecesPerBox?.message}>
                 <Input
                   type="number"
                   min={1}
-                  disabled={!buyingUnitId}
                   {...form.register('piecesPerBox', { valueAsNumber: true })}
                 />
               </Field>
