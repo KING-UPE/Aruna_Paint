@@ -1,5 +1,6 @@
 import { formatDate, formatDateTime, formatMoney, formatQty } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { FileText, Receipt } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/auth/AuthProvider';
@@ -29,6 +30,7 @@ export function HistoryPanel({
 }) {
   const { can, me } = useAuth();
   const qc = useQueryClient();
+  const [type, setType] = useState<'ALL' | 'INVOICE' | 'QUOTATION'>('ALL');
   const [q, setQ] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -42,10 +44,18 @@ export function HistoryPanel({
   const term = useDebounced(q.trim(), 200);
   const isAmount = /^\d+(\.\d{1,2})?$/.test(term) && term.includes('.');
   const list = useQuery({
-    queryKey: ['bill-history', term, from, to],
+    queryKey: ['bill-history', type, term, from, to],
     queryFn: () =>
       api.get<Page<SaleListItem>>(
-        `/api/sales${qs({ q: isAmount ? undefined : /\d/.test(term) ? term : undefined, customer: /\d/.test(term) ? undefined : term, amount: isAmount ? term : undefined, from, to, pageSize: 50 })}`,
+        `/api/sales${qs({
+          kind: type === 'ALL' ? undefined : type,
+          q: isAmount ? undefined : /\d/.test(term) ? term : undefined,
+          customer: /\d/.test(term) ? undefined : term,
+          amount: isAmount ? term : undefined,
+          from,
+          to,
+          pageSize: 50,
+        })}`,
       ),
   });
   const items = list.data?.items ?? [];
@@ -111,12 +121,69 @@ export function HistoryPanel({
 
   return (
     <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <div className="flex min-h-0 flex-col gap-2">
+      <div className="flex min-h-0 flex-col gap-2.5">
+        {/* Type Selector: Show Quotation bills and Sales bills separately */}
+        <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-2/60 p-1">
+          <button
+            type="button"
+            onClick={() => {
+              setType('ALL');
+              setHi(0);
+            }}
+            className={cn(
+              'flex-1 rounded-lg py-1.5 text-center text-xs font-semibold transition',
+              type === 'ALL'
+                ? 'bg-surface text-text shadow-sm'
+                : 'text-muted hover:text-text',
+            )}
+          >
+            All Bills
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setType('INVOICE');
+              setHi(0);
+            }}
+            className={cn(
+              'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-center text-xs font-semibold transition',
+              type === 'INVOICE'
+                ? 'bg-surface text-accent-strong shadow-sm'
+                : 'text-muted hover:text-text',
+            )}
+          >
+            <Receipt size={14} />
+            <span>Sales Bills</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setType('QUOTATION');
+              setHi(0);
+            }}
+            className={cn(
+              'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-center text-xs font-semibold transition',
+              type === 'QUOTATION'
+                ? 'bg-surface text-warn shadow-sm'
+                : 'text-muted hover:text-text',
+            )}
+          >
+            <FileText size={14} />
+            <span>Quotation Bills</span>
+          </button>
+        </div>
+
         <div className="flex flex-wrap gap-2">
           <Input
             autoFocus
             aria-label="Search bills"
-            placeholder="Bill no, customer, or amount like 6325.00 · Enter goes to the list"
+            placeholder={
+              type === 'QUOTATION'
+                ? 'Quotation no, customer, or amount...'
+                : type === 'INVOICE'
+                  ? 'Invoice no, customer, or amount...'
+                  : 'Bill no, customer, or amount like 6325.00 · Enter goes to list'
+            }
             value={q}
             onChange={(e) => {
               setQ(e.target.value);
@@ -172,12 +239,26 @@ export function HistoryPanel({
               <Spinner />
             </div>
           ) : items.length === 0 ? (
-            <EmptyState title="No bills found." />
+            <EmptyState
+              title={
+                type === 'QUOTATION'
+                  ? 'No quotation bills found.'
+                  : type === 'INVOICE'
+                    ? 'No sales bills found.'
+                    : 'No bills found.'
+              }
+            />
           ) : (
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-surface-2 text-left text-muted">
                 <tr>
-                  <th className="px-3 py-2 font-medium">No</th>
+                  <th className="px-3 py-2 font-medium">
+                    {type === 'QUOTATION'
+                      ? 'Quotation No'
+                      : type === 'INVOICE'
+                        ? 'Invoice No'
+                        : 'Bill No'}
+                  </th>
                   <th className="px-3 py-2 font-medium">Date</th>
                   <th className="px-3 py-2 font-medium">Customer</th>
                   <th className="num px-3 py-2 font-medium">Total</th>
@@ -197,11 +278,14 @@ export function HistoryPanel({
                     )}
                   >
                     <td className="px-3 py-2 font-medium">
-                      {s.no} {s.status === 'VOID' ? <Badge tone="danger">VOID</Badge> : null}
+                      <span className="font-mono">{s.no}</span>{' '}
+                      {s.status === 'VOID' ? <Badge tone="danger">VOID</Badge> : null}
                       {s.kind === 'QUOTATION' ? (
                         <Badge tone="accent">
-                          {s.convertedTo ? `→ ${s.convertedTo}` : 'Quote'}
+                          {s.convertedTo ? `Converted → ${s.convertedTo}` : 'Quotation'}
                         </Badge>
+                      ) : type === 'ALL' ? (
+                        <Badge tone="neutral">Sale</Badge>
                       ) : null}
                       {Number(s.refundedTotal) > 0 ? <Badge tone="warn">Returned</Badge> : null}
                       {s.wholesale ? <Badge>Wholesale</Badge> : null}
@@ -309,7 +393,7 @@ export function BillDetail({ sale, actions }: { sale: SaleDetail; actions?: Reac
             {sale.wholesale ? <Badge>Wholesale</Badge> : null}
           </div>
           <div className="text-sm text-muted">
-            {formatDateTime(sale.completedAt)} · {sale.cashier} · {sale.counter}
+            {formatDateTime(sale.completedAt)} · {sale.cashier}
             {sale.customerName ? ` · ${sale.customerName}` : ''}
             {sale.validUntil ? ` · valid until ${formatDate(sale.validUntil)}` : ''}
           </div>
