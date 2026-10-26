@@ -14,6 +14,7 @@ import { useHotkeys } from '@/keyboard/keymap';
 import { api, qs } from '@/lib/api';
 import { useDebounced } from '@/lib/hooks';
 import type { Page, StockListItem, Supplier } from '@/lib/types';
+import { cn } from '@/lib/utils';
 import { ProductForm } from './ProductForm';
 
 const columns: ColumnDef<StockListItem, unknown>[] = [
@@ -77,6 +78,7 @@ export function ProductsPage() {
     includeInactive: false,
   });
   const [page, setPage] = useState(1);
+  const [stockTab, setStockTab] = useState<'STANDARD' | 'MIX' | 'ALL'>('STANDARD');
   const [creating, setCreating] = useState(false);
   const term = useDebounced(q, 200);
   const categories = useValues('categories');
@@ -88,7 +90,7 @@ export function ProductsPage() {
     enabled: can('suppliers.view'),
   });
   const list = useQuery({
-    queryKey: ['products', term, f, page],
+    queryKey: ['products', term, f, stockTab, page],
     queryFn: () =>
       api.get<Page<StockListItem>>(
         `/api/products${qs({
@@ -101,6 +103,7 @@ export function ProductsPage() {
           outOfStock: f.outOfStock,
           expiringDays: f.expiring ? 60 : undefined,
           includeInactive: f.includeInactive,
+          type: stockTab === 'ALL' ? undefined : stockTab,
           page,
           pageSize: 100,
         })}`,
@@ -120,12 +123,69 @@ export function ProductsPage() {
         title="Products and stock"
         description="Enter opens an item's sub-products, stock per location and bin card."
       >
-        {can('products.create') ? (
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            New product
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {can('mix_paint.view') ? (
+            <Button variant="ghost" onClick={() => nav('/stock/mix-paint')}>
+              Transfer cans to mix
+            </Button>
+          ) : null}
+          {can('products.create') ? (
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              New product
+            </Button>
+          ) : null}
+        </div>
       </PageHeader>
+
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex w-fit items-center rounded-lg border border-border bg-surface-2 p-1">
+          <button
+            type="button"
+            onClick={() => {
+              setStockTab('STANDARD');
+              setPage(1);
+            }}
+            className={cn(
+              'flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-medium transition',
+              stockTab === 'STANDARD'
+                ? 'bg-surface text-text shadow-sm'
+                : 'text-muted hover:text-text',
+            )}
+          >
+            Standard stock
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setStockTab('MIX');
+              setPage(1);
+            }}
+            className={cn(
+              'flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-medium transition',
+              stockTab === 'MIX'
+                ? 'bg-surface text-primary shadow-sm'
+                : 'text-muted hover:text-text',
+            )}
+          >
+            Mix paint stock
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setStockTab('ALL');
+              setPage(1);
+            }}
+            className={cn(
+              'flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-medium transition',
+              stockTab === 'ALL'
+                ? 'bg-surface text-text shadow-sm'
+                : 'text-muted hover:text-text',
+            )}
+          >
+            All stock
+          </button>
+        </div>
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <Input
           id="product-search"
@@ -211,8 +271,20 @@ export function ProductsPage() {
         onOpen={(r) => void nav(`/stock/products/${r.id}`)}
         empty={
           <EmptyState
-            title="No products match."
-            action={can('products.create') ? 'Add one with New product.' : undefined}
+            title={
+              stockTab === 'MIX'
+                ? 'No mix paint items match.'
+                : stockTab === 'STANDARD'
+                  ? 'No standard products match.'
+                  : 'No products match.'
+            }
+            action={
+              stockTab === 'MIX' && can('mix_paint.create')
+                ? 'Transfer whole cans into mix paint to stock it.'
+                : can('products.create')
+                  ? 'Add one with New product.'
+                  : undefined
+            }
           />
         }
       />
