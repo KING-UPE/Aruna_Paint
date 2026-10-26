@@ -41,12 +41,16 @@ def pipe(src, dst):
 
 def handle_connection(win_sock):
     try:
+        win_sock.settimeout(None)
+        win_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         first_chunk = win_sock.recv(8192)
         if not first_chunk:
             win_sock.close()
             return
         
         pg_sock = socket.create_connection(('127.0.0.1', PG_PORT), timeout=5)
+        pg_sock.settimeout(None)
+        pg_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         pg_sock.sendall(first_chunk)
 
         t1 = threading.Thread(target=pipe, args=(win_sock, pg_sock), daemon=True)
@@ -64,6 +68,8 @@ def handle_connection(win_sock):
 def single_worker(on_exit):
     try:
         win_sock = socket.create_connection((WINDOWS_IP, WINDOWS_PORT), timeout=10)
+        win_sock.settimeout(None)
+        win_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         handle_connection(win_sock)
     except Exception:
         time.sleep(0.5)

@@ -16,6 +16,8 @@ const availableWorkers = [];
 const pendingClients = [];
 
 function pair(client, worker) {
+  client.setKeepAlive(true, 10000);
+  worker.setKeepAlive(true, 10000);
   client.pipe(worker);
   worker.pipe(client);
 
