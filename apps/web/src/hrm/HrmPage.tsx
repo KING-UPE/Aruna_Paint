@@ -22,6 +22,7 @@ import { useAuth } from '@/auth/AuthProvider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { formatMoney, formatQty } from '@aruna/shared';
@@ -124,7 +125,7 @@ export function HrmPage() {
   const [electricityBill, setElectricityBill] = useState<number>(18500);
   const [salaries, setSalaries] = useState<SalaryItem[]>([]);
   const [members, setMembers] = useState<MemberItem[]>([]);
-  const [saveAsDefault, setSaveAsDefault] = useState(false);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [syncUserRates, setSyncUserRates] = useState(true);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
@@ -160,7 +161,7 @@ export function HrmPage() {
 
   // Mutation to save monthly configuration
   const saveMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (asDefault: boolean) => {
       const periodKey = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
       return api.put(`/api/hrm/month/${periodKey}`, {
         maxCommissionPercent: Number(maxCommissionPercent) || 0,
@@ -174,14 +175,18 @@ export function HrmPage() {
           ...m,
           ratePercent: Number(m.ratePercent) || 0,
         })),
-        saveAsDefault,
+        saveAsDefault: asDefault,
         syncUserRates,
       });
     },
-    onSuccess: () => {
+    onSuccess: (_, asDefault) => {
       qc.invalidateQueries({ queryKey: ['hrm-summary'] });
-      setSaveMessage('HRM settings and commission shares saved successfully.');
-      setTimeout(() => setSaveMessage(null), 4000);
+      setSaveMessage(
+        asDefault
+          ? `HRM settings saved for ${MONTHS[selectedMonth - 1]} ${selectedYear} and set as default for future months.`
+          : `HRM settings saved for ${MONTHS[selectedMonth - 1]} ${selectedYear} only.`,
+      );
+      setTimeout(() => setSaveMessage(null), 5000);
     },
   });
 
@@ -883,15 +888,6 @@ export function HrmPage() {
             <Card className="border-accent/40 bg-accent-soft/20">
               <CardBody className="p-4 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex flex-col gap-1.5 text-xs">
-                  <label className="flex items-center gap-2 cursor-pointer font-medium">
-                    <input
-                      type="checkbox"
-                      checked={saveAsDefault}
-                      onChange={(e) => setSaveAsDefault(e.target.checked)}
-                      className="rounded text-accent"
-                    />
-                    Save these rates and fixed expenses as default for future months
-                  </label>
                   <label className="flex items-center gap-2 cursor-pointer font-medium text-muted">
                     <input
                       type="checkbox"
@@ -905,16 +901,99 @@ export function HrmPage() {
 
                 <Button
                   variant="primary"
-                  onClick={() => saveMutation.mutate()}
+                  onClick={() => setSaveDialogOpen(true)}
                   disabled={saveMutation.isPending}
-                  className="font-bold gap-2 px-5"
+                  className="font-bold gap-2 px-6"
                 >
                   <Save size={16} />
-                  {saveMutation.isPending ? 'Saving...' : `Save ${MONTHS[selectedMonth - 1]} Settings`}
+                  {saveMutation.isPending ? 'Saving...' : 'Save'}
                 </Button>
               </CardBody>
             </Card>
           )}
+
+          {/* Dialog to choose save scope */}
+          <Dialog
+            open={saveDialogOpen}
+            onOpenChange={setSaveDialogOpen}
+            title="Save HRM &amp; Commission Settings"
+            className="max-w-md"
+          >
+            <div className="flex flex-col gap-4 py-2">
+              <p className="text-sm text-muted">
+                Choose how you want to apply these rates and fixed expenses:
+              </p>
+
+              <div className="flex flex-col gap-3">
+                {/* Option 1: Just for this month */}
+                <button
+                  type="button"
+                  disabled={saveMutation.isPending}
+                  onClick={() => {
+                    setSaveDialogOpen(false);
+                    saveMutation.mutate(false);
+                  }}
+                  className="flex flex-col gap-1 rounded-xl border border-border p-3.5 text-left transition hover:border-accent hover:bg-accent/5 focus:border-accent focus:outline-none cursor-pointer"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-text text-sm">
+                      Save just for this month
+                    </span>
+                    <span className="rounded bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
+                      {MONTHS[selectedMonth - 1]} {selectedYear} only
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted">
+                    Applies rates and expenses only to {MONTHS[selectedMonth - 1]} {selectedYear}. Upcoming months remain unchanged.
+                  </p>
+                </button>
+
+                {/* Option 2: Save for until edit */}
+                <button
+                  type="button"
+                  disabled={saveMutation.isPending}
+                  onClick={() => {
+                    setSaveDialogOpen(false);
+                    saveMutation.mutate(true);
+                  }}
+                  className="flex flex-col gap-1 rounded-xl border border-accent/60 bg-accent/10 p-3.5 text-left transition hover:border-accent hover:bg-accent/15 focus:border-accent focus:outline-none cursor-pointer"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-accent-strong text-sm">
+                      Save until edited
+                    </span>
+                    <span className="rounded bg-accent/20 px-2 py-0.5 text-[11px] font-semibold text-accent-strong">
+                      Future default
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted">
+                    Applies to {MONTHS[selectedMonth - 1]} {selectedYear} and becomes the default for future months until edited.
+                  </p>
+                </button>
+              </div>
+
+              <label className="flex items-center gap-2 pt-1 text-xs text-muted cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={syncUserRates}
+                  onChange={(e) => setSyncUserRates(e.target.checked)}
+                  className="rounded text-accent"
+                />
+                <span>Synchronize commission rates with user accounts in Users &amp; Roles</span>
+              </label>
+
+              <div className="flex justify-end pt-2 border-t border-border">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSaveDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </Dialog>
         </div>
       </div>
     </div>
