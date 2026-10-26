@@ -181,7 +181,7 @@ async function main() {
   await s.call('POST', '/api/mix-paint/transfers', {
     sourceSubProductId: white,
     cans: 1,
-    pricePerLiter: '650',
+    adminCanPrice: '2600',
   });
 
   console.log('Seeded the demo shop.');

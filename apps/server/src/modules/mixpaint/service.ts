@@ -14,6 +14,7 @@ import { audit } from '../../core/audit';
 import type { ActorRef } from '../../core/context';
 import { nextNumber } from '../../core/numbering';
 import { availableQty, moveStock, totalQty } from '../../core/stock';
+import { ensureMixProduct } from '../products/service';
 
 type Actor = ActorRef & { userId: string };
 
@@ -49,20 +50,32 @@ export async function transferToMix(
   input: z.output<typeof mixTransferSchema> & { locationId: string },
   opts: { approverId: string; fromCounter: boolean },
 ): Promise<MixTransferResult> {
-  const source = await tx.subProduct.findUnique({
-    where: { id: input.sourceSubProductId },
-    include: { product: true },
-  });
-  if (!source) throw new DomainError('NOT_FOUND', 'Can not found.');
+  let source = input.sourceSubProductId
+    ? await tx.subProduct.findUnique({
+        where: { id: input.sourceSubProductId },
+        include: { product: true },
+      })
+    : null;
+
+  if (!source && input.sourceProductId) {
+    source = await tx.subProduct.findFirst({
+      where: { productId: input.sourceProductId, active: true },
+      include: { product: true },
+      orderBy: { seq: 'asc' },
+    });
+  }
+
+  if (!source) throw new DomainError('NOT_FOUND', 'Can / paint product not found.');
   const product = source.product;
-  if (!product.mixProductId)
-    throw new DomainError('INVALID_STATE', `${product.name} is not linked to a mix paint item.`);
-  if (!product.packSize)
-    throw new DomainError('INVALID_STATE', `${product.name} has no pack size in liters.`);
+  if (!product.packSize || Number(product.packSize) <= 0)
+    throw new DomainError('INVALID_STATE', `${product.name} has no pack size in liters (needed for can-to-units conversion).`);
+
+  const mixProduct = await ensureMixProduct(tx, product);
+  const mix = await mixSubProduct(tx, mixProduct.id);
+
   const liters = cansToLiters(input.cans, product.packSize);
   const perLiter = costPerLiter(source.actualPrice, product.packSize);
 
-  const mix = await mixSubProduct(tx, product.mixProductId);
   const oldLiters = D(await totalQty(tx, mix.id));
   const oldAvg = D(mix.actualPrice);
   const newAvg = weightedAverageCost({
@@ -73,19 +86,27 @@ export async function transferToMix(
   });
   const oldPrice = D(mix.salesPrice);
   let price: typeof oldPrice;
-  if (input.pricePerLiter) price = money(input.pricePerLiter);
-  else if (oldPrice.greaterThan(0) && oldPrice.greaterThanOrEqualTo(newAvg)) price = oldPrice;
-  else {
-    throw new DomainError(
-      'VALIDATION',
-      oldPrice.isZero()
-        ? 'Set the price per liter for this mix paint.'
-        : `The new average cost is Rs ${newAvg.toFixed(2)} per liter, above the current price. Set a new price.`,
-      'pricePerLiter',
-      { averageCost: newAvg.toFixed(2) },
-    );
+  if (input.adminCanPrice) {
+    price = money(D(input.adminCanPrice).dividedBy(product.packSize));
+  } else if (input.pricePerLiter) {
+    price = money(input.pricePerLiter);
+  } else if (oldPrice.greaterThan(0)) {
+    price = oldPrice;
+  } else {
+    price = money(D(source.salesPrice).dividedBy(product.packSize));
   }
-  assertMixPrice(price, newAvg);
+
+  // Update MP selling price so POS sells at this price per liter
+  await tx.subProduct.update({
+    where: { id: mix.id },
+    data: {
+      salesPrice: price.toFixed(2),
+      wPrice: price.toFixed(2),
+      rPrice: price.toFixed(2),
+      costPrice: perLiter.toFixed(2),
+      actualPrice: newAvg.toFixed(2),
+    },
+  });
 
   const no = await nextNumber(tx, 'MP_TRANSFER');
   const transfer = await tx.mpTransfer.create({

@@ -11,7 +11,7 @@ import { searchProductIds } from '../products/service';
  * above cost).
  */
 export async function billingItems(tx: Tx, q: string, locationId: string, limit = 15) {
-  const hits = await searchProductIds(tx, q, { types: ['STANDARD'], limit });
+  const hits = await searchProductIds(tx, q, { types: ['STANDARD', 'MIX'], limit });
   if (!hits.length) return [];
   return describeItems(tx, hits, locationId);
 }

@@ -73,6 +73,59 @@ async function litersUnit(tx: Tx) {
 }
 
 /** A product sold loose gets a mix paint item counted in liters: 20001 feeds MP-20001. */
+export async function ensureMixProduct(
+  tx: Tx,
+  product: {
+    id: string;
+    code: string;
+    name: string;
+    brandId: string | null;
+    categoryId: string | null;
+    mixProductId?: string | null;
+  },
+) {
+  if (product.mixProductId) {
+    const existing = await tx.product.findUnique({
+      where: { id: product.mixProductId },
+      include: { subProducts: true },
+    });
+    if (existing) return existing;
+  }
+  const code = mixPaintCode(product.code);
+  let mix = await tx.product.findUnique({
+    where: { codeKey: codeKey(code) },
+    include: { subProducts: true },
+  });
+  if (!mix) {
+    const unit = await litersUnit(tx);
+    const name = `${paintNameWithoutSize(product.name)} (Mix Paint)`;
+    mix = await tx.product.create({
+      data: {
+        code,
+        codeKey: codeKey(code),
+        name,
+        nameKey: nameKey(name),
+        printName: `${name.slice(0, 30)}`,
+        type: 'MIX',
+        unitId: unit.id,
+        brandId: product.brandId,
+        categoryId: product.categoryId,
+        active: true,
+      },
+      include: { subProducts: true },
+    });
+    await tx.subProduct.create({
+      data: { productId: mix.id, seq: 0, code, codeKey: codeKey(code), name, active: true },
+    });
+    await refreshSearchText(tx, mix.id);
+  }
+  await tx.product.update({
+    where: { id: product.id },
+    data: { mixProductId: mix.id },
+  });
+  return mix;
+}
+
 async function createMixItem(
   tx: Tx,
   product: {
@@ -83,34 +136,7 @@ async function createMixItem(
     categoryId: string | null;
   },
 ) {
-  const code = mixPaintCode(product.code);
-  if (await tx.product.findUnique({ where: { codeKey: codeKey(code) } })) {
-    throw new DomainError(
-      'DUPLICATE',
-      `${code} already exists. Link this size to it instead.`,
-      'mixProductId',
-    );
-  }
-  const unit = await litersUnit(tx);
-  const name = paintNameWithoutSize(product.name);
-  const mix = await tx.product.create({
-    data: {
-      code,
-      codeKey: codeKey(code),
-      name,
-      nameKey: nameKey(name),
-      printName: `${name.slice(0, 30)}, loose`,
-      type: 'MIX',
-      unitId: unit.id,
-      brandId: product.brandId,
-      categoryId: product.categoryId,
-    },
-  });
-  await tx.subProduct.create({
-    data: { productId: mix.id, seq: 0, code, codeKey: codeKey(code), name },
-  });
-  await refreshSearchText(tx, mix.id);
-  return mix;
+  return ensureMixProduct(tx, product);
 }
 
 async function assertRefs(

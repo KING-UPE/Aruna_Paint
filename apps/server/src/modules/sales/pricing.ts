@@ -78,7 +78,7 @@ export async function priceLines(
     const f = (name: string) => `lines.${i}.${name}`;
     if (l.kind === 'BATCH') {
       const sp = subById.get(l.subProductId);
-      if (!sp || sp.product.type !== 'STANDARD')
+      if (!sp || (sp.product.type !== 'STANDARD' && sp.product.type !== 'MIX'))
         throw new DomainError('VALIDATION', 'Unknown item.', f('subProductId'));
       if (!sp.product.active || !sp.active)
         throw new DomainError('VALIDATION', `${sp.name} is inactive.`, f('subProductId'));

@@ -180,10 +180,13 @@ export const purchaseReverseSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const mixTransferSchema = z.object({
-  sourceSubProductId: idSchema,
+  sourceSubProductId: idSchema.optional().nullable(),
+  sourceProductId: idSchema.optional().nullable(),
   cans: z.number().int().min(1, { message: 'Move whole cans only.' }).max(1000),
-  /** Keep the price per liter or change it, never below the new average cost. */
+  /** Keep the price per liter or change it */
   pricePerLiter: moneySchema.optional().nullable(),
+  /** The total can price set by admin; price per 1L = adminCanPrice / packSize */
+  adminCanPrice: moneySchema.optional().nullable(),
   locationId: idSchema.optional().nullable(),
   /** A Stock Manager or Admin PIN when a cashier opens a can at the counter. */
   approval: approvalSchema,
