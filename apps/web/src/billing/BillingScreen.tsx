@@ -1,6 +1,6 @@
-import { D, formatMoney, formatQty } from '@aruna/shared';
+import { D, discountPerUnit, formatMoney, formatQty, parseDiscountText } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Menu } from 'lucide-react';
+import { Menu, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -16,12 +16,14 @@ import { useDebounced } from '@/lib/hooks';
 import type { BillingItem, BillingStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import {
+  batchPricing,
   billTotals,
   newKey,
   priceBillLine,
   toSaleInput,
   type BillLine,
   type BillMode,
+  type PricedBillLine,
 } from './bill';
 import { HeldBillsDialog, type HeldBill } from './HeldBillsDialog';
 import { HistoryPanel } from './HistoryPanel';
@@ -106,27 +108,114 @@ export function BillingScreen() {
 
   const removeLine = () => {
     if (selected < 0 || !lines[selected]) return;
-    const idx = selected;
+    removeLineAtIndex(selected);
+  };
+
+  const removeLineAtIndex = (idx: number) => {
     setLines((ls) => ls.filter((_, i) => i !== idx));
     setSelected((s) => Math.min(s, lines.length - 2));
+    focusEntry();
   };
 
   const bumpQty = (dir: 1 | -1) => {
-    const line = lines[selected];
+    if (selected >= 0) bumpLineQty(selected, dir);
+  };
+
+  const bumpLineQty = (index: number, dir: 1 | -1) => {
+    const line = lines[index];
     if (!line) return;
     const step = line.kind === 'LOOSE' ? D('0.5') : D(1);
     const next = D(line.qty).plus(step.times(dir));
     if (!next.greaterThan(0)) return;
     if (line.kind === 'BATCH' && line.batch) {
       const onOther = lines
-        .filter((l, i) => i !== selected && l.batch?.id === line.batch!.id)
+        .filter((l, i) => i !== index && l.batch?.id === line.batch!.id)
         .reduce((s, l) => s.plus(D(l.qty)), D(0));
       if (next.plus(onOther).greaterThan(D(line.batch.available))) {
         toast.error(`Only ${formatQty(line.batch.available)} in ${line.batch.code} here.`);
         return;
       }
     }
-    setLines((ls) => ls.map((l, i) => (i === selected ? { ...l, qty: next.toFixed(3) } : l)));
+    setLines((ls) =>
+      ls.map((l, i) =>
+        i === index
+          ? {
+              ...l,
+              qty: next.toFixed(line.kind === 'LOOSE' || line.item.unit.allowsDecimal ? 3 : 0),
+            }
+          : l,
+      ),
+    );
+  };
+
+  const updateLineQty = (index: number, rawQty: string): boolean => {
+    const line = lines[index];
+    if (!line) return false;
+    const trimmed = rawQty.trim();
+    if (!trimmed || isNaN(Number(trimmed))) {
+      toast.error('Enter a valid quantity.');
+      return false;
+    }
+    const val = D(trimmed);
+    if (!val.greaterThan(0)) {
+      toast.error('Quantity must be greater than 0.');
+      return false;
+    }
+    if (line.kind === 'BATCH' && !line.item.unit.allowsDecimal && !val.isInteger()) {
+      toast.error('This item only allows whole unit quantities.');
+      return false;
+    }
+    if (line.kind === 'BATCH' && line.batch) {
+      const onOther = lines
+        .filter((l, i) => i !== index && l.batch?.id === line.batch!.id)
+        .reduce((s, l) => s.plus(D(l.qty)), D(0));
+      if (val.plus(onOther).greaterThan(D(line.batch.available))) {
+        toast.error(`Only ${formatQty(line.batch.available)} in ${line.batch.code} here.`);
+        return false;
+      }
+    }
+    setLines((ls) =>
+      ls.map((l, i) =>
+        i === index
+          ? {
+              ...l,
+              qty: val.toFixed(line.kind === 'LOOSE' || line.item.unit.allowsDecimal ? 3 : 0),
+            }
+          : l,
+      ),
+    );
+    return true;
+  };
+
+  const updateLineDiscount = (index: number, rawDiscount: string): boolean => {
+    const line = lines[index];
+    if (!line) return false;
+    if (wholesale || line.kind === 'LOOSE') return false;
+
+    const trimmed = rawDiscount.trim();
+    if (trimmed === '' || trimmed === '0' || trimmed === '0.00') {
+      setLines((ls) => ls.map((l, i) => (i === index ? { ...l, discountText: '0' } : l)));
+      return true;
+    }
+
+    const parsed = parseDiscountText(trimmed);
+    if (!parsed) {
+      toast.error('Type a valid discount (e.g. 50 or 5%).');
+      return false;
+    }
+
+    if (line.batch) {
+      const pricing = batchPricing(line.batch);
+      const max = D(pricing.purchaseDiscount);
+      const unitDisc = discountPerUnit(pricing.rPrice, parsed);
+      if (unitDisc.greaterThan(max)) {
+        toast.error(`Max allowed discount is Rs ${formatMoney(max)}.`);
+        return false;
+      }
+    }
+
+    setLines((ls) => ls.map((l, i) => (i === index ? { ...l, discountText: trimmed } : l)));
+    return true;
   };
 
   const pay = async (cashGiven: string | null, print: boolean, pin = approvalPin) => {
@@ -409,41 +498,27 @@ export function BillingScreen() {
                   <th className="w-10 py-2 font-medium">#</th>
                   <th className="py-2 font-medium">Item description</th>
                   <th className="num py-2 font-medium">{wholesale ? 'W-price' : 'R-price'}</th>
-                  <th className="num py-2 font-medium">Discount</th>
-                  <th className="num py-2 font-medium">Qty</th>
+                  <th className="num w-28 py-2 font-medium">Discount</th>
+                  <th className="num w-36 py-2 font-medium">Qty</th>
                   <th className="num py-2 pr-1 font-medium">Amount</th>
+                  <th className="w-8 py-2" />
                 </tr>
               </thead>
               <tbody>
                 {priced.map((l, i) => (
-                  <tr
+                  <BillLineRow
                     key={l.key}
-                    onClick={() => setSelected(i)}
-                    aria-selected={i === selected}
-                    className={cn(
-                      'border-b border-border',
-                      i === selected && 'bg-selected',
-                      (l.error || l.serverError) && 'bg-danger-soft',
-                    )}
-                  >
-                    <td className="py-2 text-muted">{i + 1}</td>
-                    <td className="py-2">
-                      {l.description}
-                      {l.batch && l.item.batches.length > 1 ? (
-                        <span className="ml-2 text-xs text-muted">{l.batch.code}</span>
-                      ) : null}
-                      {l.error || l.serverError ? (
-                        <div className="text-sm text-danger">{l.error ?? l.serverError}</div>
-                      ) : null}
-                    </td>
-                    <td className="num py-2">{formatMoney(l.unitPrice)}</td>
-                    <td className="num py-2">{formatMoney(l.discountPerUnit)}</td>
-                    <td className="num py-2">
-                      {formatQty(l.qty)}
-                      {l.kind === 'LOOSE' ? ' L' : ''}
-                    </td>
-                    <td className="num py-2 pr-1 font-medium">{formatMoney(l.amount)}</td>
-                  </tr>
+                    line={l}
+                    index={i}
+                    selected={i === selected}
+                    wholesale={wholesale}
+                    onSelect={() => setSelected(i)}
+                    onBumpQty={(dir) => bumpLineQty(i, dir)}
+                    onUpdateQty={(qty) => updateLineQty(i, qty)}
+                    onUpdateDiscount={(disc) => updateLineDiscount(i, disc)}
+                    onRemove={() => removeLineAtIndex(i)}
+                    onDone={focusEntry}
+                  />
                 ))}
               </tbody>
             </table>
@@ -612,3 +687,184 @@ const CustomerInput = ({
     </>
   );
 };
+
+function BillLineRow({
+  line,
+  index,
+  selected,
+  wholesale,
+  onSelect,
+  onBumpQty,
+  onUpdateQty,
+  onUpdateDiscount,
+  onRemove,
+  onDone,
+}: {
+  line: PricedBillLine & { serverError?: string | null };
+  index: number;
+  selected: boolean;
+  wholesale: boolean;
+  onSelect: () => void;
+  onBumpQty: (dir: 1 | -1) => void;
+  onUpdateQty: (qty: string) => boolean;
+  onUpdateDiscount: (disc: string) => boolean;
+  onRemove: () => void;
+  onDone: () => void;
+}) {
+  const [qtyVal, setQtyVal] = useState(formatQty(line.qty));
+  const [discVal, setDiscVal] = useState(
+    line.discountText ||
+      (D(line.discountPerUnit).isZero() ? '' : formatMoney(line.discountPerUnit)),
+  );
+
+  useEffect(() => {
+    setQtyVal(formatQty(line.qty));
+  }, [line.qty]);
+
+  useEffect(() => {
+    setDiscVal(
+      line.discountText ||
+        (D(line.discountPerUnit).isZero() ? '' : formatMoney(line.discountPerUnit)),
+    );
+  }, [line.discountText, line.discountPerUnit]);
+
+  const commitQty = () => {
+    if (qtyVal.trim() === formatQty(line.qty)) return;
+    const ok = onUpdateQty(qtyVal);
+    if (!ok) setQtyVal(formatQty(line.qty));
+  };
+
+  const commitDiscount = () => {
+    const ok = onUpdateDiscount(discVal);
+    if (!ok) {
+      setDiscVal(
+        line.discountText ||
+          (D(line.discountPerUnit).isZero() ? '' : formatMoney(line.discountPerUnit)),
+      );
+    }
+  };
+
+  return (
+    <tr
+      onClick={onSelect}
+      aria-selected={selected}
+      className={cn(
+        'group border-b border-border transition-colors',
+        selected && 'bg-selected/70',
+        (line.error || line.serverError) && 'bg-danger-soft',
+      )}
+    >
+      <td className="py-2 text-muted">{index + 1}</td>
+      <td className="py-2 font-medium">
+        <div>{line.description}</div>
+        {line.batch && line.item.batches.length > 1 ? (
+          <span className="text-xs text-muted">Batch: {line.batch.code}</span>
+        ) : null}
+        {line.error || line.serverError ? (
+          <div className="text-xs text-danger">{line.error ?? line.serverError}</div>
+        ) : null}
+      </td>
+      <td className="num py-2 text-muted">{formatMoney(line.unitPrice)}</td>
+      <td className="num py-2">
+        {wholesale || line.kind === 'LOOSE' ? (
+          <span className="text-muted">0.00</span>
+        ) : (
+          <div className="flex items-center justify-end">
+            <input
+              type="text"
+              aria-label={`Discount for ${line.description}`}
+              placeholder="0.00"
+              value={discVal}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect();
+              }}
+              onChange={(e) => setDiscVal(e.target.value)}
+              onBlur={commitDiscount}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitDiscount();
+                  onDone();
+                } else if (e.key === 'Escape') {
+                  setDiscVal(
+                    line.discountText ||
+                      (D(line.discountPerUnit).isZero() ? '' : formatMoney(line.discountPerUnit)),
+                  );
+                  onDone();
+                }
+              }}
+              className="w-20 rounded border border-border/80 bg-surface px-2 py-1 text-right font-mono text-sm shadow-sm transition hover:border-accent focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
+            />
+          </div>
+        )}
+      </td>
+      <td className="num py-2">
+        <div className="flex items-center justify-end gap-1">
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded border border-border bg-surface-2 text-sm font-semibold transition hover:bg-surface-2/80 disabled:opacity-40"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+              onBumpQty(-1);
+            }}
+            disabled={D(line.qty).lessThanOrEqualTo(line.kind === 'LOOSE' ? 0.5 : 1)}
+            title="Decrease quantity"
+          >
+            −
+          </button>
+          <input
+            type="text"
+            aria-label={`Quantity for ${line.description}`}
+            value={qtyVal}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+            }}
+            onChange={(e) => setQtyVal(e.target.value)}
+            onBlur={commitQty}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitQty();
+                onDone();
+              } else if (e.key === 'Escape') {
+                setQtyVal(formatQty(line.qty));
+                onDone();
+              }
+            }}
+            className="w-16 rounded border border-border/80 bg-surface px-1.5 py-1 text-center font-mono text-sm shadow-sm transition hover:border-accent focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
+          />
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded border border-border bg-surface-2 text-sm font-semibold transition hover:bg-surface-2/80"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+              onBumpQty(1);
+            }}
+            title="Increase quantity"
+          >
+            +
+          </button>
+          {line.kind === 'LOOSE' ? <span className="text-xs text-muted">L</span> : null}
+        </div>
+      </td>
+      <td className="num py-2 font-semibold">{formatMoney(line.amount)}</td>
+      <td className="w-8 py-2 text-right">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="rounded p-1 text-muted transition hover:bg-danger/10 hover:text-danger"
+          title="Remove line"
+        >
+          <Trash2 size={15} />
+        </button>
+      </td>
+    </tr>
+  );
+}
