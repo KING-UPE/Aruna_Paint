@@ -212,6 +212,66 @@ export async function resetPin(
   });
 }
 
+export async function deleteUser(tx: Tx, actor: ActorRef, id: string) {
+  const user = await tx.user.findUnique({
+    where: { id },
+    include: { roles: { include: { role: true } } },
+  });
+  if (!user) throw new DomainError('NOT_FOUND', 'User not found.');
+
+  const isSuperAdmin = user.roles.some((r) => r.role.code === 'SUPER_ADMIN');
+  if (isSuperAdmin) {
+    throw new DomainError('INVALID_STATE', 'Super Admin users cannot be deleted.');
+  }
+
+  if (actor.userId === id) {
+    throw new DomainError('INVALID_STATE', 'You cannot delete your own account.');
+  }
+
+  // Check if user has associated transactions
+  const [sales, purchases, shifts, closings] = await Promise.all([
+    tx.sale.count({ where: { OR: [{ cashierId: id }, { voidedById: id }] } }),
+    tx.purchase.count({ where: { OR: [{ createdById: id }, { postedById: id }] } }),
+    tx.shift.count({ where: { OR: [{ openedById: id }, { closedById: id }] } }),
+    tx.monthlyClosing.count({ where: { closedById: id } }),
+  ]);
+
+  if (sales > 0 || purchases > 0 || shifts > 0 || closings > 0) {
+    throw new DomainError(
+      'IN_USE',
+      'This user has transaction records (sales, purchases, or shifts). You can disable their account instead of deleting.',
+    );
+  }
+
+  // Clean up user-related records that reference userId
+  await tx.session.deleteMany({ where: { userId: id } });
+  await tx.userShortcut.deleteMany({ where: { userId: id } });
+  await tx.userRole.deleteMany({ where: { userId: id } });
+  await tx.auditLog.updateMany({ where: { userId: id }, data: { userId: null } });
+  await tx.auditLog.updateMany({ where: { approverId: id }, data: { approverId: null } });
+
+  try {
+    await tx.user.delete({ where: { id } });
+  } catch (err: unknown) {
+    if ((err as { code?: string })?.code === 'P2003') {
+      throw new DomainError(
+        'IN_USE',
+        'This user has transaction records and cannot be permanently deleted. You can disable their account instead.',
+      );
+    }
+    throw err;
+  }
+
+  await assertSuperAdminRemains(tx);
+
+  await audit(tx, actor, {
+    action: 'user.delete',
+    entity: 'user',
+    entityId: id,
+    before: publicUser(user),
+  });
+}
+
 export async function listRoles(tx: Tx) {
   const roles = await tx.role.findMany({
     include: { permissions: true, _count: { select: { users: true } } },

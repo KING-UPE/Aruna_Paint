@@ -21,10 +21,18 @@ function pair(client, worker) {
   client.pipe(worker);
   worker.pipe(client);
 
-  client.on('error', () => worker.destroy());
-  worker.on('error', () => client.destroy());
-  client.on('close', () => worker.destroy());
-  worker.on('close', () => client.destroy());
+  client.on('error', (err) => {
+    try { worker.destroy(); } catch {}
+  });
+  worker.on('error', (err) => {
+    try { client.destroy(); } catch {}
+  });
+  client.on('close', () => {
+    try { worker.destroy(); } catch {}
+  });
+  worker.on('close', () => {
+    try { client.destroy(); } catch {}
+  });
 }
 
 // 1. Internal port for WSL workers to connect to
@@ -53,6 +61,11 @@ workerServer.listen(5433, '0.0.0.0', () => {
 
 // 2. Port 54320 for Postgres clients (Prisma, backend Fastify)
 const clientServer = net.createServer((client) => {
+  client.on('error', () => {
+    const idx = pendingClients.indexOf(client);
+    if (idx !== -1) pendingClients.splice(idx, 1);
+  });
+
   if (availableWorkers.length > 0) {
     const worker = availableWorkers.shift();
     pair(client, worker);
@@ -67,6 +80,10 @@ const clientServer = net.createServer((client) => {
 
 clientServer.listen(54320, '127.0.0.1', () => {
   console.log('PostgreSQL Bridge listening on 127.0.0.1:54320');
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[bridge] Ignored uncaught error:', err.message);
 });
 
 // 3. Auto-spawn worker in WSL

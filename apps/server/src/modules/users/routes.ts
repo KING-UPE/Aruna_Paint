@@ -9,6 +9,7 @@ import {
   createRole,
   createUser,
   deleteRole,
+  deleteUser,
   listRoles,
   listUsers,
   resetPassword,
@@ -39,6 +40,14 @@ export async function userRoutes(app: FastifyInstance) {
       TX_OPTIONS,
     ),
   );
+
+  app.delete('/api/users/:id', { preHandler: [shopOnly(), perm('users.edit')] }, async (req) => {
+    await db.$transaction(
+      (tx) => deleteUser(tx, actorOf(req.ctx), idParam(req.params)),
+      TX_OPTIONS,
+    );
+    return { ok: true };
+  });
 
   app.post(
     '/api/users/:id/reset-password',

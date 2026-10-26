@@ -59,6 +59,25 @@ export function UsersPage() {
     void qc.invalidateQueries({ queryKey: ['users'] });
     void qc.invalidateQueries({ queryKey: ['roles'] });
   };
+  const isSuperAdmin = (u: UserRow) =>
+    u.roles.some(
+      (r) =>
+        r.code === 'SUPER_ADMIN' ||
+        r.name.toLowerCase() === 'super admin' ||
+        r.name.toLowerCase() === 'super_admin',
+    );
+  const deleteUser = async (u: UserRow) => {
+    if (!window.confirm(`Are you sure you want to delete user "${u.fullName}" (${u.username})?`)) {
+      return;
+    }
+    try {
+      await api.delete(`/api/users/${u.id}`);
+      toast.success(`User "${u.fullName}" deleted.`);
+      refresh();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
   const reset = async (u: UserRow, what: 'password' | 'pin') => {
     const value = window.prompt(
       what === 'password'
@@ -122,15 +141,27 @@ export function UsersPage() {
                   {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : '—'}
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <Button size="sm" variant="ghost" onClick={() => setEditing(u)}>
-                    Edit
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => void reset(u, 'password')}>
-                    Reset password
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => void reset(u, 'pin')}>
-                    Reset PIN
-                  </Button>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(u)}>
+                      Edit
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => void reset(u, 'password')}>
+                      Reset password
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => void reset(u, 'pin')}>
+                      Reset PIN
+                    </Button>
+                    {!isSuperAdmin(u) ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-danger hover:bg-danger/10 hover:text-danger"
+                        onClick={() => void deleteUser(u)}
+                      >
+                        Delete
+                      </Button>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -341,13 +372,50 @@ function UserDialog({
           </label>
         ) : null}
         {error ? <p className="text-sm text-danger">{error}</p> : null}
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary">
-            Save
-          </Button>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            {!isNew &&
+            u &&
+            !u.roles.some(
+              (r) =>
+                r.code === 'SUPER_ADMIN' ||
+                r.name.toLowerCase() === 'super admin' ||
+                r.name.toLowerCase() === 'super_admin',
+            ) ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-danger hover:bg-danger/10 hover:text-danger"
+                onClick={async () => {
+                  if (
+                    !window.confirm(
+                      `Are you sure you want to delete user "${u.fullName}" (${u.username})?`,
+                    )
+                  ) {
+                    return;
+                  }
+                  try {
+                    await api.delete(`/api/users/${u.id}`);
+                    toast.success(`User "${u.fullName}" deleted.`);
+                    onDone();
+                    onClose();
+                  } catch (err) {
+                    setError(errorMessage(err));
+                  }
+                }}
+              >
+                Delete user
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Save
+            </Button>
+          </div>
         </div>
       </form>
     </Dialog>
