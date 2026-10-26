@@ -79,15 +79,17 @@ export function ProductForm({
     selectedUnit?.name.toLowerCase().includes('can') ||
     Boolean(product?.packSize);
 
-  const isSellingBox =
+  const isSellingBox = Boolean(
     selectedUnit?.name.toLowerCase() === 'box' ||
-    selectedUnit?.name.toLowerCase().includes('box');
+      selectedUnit?.name.toLowerCase().includes('box'),
+  );
 
-  const isBuyingBox =
+  const isBuyingBox = Boolean(
     selectedBuyingUnit?.name.toLowerCase() === 'box' ||
-    selectedBuyingUnit?.name.toLowerCase().includes('box');
+      selectedBuyingUnit?.name.toLowerCase().includes('box'),
+  );
 
-  const isBox = isSellingBox || isBuyingBox || Boolean(buyingUnitId) || piecesPerBox > 1;
+  const isBox = isSellingBox || isBuyingBox;
 
   const canInputRef = useRef<HTMLInputElement>(null);
   const boxInputRef = useRef<HTMLInputElement>(null);
@@ -193,8 +195,19 @@ export function ProductForm({
                   }
                   const isUnitBox =
                     u?.name.toLowerCase() === 'box' || u?.name.toLowerCase().includes('box');
-                  if (isUnitBox && (form.getValues('piecesPerBox') ?? 1) <= 1) {
-                    form.setValue('piecesPerBox', 12);
+                  if (isUnitBox) {
+                    if ((form.getValues('piecesPerBox') ?? 1) <= 1) {
+                      form.setValue('piecesPerBox', 12);
+                    }
+                  } else {
+                    const bu = units.data?.items.find(
+                      (item) => item.id === form.getValues('buyingUnitId'),
+                    );
+                    const isBuBox =
+                      bu?.name.toLowerCase() === 'box' || bu?.name.toLowerCase().includes('box');
+                    if (!isBuBox) {
+                      form.setValue('piecesPerBox', 1);
+                    }
                   }
                 }}
                 allowEmpty={false}
@@ -358,27 +371,36 @@ export function ProductForm({
                   const bu = units.data?.items.find((item) => item.id === v);
                   const isBuBox =
                     bu?.name.toLowerCase() === 'box' || bu?.name.toLowerCase().includes('box');
-                  if (isBuBox && (form.getValues('piecesPerBox') ?? 1) <= 1) {
-                    form.setValue('piecesPerBox', 12);
-                  }
-                  if (!v && !isSellingBox) {
-                    form.setValue('piecesPerBox', 1);
+                  if (isBuBox) {
+                    if ((form.getValues('piecesPerBox') ?? 1) <= 1) {
+                      form.setValue('piecesPerBox', 12);
+                    }
+                  } else {
+                    const u = units.data?.items.find(
+                      (item) => item.id === form.getValues('unitId'),
+                    );
+                    const isUnitBox =
+                      u?.name.toLowerCase() === 'box' || u?.name.toLowerCase().includes('box');
+                    if (!isUnitBox) {
+                      form.setValue('piecesPerBox', 1);
+                    }
                   }
                 }}
               />
             )}
           />
         </Field>
-        {!isBox ? (
+        {!isBuyingBox ? (
           <Field label="Pieces per box" error={e.piecesPerBox?.message}>
             <Input
               type="number"
               min={1}
+              disabled={!buyingUnitId && !isSellingBox}
               {...form.register('piecesPerBox', { valueAsNumber: true })}
             />
           </Field>
         ) : null}
-        {!isSellingBox && isBox ? (
+        {isBuyingBox ? (
           <div className="rounded-xl border border-accent/40 bg-accent/5 p-3.5 sm:col-span-2 transition-all shadow-sm">
             <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -389,11 +411,9 @@ export function ProductForm({
                 <p className="text-xs text-muted mt-0.5">
                   Select standard box pack quantity or enter custom pieces per box.
                 </p>
-                {isBuyingBox ? (
-                  <p className="text-[11px] text-accent-strong mt-1 font-medium">
-                    1 box on GRN purchase = {piecesPerBox} {selectedUnit?.name ?? 'item'}(s) added to stock.
-                  </p>
-                ) : null}
+                <p className="text-[11px] text-accent-strong mt-1 font-medium">
+                  1 box on GRN purchase = {piecesPerBox} {selectedUnit?.name ?? 'item'}(s) added to stock.
+                </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex flex-wrap items-center gap-1">
