@@ -189,13 +189,18 @@ export async function closeShift(tx: Tx, ctx: RequestContext, raw: unknown) {
   if (!shift) throw new DomainError('INVALID_STATE', 'There is no open day on this counter.');
   const held = await tx.sale.count({ where: { counterId: counter.id, status: 'HELD' } });
   const summary = await shiftSummary(tx, shift.id);
-  const counted = money(
-    Object.entries(input.denominations).reduce(
-      (s, [note, count]) => s.plus(D(note).times(count ?? 0)),
-      D(0),
-    ),
-  );
-  const difference = money(counted.minus(D(summary.expectedCash)));
+  const hasDenominations = input.denominations && Object.keys(input.denominations).length > 0;
+  const counted = hasDenominations
+    ? money(
+        Object.entries(input.denominations).reduce(
+          (s, [note, count]) => s.plus(D(note).times(count ?? 0)),
+          D(0),
+        ),
+      )
+    : D(summary.expectedCash);
+  const difference = hasDenominations
+    ? money(counted.minus(D(summary.expectedCash)))
+    : D(0);
   await tx.shift.update({
     where: { id: shift.id },
     data: {
