@@ -508,8 +508,8 @@ export function BillingScreen() {
                   <th className="w-10 py-2 font-medium">#</th>
                   <th className="py-2 font-medium">Item description</th>
                   <th className="num py-2 font-medium">{wholesale ? 'W-price' : 'R-price'}</th>
-                  <th className="num w-28 py-2 font-medium">Discount (%)</th>
-                  <th className="num w-36 py-2 font-medium">Qty</th>
+                  <th className="w-28 py-2 text-center font-medium">Discount (%)</th>
+                  <th className="w-36 py-2 text-center font-medium">Qty</th>
                   <th className="num py-2 pr-1 font-medium">Amount</th>
                   <th className="w-8 py-2" />
                 </tr>
@@ -771,8 +771,8 @@ function BillLineRow({
         (line.error || line.serverError) && 'bg-danger-soft',
       )}
     >
-      <td className="py-2 text-muted">{index + 1}</td>
-      <td className="py-2 font-medium">
+      <td className="py-2 text-muted align-middle">{index + 1}</td>
+      <td className="py-2 font-medium align-middle">
         <div>{line.description}</div>
         {line.batch && line.item.batches.length > 1 ? (
           <span className="text-xs text-muted">Batch: {line.batch.code}</span>
@@ -781,12 +781,12 @@ function BillLineRow({
           <div className="text-xs text-danger">{line.error ?? line.serverError}</div>
         ) : null}
       </td>
-      <td className="num py-2 text-muted">{formatMoney(line.unitPrice)}</td>
-      <td className="num py-2">
+      <td className="num py-2 text-muted align-middle">{formatMoney(line.unitPrice)}</td>
+      <td className="w-28 py-2 align-middle">
         {wholesale || line.kind === 'LOOSE' ? (
-          <span className="text-muted">0%</span>
+          <div className="text-center text-muted">0%</div>
         ) : (
-          <div className="flex flex-col items-end">
+          <div className="flex flex-col items-center justify-center">
             <input
               type="text"
               aria-label={`Discount percentage for ${line.description}`}
@@ -811,18 +811,18 @@ function BillLineRow({
                   onDone();
                 }
               }}
-              className="w-20 rounded border border-border/80 bg-surface px-2 py-1 text-right font-mono text-sm shadow-sm transition hover:border-accent focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
+              className="w-20 rounded border border-border/80 bg-surface px-2 py-1 text-center font-mono text-sm shadow-sm transition hover:border-accent focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
             />
             {D(line.discountPerUnit).greaterThan(0) ? (
-              <span className="mt-0.5 text-[11px] text-muted">
+              <span className="mt-0.5 text-[11px] text-muted text-center">
                 -Rs {formatMoney(line.discountPerUnit)}
               </span>
             ) : null}
           </div>
         )}
       </td>
-      <td className="num py-2">
-        <div className="flex items-center justify-end gap-1">
+      <td className="w-36 py-2 align-middle">
+        <div className="flex items-center justify-center gap-1">
           <button
             type="button"
             className="flex h-7 w-7 items-center justify-center rounded border border-border bg-surface-2 text-sm font-semibold transition hover:bg-surface-2/80 disabled:opacity-40"
@@ -873,8 +873,8 @@ function BillLineRow({
           {line.kind === 'LOOSE' ? <span className="text-xs text-muted">L</span> : null}
         </div>
       </td>
-      <td className="num py-2 font-semibold">{formatMoney(line.amount)}</td>
-      <td className="w-8 py-2 text-right">
+      <td className="num py-2 font-semibold align-middle">{formatMoney(line.amount)}</td>
+      <td className="w-8 py-2 text-right align-middle">
         <button
           type="button"
           onClick={(e) => {
