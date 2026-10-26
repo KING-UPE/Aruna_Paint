@@ -1,4 +1,5 @@
 import {
+  Coins,
   FileText,
   History,
   LayoutDashboard,
@@ -37,7 +38,7 @@ export function MenuDialog({ open, onClose }: { open: boolean; onClose: () => vo
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => (!o ? onClose() : undefined)} title="System Menu" className="max-w-3xl">
+    <Dialog open={open} onOpenChange={(o) => (!o ? onClose() : undefined)} title="System Menu" className="max-w-4xl">
       <div className="flex flex-col gap-5 py-1">
         <div className="flex items-center justify-between border-b border-border pb-3 text-sm text-muted">
           <div>
@@ -48,7 +49,7 @@ export function MenuDialog({ open, onClose }: { open: boolean; onClose: () => vo
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {/* Billing Section */}
           <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2/40 p-3">
             <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-accent-strong">
@@ -140,6 +141,26 @@ export function MenuDialog({ open, onClose }: { open: boolean; onClose: () => vo
                   </div>
                 </button>
               )}
+            </div>
+          )}
+
+          {/* HRM Section */}
+          {can('hrm.view') && (
+            <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2/40 p-3">
+              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-accent-strong">
+                <Coins size={14} /> HRM
+              </div>
+              <button
+                type="button"
+                onClick={() => handleNavigate('/hrm')}
+                className="flex items-center gap-2.5 rounded-lg border border-border bg-surface px-3 py-2 text-left text-sm font-medium hover:border-accent hover:bg-accent-soft"
+              >
+                <Coins size={16} className="text-muted" />
+                <div>
+                  <div>Commission & Salaries</div>
+                  <div className="text-xs text-muted">Monthly shares, expenses & staff</div>
+                </div>
+              </button>
             </div>
           )}
 
