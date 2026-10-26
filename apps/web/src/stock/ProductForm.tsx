@@ -1,7 +1,7 @@
 import { productInputSchema, type ProductInput } from '@aruna/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import type { z } from 'zod';
@@ -9,9 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
 import { Checkbox, Input, Select, Textarea } from '@/components/ui/input';
-import { ValueSelect } from '@/components/values';
+import { useValues, ValueSelect } from '@/components/values';
 import { api, ApiError, errorMessage, qs } from '@/lib/api';
 import type { Page, ProductDetail, ProductSummary, StockListItem } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 type FormIn = z.input<typeof productInputSchema>;
 type FormOut = z.output<typeof productInputSchema>;
@@ -59,6 +60,22 @@ export function ProductForm({
   });
   const [confirm, setConfirm] = useState<string | null>(null);
   const loose = form.watch('allowLooseSale');
+  const unitId = form.watch('unitId');
+  const units = useValues('units');
+  const selectedUnit = units.data?.items.find((u) => u.id === unitId);
+  const isCan =
+    selectedUnit?.name.toLowerCase() === 'can' ||
+    selectedUnit?.name.toLowerCase().includes('can') ||
+    Boolean(product?.packSize);
+  const canInputRef = useRef<HTMLInputElement>(null);
+  const prevIsCan = useRef(false);
+
+  useEffect(() => {
+    if (isCan && !prevIsCan.current && !form.getValues('packSize')) {
+      setTimeout(() => canInputRef.current?.focus(), 50);
+    }
+    prevIsCan.current = isCan;
+  }, [isCan, form]);
   const mixItems = useQuery({
     queryKey: ['products', 'mix-list'],
     queryFn: () =>
@@ -135,12 +152,73 @@ export function ProductForm({
               <ValueSelect
                 list="units"
                 value={field.value}
-                onChange={(v) => field.onChange(v ?? '')}
+                onChange={(v) => {
+                  field.onChange(v ?? '');
+                  const u = units.data?.items.find((item) => item.id === v);
+                  const isUnitCan =
+                    u?.name.toLowerCase() === 'can' || u?.name.toLowerCase().includes('can');
+                  if (!isUnitCan && !product?.packSize) {
+                    form.setValue('packSize', null);
+                  }
+                }}
                 allowEmpty={false}
               />
             )}
           />
         </Field>
+        {isCan ? (
+          <div className="rounded-xl border border-accent/40 bg-accent/5 p-3.5 sm:col-span-2 transition-all shadow-sm">
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <label className="text-sm font-semibold text-text flex items-center gap-1.5">
+                  <span>Liters per can</span>
+                  <span className="text-xs text-accent-strong font-normal">(Can capacity)</span>
+                </label>
+                <p className="text-xs text-muted mt-0.5">
+                  Select standard paint can size or enter custom liters per can.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1">
+                  {[0.5, 1, 2, 4, 10, 20].map((liters) => (
+                    <button
+                      key={liters}
+                      type="button"
+                      onClick={() => form.setValue('packSize', String(liters))}
+                      className={cn(
+                        'rounded-lg border px-2.5 py-1 text-xs font-semibold transition',
+                        form.watch('packSize') === String(liters)
+                          ? 'border-accent bg-accent text-surface shadow-sm'
+                          : 'border-border bg-surface hover:border-accent hover:text-accent-strong',
+                      )}
+                    >
+                      {liters} L
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Controller
+                    control={form.control}
+                    name="packSize"
+                    render={({ field }) => (
+                      <Input
+                        ref={canInputRef}
+                        placeholder="Liters"
+                        className="num w-24 text-right font-semibold"
+                        value={field.value ?? ''}
+                        onChange={(ev) => field.onChange(ev.target.value || null)}
+                      />
+                    )}
+                  />
+                  <span className="text-xs font-medium text-muted">L</span>
+                </div>
+              </div>
+            </div>
+            {e.packSize?.message ? (
+              <p className="mt-1 text-xs text-danger">{e.packSize.message}</p>
+            ) : null}
+          </div>
+        ) : null}
         <Field label="Category">
           <Controller
             control={form.control}
@@ -181,20 +259,7 @@ export function ProductForm({
         <Field label="Reorder qty" error={e.reorderQty?.message}>
           <Input className="num" {...form.register('reorderQty')} />
         </Field>
-        <Field label="Pack size (liters per can)" error={e.packSize?.message}>
-          <Controller
-            control={form.control}
-            name="packSize"
-            render={({ field }) => (
-              <Input
-                className="num"
-                value={field.value ?? ''}
-                onChange={(ev) => field.onChange(ev.target.value || null)}
-              />
-            )}
-          />
-        </Field>
-        <div className="flex flex-col justify-end gap-2 pb-1">
+        <div className="flex flex-col justify-end gap-2 pb-1 sm:col-span-2">
           <label className="flex items-center gap-2 text-sm">
             <Checkbox {...form.register('allowLooseSale')} /> Sold loose from mix paint
           </label>
