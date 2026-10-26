@@ -28,6 +28,7 @@ import { connectLive } from '@/lib/live';
 import { StockRoutes } from '@/stock/routes';
 import { AdminRoutes } from '@/admin/routes';
 import { ProfilePage } from '@/admin/ProfilePage';
+import { HrmPage } from '@/hrm/HrmPage';
 
 export function App() {
   useSessionErrors();
@@ -84,6 +85,7 @@ function Session() {
           <Route path="/billing/history" element={<HistoryPage />} />
           <Route path="/billing/day-end" element={<DayEndPage />} />
           <Route path="/stock/*" element={<StockRoutes />} />
+          <Route path="/hrm/*" element={<HrmPage />} />
           <Route path="/admin/*" element={<AdminRoutes />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="*" element={<Navigate to="/menu" replace />} />

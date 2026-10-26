@@ -1,4 +1,5 @@
 import {
+  Coins,
   FileText,
   History,
   LayoutDashboard,
@@ -230,6 +231,33 @@ export function MenuPage() {
                   </div>
                 </Link>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* HRM Group */}
+        {can('hrm.view') && (
+          <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-5">
+            <div className="flex items-center gap-2 border-b border-border pb-2 text-sm font-bold uppercase tracking-wider text-accent-strong">
+              <Coins size={16} /> HRM & Commission
+            </div>
+            <div className="flex flex-col gap-2">
+              <Link
+                to="/hrm"
+                className="group flex items-start gap-3 rounded-xl border border-border/70 p-3 transition hover:border-accent hover:bg-accent-soft/30"
+              >
+                <div className="mt-0.5 rounded-lg bg-surface-2 p-2 group-hover:bg-accent group-hover:text-accent-text">
+                  <Coins size={18} />
+                </div>
+                <div>
+                  <div className="font-semibold text-text group-hover:text-accent-strong">
+                    Monthly Commission & Salaries
+                  </div>
+                  <div className="text-xs text-muted">
+                    Commission sharing (Aruna 3%, Owner 3%, Savings 4%), fixed expenses & staff salaries
+                  </div>
+                </div>
+              </Link>
             </div>
           </div>
         )}

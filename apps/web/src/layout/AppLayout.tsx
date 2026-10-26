@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import { firstAllowed, navItems } from './nav';
 import { StatusBar } from './StatusBar';
 
-const SECTIONS = ['Billing', 'Stock', 'Admin'] as const;
+const SECTIONS = ['Billing', 'Stock', 'HRM', 'Admin'] as const;
 
 /** A left sidebar with only the user's sections, a top bar with the page title and Ctrl+K search. */
 export function AppLayout() {

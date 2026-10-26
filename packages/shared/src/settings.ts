@@ -60,6 +60,44 @@ export const cloudSettingsSchema = z.object({
   shopKey: z.string().max(200).default(''),
 });
 
+export const hrmSalarySchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  role: z.string().default(''),
+  amount: z.number().min(0),
+});
+export type HrmSalary = z.infer<typeof hrmSalarySchema>;
+
+export const hrmMemberSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  userId: z.string().nullable().optional(),
+  role: z.string().default(''),
+  ratePercent: z.number().min(0).max(100),
+});
+export type HrmMember = z.infer<typeof hrmMemberSchema>;
+
+export const hrmMonthConfigSchema = z.object({
+  maxCommissionPercent: z.number().min(0).max(100).default(10),
+  shopRent: z.number().min(0).default(45000),
+  electricityBill: z.number().min(0).default(18500),
+  salaries: z.array(hrmSalarySchema).default([
+    { id: 'sal-1', name: 'Kasun Bandara', role: 'Cashier', amount: 35000 },
+    { id: 'sal-2', name: 'Saman Kumara', role: 'Stock Keeper', amount: 40000 },
+  ]),
+  members: z.array(hrmMemberSchema).default([
+    { id: 'mem-1', name: 'Aruna', userId: null, role: 'Partner / Store', ratePercent: 3 },
+    { id: 'mem-2', name: 'Owner', userId: null, role: 'Super Admin', ratePercent: 3 },
+    { id: 'mem-3', name: 'Savings', userId: null, role: 'Reserve Fund', ratePercent: 4 },
+  ]),
+});
+export type HrmMonthConfig = z.infer<typeof hrmMonthConfigSchema>;
+
+export const hrmSettingsSchema = hrmMonthConfigSchema.extend({
+  monthlyOverrides: z.record(z.string(), hrmMonthConfigSchema.partial()).default({}),
+});
+export type HrmSettings = z.infer<typeof hrmSettingsSchema>;
+
 export const SETTINGS_SCHEMAS = {
   shop: shopSettingsSchema,
   receipt: receiptSettingsSchema,
@@ -68,6 +106,7 @@ export const SETTINGS_SCHEMAS = {
   alerts: alertSettingsSchema,
   backup: backupSettingsSchema,
   cloud: cloudSettingsSchema,
+  hrm: hrmSettingsSchema,
 } as const;
 
 export type SettingsKey = keyof typeof SETTINGS_SCHEMAS;
@@ -81,4 +120,5 @@ export const DEFAULT_SETTINGS: Settings = {
   alerts: alertSettingsSchema.parse({}),
   backup: backupSettingsSchema.parse({}),
   cloud: cloudSettingsSchema.parse({}),
+  hrm: hrmSettingsSchema.parse({}),
 };

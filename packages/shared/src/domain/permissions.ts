@@ -7,7 +7,7 @@
 export const ACTIONS = ['view', 'create', 'edit', 'approve', 'export'] as const;
 export type Action = (typeof ACTIONS)[number];
 
-export type Section = 'billing' | 'stock' | 'admin';
+export type Section = 'billing' | 'stock' | 'hrm' | 'admin';
 
 interface ModuleDef {
   label: string;
@@ -55,6 +55,12 @@ export const MODULES = {
     label: 'Stock and supplier reports',
     section: 'stock',
     actions: ['view', 'export'],
+  },
+  // HRM
+  hrm: {
+    label: 'HRM',
+    section: 'hrm',
+    actions: ['view', 'edit'],
   },
   // Admin
   dashboard: { label: 'Dashboard', section: 'admin', actions: ['view'] },
@@ -117,6 +123,7 @@ export function assignablePermissions(): Permission[] {
 }
 
 export function isSuperAdminOnly(p: Permission): boolean {
+  if (p === 'hrm.edit') return true;
   if (p in SPECIAL_PERMISSIONS) return SPECIAL_PERMISSIONS[p as SpecialPermission].superAdminOnly;
   const mod = p.split('.')[0] as ModuleKey;
   const def = MODULES[mod] as ModuleDef | undefined;
@@ -169,6 +176,7 @@ export const BUILT_IN_ROLE_PERMISSIONS: Record<BuiltInRole, Permission[]> = {
     stock_count: 'all',
     reorder: 'all',
     stock_reports: 'all',
+    hrm: ['view'],
     dashboard: 'all',
     reports: 'all',
     commission: 'all',

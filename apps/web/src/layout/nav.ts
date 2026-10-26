@@ -3,7 +3,7 @@ import type { Permission } from '@aruna/shared';
 export interface NavItem {
   to: string;
   label: string;
-  section: 'Billing' | 'Stock' | 'Admin';
+  section: 'Billing' | 'Stock' | 'HRM' | 'Admin';
   perms: Permission[];
 }
 
@@ -37,6 +37,12 @@ export const navItems: NavItem[] = [
   { to: '/stock/purchases', label: 'Purchases (GRN)', section: 'Stock', perms: ['purchases.view'] },
   { to: '/stock/suppliers', label: 'Suppliers', section: 'Stock', perms: ['suppliers.view'] },
   { to: '/stock/mix-paint', label: 'Mix paint', section: 'Stock', perms: ['mix_paint.view'] },
+  {
+    to: '/hrm',
+    label: 'HRM & Commission',
+    section: 'HRM',
+    perms: ['hrm.view'],
+  },
   { to: '/admin', label: 'Dashboard', section: 'Admin', perms: ['dashboard.view'] },
   { to: '/admin/values', label: 'Value manager', section: 'Admin', perms: ['values.edit'] },
   { to: '/admin/users', label: 'Users and roles', section: 'Admin', perms: ['users.view'] },

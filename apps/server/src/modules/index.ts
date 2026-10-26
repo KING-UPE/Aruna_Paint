@@ -7,6 +7,7 @@ import { stockRoutes } from './stock/routes';
 import { salesRoutes } from './sales/routes';
 import { shiftRoutes } from './shifts/routes';
 import { systemRoutes } from './system/routes';
+import { hrmRoutes } from './hrm/routes';
 
 /** Stock, billing and system routes. */
 export async function registerModuleRoutes(app: FastifyInstance): Promise<void> {
@@ -18,4 +19,5 @@ export async function registerModuleRoutes(app: FastifyInstance): Promise<void> 
   await app.register(salesRoutes);
   await app.register(shiftRoutes);
   await app.register(systemRoutes);
+  await app.register(hrmRoutes);
 }
