@@ -17,7 +17,7 @@ def get_windows_ip():
 WINDOWS_IP = get_windows_ip()
 WINDOWS_PORT = 5433
 PG_PORT = 5432
-TARGET_IDLE = 5
+TARGET_IDLE = 10
 
 print(f"WSL PG Bridge Worker starting. Windows IP: {WINDOWS_IP}:{WINDOWS_PORT}", flush=True)
 
@@ -39,15 +39,28 @@ def pipe(src, dst):
     except Exception:
         pass
 
-def handle_connection(win_sock):
+idle_workers = 0
+lock = threading.Lock()
+
+def single_worker():
+    global idle_workers
+    is_idle = True
     try:
+        win_sock = socket.create_connection((WINDOWS_IP, WINDOWS_PORT), timeout=10)
         win_sock.settimeout(None)
         win_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+        # Worker is waiting for client data from Windows
         first_chunk = win_sock.recv(8192)
         if not first_chunk:
             win_sock.close()
             return
-        
+
+        with lock:
+            if is_idle:
+                idle_workers -= 1
+                is_idle = False
+
         pg_sock = socket.create_connection(('127.0.0.1', PG_PORT), timeout=5)
         pg_sock.settimeout(None)
         pg_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
@@ -60,41 +73,24 @@ def handle_connection(win_sock):
         t1.join()
         t2.join()
     except Exception:
-        try:
-            win_sock.close()
-        except Exception:
-            pass
-
-def single_worker(on_exit):
-    try:
-        win_sock = socket.create_connection((WINDOWS_IP, WINDOWS_PORT), timeout=10)
-        win_sock.settimeout(None)
-        win_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        handle_connection(win_sock)
-    except Exception:
-        time.sleep(0.5)
+        pass
     finally:
-        on_exit()
-
-active_workers = 0
-lock = threading.Lock()
-
-def on_worker_exit():
-    global active_workers
-    with lock:
-        active_workers -= 1
+        with lock:
+            if is_idle:
+                idle_workers -= 1
+                is_idle = False
 
 def main():
-    global active_workers
+    global idle_workers
     while True:
         with lock:
-            needed = TARGET_IDLE - active_workers
+            needed = TARGET_IDLE - idle_workers
             if needed > 0:
                 for _ in range(needed):
-                    active_workers += 1
-                    t = threading.Thread(target=single_worker, args=(on_worker_exit,), daemon=True)
+                    idle_workers += 1
+                    t = threading.Thread(target=single_worker, daemon=True)
                     t.start()
-        time.sleep(0.2)
+        time.sleep(0.1)
 
 if __name__ == '__main__':
     main()
