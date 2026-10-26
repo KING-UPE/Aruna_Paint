@@ -10,9 +10,9 @@ export function Field({
   className,
   htmlFor,
 }: {
-  label: string;
+  label: ReactNode;
   error?: string | undefined;
-  hint?: string;
+  hint?: ReactNode;
   children: ReactNode;
   className?: string;
   htmlFor?: string;

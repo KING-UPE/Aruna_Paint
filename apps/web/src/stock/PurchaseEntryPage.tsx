@@ -181,6 +181,9 @@ export function PurchaseEntryPage() {
       paidNow: '',
       paymentMethod: 'CASH',
     });
+    if (p.supplierInvoiceTotal) {
+      setIsCustomSupplierTotal(true);
+    }
     setLines([
       ...p.lines.map((l) => ({
         key: l.id,
@@ -218,6 +221,19 @@ export function PurchaseEntryPage() {
     invoiceDiscount: num(footer.invoiceDiscount),
     otherCharges: num(footer.otherCharges),
   });
+  const [isCustomSupplierTotal, setIsCustomSupplierTotal] = useState(false);
+
+  useEffect(() => {
+    if (!isCustomSupplierTotal) {
+      const net = D(totals.netTotal);
+      if (net.greaterThan(0)) {
+        setFooter((f) => ({ ...f, supplierInvoiceTotal: net.toFixed(2) }));
+      } else {
+        setFooter((f) => ({ ...f, supplierInvoiceTotal: '' }));
+      }
+    }
+  }, [totals.netTotal.toString(), isCustomSupplierTotal]);
+
   const totalOk =
     footer.supplierInvoiceTotal.trim() !== '' &&
     supplierTotalMatches(totals.netTotal, num(footer.supplierInvoiceTotal));
@@ -635,24 +651,29 @@ export function PurchaseEntryPage() {
         <CardBody className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="grid grid-cols-2 gap-3">
             <Field
-              label="Invoice discount (Rs)"
-              hint="Changes the net total and supplier balance, never item costs."
-            >
-              <Input
-                className="num"
-                value={footer.invoiceDiscount}
-                onChange={(e) => setFooter({ ...footer, invoiceDiscount: e.target.value })}
-              />
-            </Field>
-            <Field label="Other charges (transport)">
-              <Input
-                className="num"
-                value={footer.otherCharges}
-                onChange={(e) => setFooter({ ...footer, otherCharges: e.target.value })}
-              />
-            </Field>
-            <Field
-              label="Supplier's invoice total"
+              label={
+                <div className="flex items-center justify-between">
+                  <span>Supplier's invoice total</span>
+                  {isCustomSupplierTotal ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomSupplierTotal(false);
+                        const net = D(totals.netTotal);
+                        setFooter((f) => ({
+                          ...f,
+                          supplierInvoiceTotal: net.greaterThan(0) ? net.toFixed(2) : '',
+                        }));
+                      }}
+                      className="text-xs text-primary underline hover:text-primary/80 font-normal cursor-pointer"
+                    >
+                      Reset to net total
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-muted font-normal">(Auto-filled)</span>
+                  )}
+                </div>
+              }
               hint="Must match the net total within Rs 1."
               error={
                 footer.supplierInvoiceTotal && !totalOk
@@ -663,27 +684,35 @@ export function PurchaseEntryPage() {
               <Input
                 className="num"
                 value={footer.supplierInvoiceTotal}
-                onChange={(e) => setFooter({ ...footer, supplierInvoiceTotal: e.target.value })}
+                onChange={(e) => {
+                  setIsCustomSupplierTotal(true);
+                  setFooter({ ...footer, supplierInvoiceTotal: e.target.value });
+                }}
               />
             </Field>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Paid now">
-                <Input
-                  className="num"
-                  value={footer.paidNow}
-                  onChange={(e) => setFooter({ ...footer, paidNow: e.target.value })}
-                />
-              </Field>
-              <Field label="Paid by">
-                <Select
-                  value={footer.paymentMethod}
-                  onChange={(e) => setFooter({ ...footer, paymentMethod: e.target.value })}
-                >
-                  <option value="CASH">Cash</option>
-                  <option value="BANK_TRANSFER">Bank</option>
-                </Select>
-              </Field>
-            </div>
+            <Field label="Other charges (transport)">
+              <Input
+                className="num"
+                value={footer.otherCharges}
+                onChange={(e) => setFooter({ ...footer, otherCharges: e.target.value })}
+              />
+            </Field>
+            <Field label="Paid now">
+              <Input
+                className="num"
+                value={footer.paidNow}
+                onChange={(e) => setFooter({ ...footer, paidNow: e.target.value })}
+              />
+            </Field>
+            <Field label="Paid by">
+              <Select
+                value={footer.paymentMethod}
+                onChange={(e) => setFooter({ ...footer, paymentMethod: e.target.value })}
+              >
+                <option value="CASH">Cash</option>
+                <option value="BANK_TRANSFER">Bank</option>
+              </Select>
+            </Field>
           </div>
           <dl className="grid grid-cols-2 content-start gap-y-2 text-[15px]">
             <dt className="text-muted">Lines</dt>
@@ -694,8 +723,12 @@ export function PurchaseEntryPage() {
                 <dd className="num">{formatMoney(totals.subtotal)}</dd>
               </>
             ) : null}
-            <dt className="text-muted">Invoice discount</dt>
-            <dd className="num">−{formatMoney(totals.invoiceDiscount)}</dd>
+            {D(totals.invoiceDiscount).greaterThan(0) ? (
+              <>
+                <dt className="text-muted">Invoice discount</dt>
+                <dd className="num">−{formatMoney(totals.invoiceDiscount)}</dd>
+              </>
+            ) : null}
             <dt className="text-muted">Other charges</dt>
             <dd className="num">{formatMoney(totals.otherCharges)}</dd>
             <dt className="border-t border-border pt-2 font-semibold">Net total</dt>
