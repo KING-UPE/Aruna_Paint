@@ -17,6 +17,7 @@
     "format:check": "prettier --check .",
     "db:migrate": "pnpm --filter @aruna/server db:migrate",
     "db:seed": "pnpm --filter @aruna/server db:seed",
+    "db:clean": "pnpm --filter @aruna/server db:clean",
     "db:reset": "pnpm --filter @aruna/server db:reset"
   },
   "devDependencies": {

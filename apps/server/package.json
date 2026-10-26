@@ -13,6 +13,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force",
+    "db:clean": "tsx --env-file-if-exists=.env src/scripts/clean-dummy.ts",
     "db:seed": "tsx --env-file-if-exists=.env src/scripts/seed.ts",
     "db:generate": "prisma generate"
   },
