@@ -154,10 +154,16 @@ export async function createSupplier(tx: Tx, actor: ActorRef, raw: unknown) {
   const input = supplierInputSchema.parse(raw);
   const similar = await similarName(tx, input.name);
   if (similar && !input.confirmSimilarName) {
-    throw new DomainError('DUPLICATE', 'A supplier with this name already exists.', 'name', {
-      warning: true,
-      similar: { id: similar.id, code: similar.code, name: similar.name },
-    });
+    const statusNote = !similar.active ? ' (currently marked Inactive)' : '';
+    throw new DomainError(
+      'DUPLICATE',
+      `A supplier with this name already exists: ${similar.code} · ${similar.name}${statusNote}.`,
+      'name',
+      {
+        warning: true,
+        similar: { id: similar.id, code: similar.code, name: similar.name, active: similar.active },
+      },
+    );
   }
   let code: string;
   if (input.code) {
@@ -202,10 +208,16 @@ export async function updateSupplier(tx: Tx, actor: ActorRef, id: string, raw: u
   if (!before) throw new DomainError('NOT_FOUND', 'Supplier not found.');
   const similar = await similarName(tx, input.name, id);
   if (similar && !input.confirmSimilarName && nameKey(input.name) !== before.nameKey) {
-    throw new DomainError('DUPLICATE', 'A supplier with this name already exists.', 'name', {
-      warning: true,
-      similar: { id: similar.id, code: similar.code, name: similar.name },
-    });
+    const statusNote = !similar.active ? ' (currently marked Inactive)' : '';
+    throw new DomainError(
+      'DUPLICATE',
+      `A supplier with this name already exists: ${similar.code} · ${similar.name}${statusNote}.`,
+      'name',
+      {
+        warning: true,
+        similar: { id: similar.id, code: similar.code, name: similar.name, active: similar.active },
+      },
+    );
   }
   const code = input.code ?? before.code;
   if (

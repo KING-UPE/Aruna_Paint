@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
@@ -47,14 +48,18 @@ export function SupplierForm({
   onSaved?: (s: Supplier) => void;
 }) {
   const qc = useQueryClient();
+  const nav = useNavigate();
   const [f, setF] = useState<Form>(blank);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [warning, setWarning] = useState('');
+  const [warning, setWarning] = useState<{
+    message: string;
+    similar?: { id: string; code: string; name: string; active?: boolean };
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setErrors({});
-    setWarning('');
+    setWarning(null);
     setF(
       supplier
         ? {
@@ -97,8 +102,14 @@ export function SupplierForm({
       onSaved?.(s);
       onClose();
     } catch (err) {
-      if (err instanceof ApiError && err.isWarning) setWarning(err.message);
-      else if (err instanceof ApiError && err.field)
+      if (err instanceof ApiError && err.isWarning) {
+        setWarning({
+          message: err.message,
+          similar: err.details?.similar as
+            | { id: string; code: string; name: string; active?: boolean }
+            | undefined,
+        });
+      } else if (err instanceof ApiError && err.field)
         setErrors({ [err.field.split('.')[0]!]: err.message });
       else toast.error(errorMessage(err));
     }
@@ -241,11 +252,24 @@ export function SupplierForm({
         </div>
         {warning ? (
           <div className="rounded-[8px] bg-warn-soft p-3 text-sm text-warn sm:col-span-2">
-            {warning}
-            <div className="mt-2">
+            <div>{warning.message}</div>
+            <div className="mt-2 flex flex-wrap gap-2">
               <Button type="button" size="sm" variant="primary" onClick={() => void save(true)}>
                 Save anyway
               </Button>
+              {warning.similar?.id ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    onClose();
+                    nav(`/stock/suppliers/${warning.similar?.id}`);
+                  }}
+                >
+                  View {warning.similar.code} ({warning.similar.name})
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : null}
