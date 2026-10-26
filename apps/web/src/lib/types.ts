@@ -33,6 +33,7 @@ export interface Page<T> {
   total: number;
   page: number;
   pageSize: number;
+  totalAmount?: string;
 }
 
 export interface Batch {

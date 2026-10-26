@@ -1,4 +1,4 @@
-import { formatDate, formatDateTime, formatMoney, formatQty } from '@aruna/shared';
+import { D, formatDate, formatDateTime, formatMoney, formatQty, formatRs } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, Receipt } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -59,6 +59,16 @@ export function HistoryPanel({
       ),
   });
   const items = list.data?.items ?? [];
+  const billCount = list.data?.total ?? items.length;
+  const totalSum =
+    list.data?.totalAmount !== undefined
+      ? list.data.totalAmount
+      : items
+          .reduce(
+            (sum, item) => (item.status === 'VOID' ? sum : sum.plus(D(item.netTotal))),
+            D(0),
+          )
+          .toFixed(2);
   const selected = items[Math.min(hi, items.length - 1)];
   const [detailId, setDetailId] = useState<string | null>(initialOpenId ?? null);
   useEffect(() => {
@@ -120,7 +130,7 @@ export function HistoryPanel({
   };
 
   return (
-    <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+    <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="flex min-h-0 flex-col gap-2.5">
         {/* Type Selector: 1 Sales Bills, 2 Quotation Bills, 3 All Bills */}
         <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-2/60 p-1">
@@ -303,28 +313,96 @@ export function HistoryPanel({
         </div>
       </div>
 
-      <div className="min-h-0 overflow-y-auto rounded-[var(--radius-card)] border border-border bg-surface p-4">
-        {!detail.data ? (
-          <EmptyState title="Pick a bill to see it." />
-        ) : (
-          <BillDetail
-            sale={detail.data}
-            actions={
-              <div className="flex flex-wrap gap-2 text-sm">
-                <ActionHint k={keys.reprint} label="Reprint" />
-                {detail.data.kind === 'INVOICE' && detail.data.status === 'COMPLETED' ? (
-                  <>
-                    <ActionHint k={keys.ret} label="Return" />
-                    <ActionHint k={keys.void} label="Void" />
-                  </>
-                ) : null}
-                {detail.data.kind === 'QUOTATION' && !detail.data.convertedTo ? (
-                  <ActionHint k={keys.convert} label="Convert to invoice" />
-                ) : null}
+      <div className="flex min-h-0 flex-col gap-2.5">
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--radius-card)] border border-border bg-surface p-4">
+          {!detail.data ? (
+            <EmptyState title="Pick a bill to see it." />
+          ) : (
+            <BillDetail
+              sale={detail.data}
+              actions={
+                <div className="flex flex-wrap gap-2 text-sm">
+                  <ActionHint k={keys.reprint} label="Reprint" />
+                  {detail.data.kind === 'INVOICE' && detail.data.status === 'COMPLETED' ? (
+                    <>
+                      <ActionHint k={keys.ret} label="Return" />
+                      <ActionHint k={keys.void} label="Void" />
+                    </>
+                  ) : null}
+                  {detail.data.kind === 'QUOTATION' && !detail.data.convertedTo ? (
+                    <ActionHint k={keys.convert} label="Convert to invoice" />
+                  ) : null}
+                </div>
+              }
+            />
+          )}
+        </div>
+
+        {/* Right bottom corner: Total summary card */}
+        <div
+          className={cn(
+            'flex shrink-0 items-center justify-between rounded-xl border px-4 py-3 shadow-sm transition',
+            type === 'INVOICE'
+              ? 'border-accent/40 bg-accent/5'
+              : type === 'QUOTATION'
+                ? 'border-amber-500/40 bg-amber-500/5'
+                : 'border-border bg-surface-2/70',
+          )}
+        >
+          <div className="flex items-center gap-2.5">
+            <div
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-lg',
+                type === 'INVOICE'
+                  ? 'bg-accent/15 text-accent-strong'
+                  : type === 'QUOTATION'
+                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                    : 'bg-muted/15 text-text',
+              )}
+            >
+              {type === 'INVOICE' ? (
+                <Receipt size={18} />
+              ) : type === 'QUOTATION' ? (
+                <FileText size={18} />
+              ) : (
+                <Receipt size={18} />
+              )}
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted">
+                {type === 'INVOICE'
+                  ? 'Sales Bills Total'
+                  : type === 'QUOTATION'
+                    ? 'Quotation Bills Total'
+                    : 'All Bills Total'}
               </div>
-            }
-          />
-        )}
+              <div className="text-xs text-muted">
+                {billCount}{' '}
+                {billCount === 1
+                  ? type === 'QUOTATION'
+                    ? 'quotation'
+                    : 'bill'
+                  : type === 'QUOTATION'
+                    ? 'quotations'
+                    : 'bills'}
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div
+              className={cn(
+                'num text-xl font-bold tracking-tight',
+                type === 'INVOICE'
+                  ? 'text-accent-strong'
+                  : type === 'QUOTATION'
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-text',
+              )}
+            >
+              {formatRs(totalSum)}
+            </div>
+          </div>
+        </div>
       </div>
 
       <ReturnDialog

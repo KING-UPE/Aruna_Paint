@@ -204,7 +204,10 @@ export async function salesRoutes(app: FastifyInstance) {
       ...(q.amount ? { netTotal: q.amount } : {}),
       ...(dayRange(q.from, q.to) ? { completedAt: dayRange(q.from, q.to) } : {}),
     };
-    const [items, total] = await Promise.all([
+    const sumWhere: Prisma.SaleWhereInput = q.status
+      ? where
+      : { ...where, status: { notIn: ['HELD', 'VOID'] } };
+    const [items, total, aggregate] = await Promise.all([
       db.sale.findMany({
         where,
         include: {
@@ -218,6 +221,10 @@ export async function salesRoutes(app: FastifyInstance) {
         take: q.pageSize,
       }),
       db.sale.count({ where }),
+      db.sale.aggregate({
+        where: sumWhere,
+        _sum: { netTotal: true },
+      }),
     ]);
     return {
       items: items.map((s) => ({
@@ -239,6 +246,7 @@ export async function salesRoutes(app: FastifyInstance) {
         printCount: s.printCount,
       })),
       total,
+      totalAmount: D(aggregate._sum.netTotal?.toString() ?? '0').toFixed(2),
       page: q.page,
       pageSize: q.pageSize,
     };
