@@ -70,10 +70,25 @@ const emptyLine = (): GrnLine => ({
   expiryDate: '',
 });
 
-const disc = (t: string): DiscountInput =>
-  t.trim()
-    ? (parseDiscountText(t) ?? { type: 'AMOUNT', value: 'x' })
-    : { type: 'AMOUNT', value: '0' };
+const disc = (t: string): DiscountInput => {
+  const s = t.trim();
+  if (!s) return { type: 'AMOUNT', value: '0' };
+  const rsMatch = /^(?:rs\.?\s*)(.+)$/i.exec(s);
+  if (rsMatch?.[1]) {
+    const val = rsMatch[1].replace(/,/g, '').trim();
+    return { type: 'AMOUNT', value: val };
+  }
+  const pctMatch = /^(.+)\s*%$/.exec(s);
+  if (pctMatch?.[1]) {
+    const val = pctMatch[1].replace(/,/g, '').trim();
+    return { type: 'PERCENT', value: val };
+  }
+  const clean = s.replace(/,/g, '');
+  if (!Number.isNaN(Number(clean))) {
+    return { type: 'PERCENT', value: clean };
+  }
+  return { type: 'AMOUNT', value: 'x' };
+};
 const num = (t: string) =>
   t.trim() && !Number.isNaN(Number(t.replace(/,/g, ''))) ? t.replace(/,/g, '') : '0';
 
@@ -465,13 +480,13 @@ export function PurchaseEntryPage() {
                 <th className="num px-2 py-2 font-medium">Value</th>
                 <th className="num px-2 py-2 font-medium">Qty</th>
                 <th className="num px-2 py-2 font-medium">Free</th>
-                <th className="num px-2 py-2 font-medium">Discount</th>
+                <th className="num px-2 py-2 font-medium">Discount (%)</th>
                 {canCost ? <th className="num px-2 py-2 font-medium">Cost</th> : null}
                 {canCost ? <th className="num px-2 py-2 font-medium">Amount</th> : null}
                 {canCost ? <th className="num px-2 py-2 font-medium">Actual</th> : null}
                 <th className="num px-2 py-2 font-medium">R-price</th>
                 <th className="num px-2 py-2 font-medium">W-price</th>
-                <th className="num px-2 py-2 font-medium">Sales disc</th>
+                <th className="num px-2 py-2 font-medium">Sales disc (%)</th>
                 <th className="num px-2 py-2 font-medium">Sales price</th>
                 {canCost ? <th className="num px-2 py-2 font-medium">Margin</th> : null}
                 <th className="px-2 py-2 font-medium">Exp date</th>
@@ -489,6 +504,7 @@ export function PurchaseEntryPage() {
                   value: string,
                   onChange: (v: string) => void,
                   extra?: string,
+                  onBlur?: () => void,
                 ) => (
                   <td className="px-1 py-1">
                     <Input
@@ -496,6 +512,7 @@ export function PurchaseEntryPage() {
                       data-col={col}
                       value={value}
                       onChange={(e) => onChange(e.target.value)}
+                      onBlur={onBlur}
                       onKeyDown={onCellKey(i, col, last)}
                       aria-invalid={Boolean(issue(field))}
                       title={issue(field) ?? undefined}
@@ -550,7 +567,24 @@ export function PurchaseEntryPage() {
                     {cell(1, 'value', l.value, (v) => update(i, { value: v }))}
                     {cell(2, 'qty', l.qty, (v) => update(i, { qty: v }), 'w-20')}
                     {cell(3, 'free', l.free, (v) => update(i, { free: v }), 'w-16')}
-                    {cell(4, 'discount', l.discount, (v) => update(i, { discount: v }), 'w-20')}
+                    {cell(
+                      4,
+                      'discount',
+                      l.discount,
+                      (v) => update(i, { discount: v }),
+                      'w-20',
+                      () => {
+                        const trimmed = l.discount.trim();
+                        if (
+                          trimmed &&
+                          !trimmed.endsWith('%') &&
+                          !/^rs/i.test(trimmed) &&
+                          !isNaN(Number(trimmed.replace(/,/g, '')))
+                        ) {
+                          update(i, { discount: `${trimmed}%` });
+                        }
+                      },
+                    )}
                     {canCost ? (
                       <td className="num px-2 py-2">{r ? formatMoney(r.cost) : ''}</td>
                     ) : null}
@@ -572,6 +606,17 @@ export function PurchaseEntryPage() {
                       l.salesDiscount,
                       (v) => update(i, { salesDiscount: v, salesPrice: null }),
                       'w-20',
+                      () => {
+                        const trimmed = l.salesDiscount.trim();
+                        if (
+                          trimmed &&
+                          !trimmed.endsWith('%') &&
+                          !/^rs/i.test(trimmed) &&
+                          !isNaN(Number(trimmed.replace(/,/g, '')))
+                        ) {
+                          update(i, { salesDiscount: `${trimmed}%`, salesPrice: null });
+                        }
+                      },
                     )}
                     {cell(
                       8,

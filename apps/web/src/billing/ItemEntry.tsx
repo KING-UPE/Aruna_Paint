@@ -246,10 +246,12 @@ export const ItemEntry = forwardRef<ItemEntryHandle, Props>(function ItemEntry(p
     if (!item) return;
     try {
       const cleanDisc = discText.trim().replace('%', '').trim();
-      const typed =
-        cleanDisc === '' || cleanDisc === '0' || discText.trim() === defaultDisc
-          ? (defaultDisc === '0%' ? '0%' : '')
-          : `${cleanDisc}%`;
+      let typed: string;
+      if (cleanDisc === '' || discText.trim() === defaultDisc) {
+        typed = defaultDisc === '0%' ? '0%' : '';
+      } else {
+        typed = `${cleanDisc}%`;
+      }
       const lines = splitIntoBatchLines(item, qty, startBatch, typed, props.existing);
       for (const l of lines) {
         const p = priceBillLine(l, props.wholesale);

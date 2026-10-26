@@ -107,9 +107,12 @@ export function priceLine(
     throw new DomainError('VALIDATION', 'Discount must be 0 or more.', 'discount');
   const cap = money(batch.purchaseDiscount);
   if (disc.greaterThan(cap)) {
+    const maxPct = rPrice.greaterThan(0)
+      ? cap.dividedBy(rPrice).times(100).toDecimalPlaces(1).toString()
+      : '0';
     throw new DomainError(
       'DISCOUNT_ABOVE_LIMIT',
-      `The most this item can get is Rs ${cap.toFixed(2)} off.`,
+      `The most this item can get is ${maxPct}% off (max Rs ${cap.toFixed(2)}).`,
       'discount',
       { max: cap.toFixed(2) },
     );
