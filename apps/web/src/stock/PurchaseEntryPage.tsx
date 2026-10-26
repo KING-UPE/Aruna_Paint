@@ -13,6 +13,7 @@ import {
 } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { useAuth } from '@/auth/AuthProvider';
@@ -775,6 +776,14 @@ function ItemCell({
 }) {
   const [text, setText] = useState('');
   const [hi, setHi] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [coords, setCoords] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    transform?: string;
+  } | null>(null);
+
   const term = useDebounced(text.trim(), 150);
   const q = useQuery({
     queryKey: ['products', 'grn-search', term, supplierId],
@@ -785,9 +794,38 @@ function ItemCell({
   const items = q.data?.items ?? [];
   const open = term.length >= 1;
   const options = items.length + 1;
+
+  useEffect(() => {
+    if (!open) {
+      setCoords(null);
+      return;
+    }
+    const updateCoords = () => {
+      if (inputRef.current) {
+        const rect = inputRef.current.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const openUp = spaceBelow < 220 && rect.top > 220;
+        setCoords({
+          top: openUp ? rect.top - 4 : rect.bottom + 4,
+          left: Math.max(8, Math.min(rect.left, window.innerWidth - 420)),
+          width: Math.max(380, rect.width),
+          transform: openUp ? 'translateY(-100%)' : undefined,
+        });
+      }
+    };
+    updateCoords();
+    window.addEventListener('scroll', updateCoords, true);
+    window.addEventListener('resize', updateCoords);
+    return () => {
+      window.removeEventListener('scroll', updateCoords, true);
+      window.removeEventListener('resize', updateCoords);
+    };
+  }, [open]);
+
   return (
     <div className="relative">
       <Input
+        ref={inputRef}
         data-row={row}
         data-col={0}
         placeholder="Code or name"
@@ -795,6 +833,11 @@ function ItemCell({
         onChange={(e) => {
           setText(e.target.value);
           setHi(0);
+        }}
+        onBlur={() => {
+          setTimeout(() => {
+            setText('');
+          }, 200);
         }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown')
@@ -815,36 +858,59 @@ function ItemCell({
         }}
         className="h-8 w-56 px-2"
       />
-      {open ? (
-        <ul className="absolute z-30 mt-1 w-96 rounded-[var(--radius-card)] border border-border bg-surface shadow-lg">
-          {items.map((p, i) => (
-            <li
-              key={p.id}
-              onMouseDown={(e) => (e.preventDefault(), onPick(p), setText(''))}
-              className={cn(
-                'flex cursor-pointer justify-between gap-3 px-3 py-2',
-                i === hi && 'bg-selected',
-              )}
+      {open && coords && typeof document !== 'undefined'
+        ? createPortal(
+            <ul
+              style={{
+                position: 'fixed',
+                top: `${coords.top}px`,
+                left: `${coords.left}px`,
+                width: `${coords.width}px`,
+                transform: coords.transform,
+                zIndex: 99999,
+                maxHeight: '320px',
+                overflowY: 'auto',
+              }}
+              className="rounded-[var(--radius-card)] border border-border bg-surface shadow-2xl"
             >
-              <span className="truncate">
-                {p.code} · {p.name}
-              </span>
-              <span className="shrink-0 text-muted">
-                {formatQty(p.stockHere)} {p.unit.name}
-              </span>
-            </li>
-          ))}
-          <li
-            onMouseDown={(e) => (e.preventDefault(), onNew(), setText(''))}
-            className={cn(
-              'cursor-pointer px-3 py-2 font-medium text-accent-strong',
-              hi === items.length && 'bg-selected',
-            )}
-          >
-            + New item
-          </li>
-        </ul>
-      ) : null}
+              {items.map((p, i) => (
+                <li
+                  key={p.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onPick(p);
+                    setText('');
+                  }}
+                  className={cn(
+                    'flex cursor-pointer justify-between gap-3 px-3 py-2 text-sm hover:bg-surface-2',
+                    i === hi && 'bg-selected font-medium',
+                  )}
+                >
+                  <span className="truncate">
+                    {p.code} · {p.name}
+                  </span>
+                  <span className="shrink-0 text-muted">
+                    {formatQty(p.stockHere)} {p.unit.name}
+                  </span>
+                </li>
+              ))}
+              <li
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onNew();
+                  setText('');
+                }}
+                className={cn(
+                  'cursor-pointer px-3 py-2 text-sm font-semibold text-accent-strong hover:bg-surface-2',
+                  hi === items.length && 'bg-selected',
+                )}
+              >
+                + New item
+              </li>
+            </ul>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
