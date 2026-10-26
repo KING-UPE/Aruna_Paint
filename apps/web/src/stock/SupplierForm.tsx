@@ -249,13 +249,42 @@ export function SupplierForm({
             </div>
           </div>
         ) : null}
-        <div className="flex justify-end gap-2 sm:col-span-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary">
-            Save
-          </Button>
+        <div className="flex items-center justify-between gap-2 sm:col-span-2">
+          <div>
+            {supplier ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-danger hover:bg-danger/10 hover:text-danger"
+                onClick={async () => {
+                  if (
+                    !window.confirm(
+                      `Are you sure you want to delete supplier "${supplier.name}" (${supplier.code})?`,
+                    )
+                  )
+                    return;
+                  try {
+                    await api.delete(`/api/suppliers/${supplier.id}`);
+                    toast.success(`Supplier "${supplier.name}" deleted.`);
+                    await qc.invalidateQueries({ queryKey: ['suppliers'] });
+                    onClose();
+                  } catch (err) {
+                    toast.error(errorMessage(err));
+                  }
+                }}
+              >
+                Delete supplier
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Save
+            </Button>
+          </div>
         </div>
       </form>
     </Dialog>

@@ -249,6 +249,49 @@ export async function updateSupplier(tx: Tx, actor: ActorRef, id: string, raw: u
   return getSupplier(tx, id);
 }
 
+export async function deleteSupplier(tx: Tx, actor: ActorRef, id: string) {
+  const s = await tx.supplier.findUnique({
+    where: { id },
+    include: {
+      _count: {
+        select: {
+          purchases: true,
+          payments: true,
+          purchaseReturns: true,
+          subProducts: true,
+          ledger: true,
+        },
+      },
+    },
+  });
+  if (!s) throw new DomainError('NOT_FOUND', 'Supplier not found.');
+
+  if (
+    s._count.purchases > 0 ||
+    s._count.payments > 0 ||
+    s._count.purchaseReturns > 0 ||
+    s._count.subProducts > 0 ||
+    s._count.ledger > 0
+  ) {
+    throw new DomainError(
+      'IN_USE',
+      'This supplier has purchase, payment, or product records and cannot be deleted. You can mark them inactive instead.',
+    );
+  }
+
+  await tx.supplierRep.deleteMany({ where: { supplierId: id } });
+  await tx.supplier.delete({ where: { id } });
+
+  await audit(tx, actor, {
+    action: 'supplier.delete',
+    entity: 'supplier',
+    entityId: id,
+    before: { code: s.code, name: s.name },
+  });
+
+  return { ok: true };
+}
+
 /**
  * The supplier activity log: the opening balance on the start date, each entry with a running
  * balance, then the closing balance.

@@ -8,6 +8,7 @@ import { dateOnly } from '../../lib/json';
 import {
   createSupplier,
   createSupplierPayment,
+  deleteSupplier,
   getSupplier,
   listSuppliers,
   setChequeStatus,
@@ -48,6 +49,13 @@ export async function supplierRoutes(app: FastifyInstance) {
   app.put('/api/suppliers/:id', { preHandler: [shopOnly(), perm('suppliers.edit')] }, async (req) =>
     db.$transaction(
       (tx) => updateSupplier(tx, actorOf(req.ctx), idParam(req.params), req.body),
+      TX_OPTIONS,
+    ),
+  );
+
+  app.delete('/api/suppliers/:id', { preHandler: [shopOnly(), perm('suppliers.edit')] }, async (req) =>
+    db.$transaction(
+      (tx) => deleteSupplier(tx, actorOf(req.ctx), idParam(req.params)),
       TX_OPTIONS,
     ),
   );

@@ -1,7 +1,7 @@
 import { formatDate, formatMoney } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
-import { useParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { useAuth } from '@/auth/AuthProvider';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,7 @@ const TYPES = ['PURCHASE', 'PAYMENT', 'RETURN', 'ADJUSTMENT', 'REVERSAL'] as con
  */
 export function SupplierLedgerPage() {
   const { id } = useParams();
+  const nav = useNavigate();
   const { can } = useAuth();
   const qc = useQueryClient();
   const [from, setFrom] = useState('');
@@ -55,6 +56,21 @@ export function SupplierLedgerPage() {
   });
   if (!supplier.data) return <Spinner />;
   const s = supplier.data;
+
+  const onDelete = async () => {
+    if (!window.confirm(`Are you sure you want to delete supplier "${s.name}" (${s.code})?`)) {
+      return;
+    }
+    try {
+      await api.delete(`/api/suppliers/${s.id}`);
+      toast.success(`Supplier "${s.name}" deleted.`);
+      await qc.invalidateQueries({ queryKey: ['suppliers'] });
+      nav('/stock/suppliers');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -69,6 +85,15 @@ export function SupplierLedgerPage() {
         </span>
         <Button onClick={() => window.print()}>Print</Button>
         {can('suppliers.edit') ? <Button onClick={() => setEditing(true)}>Edit</Button> : null}
+        {can('suppliers.edit') ? (
+          <Button
+            variant="ghost"
+            className="text-danger hover:bg-danger/10 hover:text-danger"
+            onClick={onDelete}
+          >
+            Delete
+          </Button>
+        ) : null}
         {can('supplier_payments.create') ? (
           <Button variant="primary" onClick={() => setPaying(true)}>
             Pay supplier
