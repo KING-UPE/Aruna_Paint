@@ -116,6 +116,7 @@ export async function subProducts(shop: Shop, productId: string) {
   return r.body.subProducts as {
     id: string;
     code: string;
+    name: string;
     totalStock: string;
     rPrice: string;
     salesPrice: string;

@@ -1,4 +1,5 @@
 import { formatDate, formatMoney } from '@aruna/shared';
+import { Banknote, Pencil, Printer, Trash2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router';
@@ -6,6 +7,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/auth/AuthProvider';
 import { useConfirm } from '@/components/AskDialog';
 import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Card } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
@@ -89,19 +91,26 @@ export function SupplierLedgerPage() {
             Rs <Money value={s.balance} />
           </span>
         </span>
-        <Button onClick={() => window.print()}>Print</Button>
-        {can('suppliers.edit') ? <Button onClick={() => setEditing(true)}>Edit</Button> : null}
-        {can('suppliers.edit') ? (
-          <Button
-            variant="ghost"
-            className="text-danger hover:bg-danger/10 hover:text-danger"
-            onClick={onDelete}
-          >
-            Delete
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-0.5">
+          <IconButton label="Print" icon={<Printer size={17} />} onClick={() => window.print()} />
+          {can('suppliers.edit') ? (
+            <IconButton
+              label={`Edit ${s.name}`}
+              icon={<Pencil size={17} />}
+              onClick={() => setEditing(true)}
+            />
+          ) : null}
+          {can('suppliers.edit') ? (
+            <IconButton
+              label={`Delete ${s.name}`}
+              tone="danger"
+              icon={<Trash2 size={17} />}
+              onClick={onDelete}
+            />
+          ) : null}
+        </div>
         {can('supplier_payments.create') ? (
-          <Button variant="primary" onClick={() => setPaying(true)}>
+          <Button variant="primary" icon={<Banknote size={16} />} onClick={() => setPaying(true)}>
             Pay supplier
           </Button>
         ) : null}

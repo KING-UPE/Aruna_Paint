@@ -10,6 +10,7 @@ import {
   nextMainCode,
   priceChangeSchema,
   productInputSchema,
+  productNamesSchema,
   searchTokens,
   shopDate,
   subProductCode,
@@ -946,7 +947,8 @@ async function renameOnOldBills(
 export async function renameHistory(tx: Tx | Db, productId: string) {
   const rows = await tx.auditLog.findMany({
     where: { entity: 'product', entityId: productId, action: 'product.rename' },
-    orderBy: { at: 'desc' },
+    // Changes saved together share a time; the ids (UUIDv7) keep their order.
+    orderBy: [{ at: 'desc' }, { id: 'desc' }],
     take: 100,
   });
   const userIds = [...new Set(rows.map((r) => r.userId).filter((x): x is string => Boolean(x)))];
@@ -967,4 +969,75 @@ export async function renameHistory(tx: Tx | Db, productId: string) {
       note: r.note,
     };
   });
+}
+
+/**
+ * The quick editor on the products list: the product's code and name, then each sub-product's
+ * code and name, in one save. A new main code first renames the sub-product codes (as the full
+ * editor does, after the same confirmation); codes typed for single sub-products apply after
+ * that. Old bills and the rename history follow every change.
+ */
+export async function renameProduct(tx: Tx, actor: ActorRef, id: string, raw: unknown) {
+  const input = productNamesSchema.parse(raw);
+  const before = await tx.product.findUnique({ where: { id } });
+  if (!before) throw new DomainError('NOT_FOUND', 'Product not found.');
+  // The receipt name follows the name unless someone set it by hand.
+  const autoPrint = !before.printName || before.printName === before.name.slice(0, 40);
+  await updateProduct(tx, actor, id, {
+    code: input.code,
+    name: input.name,
+    printName: autoPrint ? '' : before.printName,
+    description: before.description,
+    categoryId: before.categoryId,
+    brandId: before.brandId,
+    unitId: before.unitId,
+    packSize: before.packSize?.toFixed(3) ?? null,
+    buyingUnitId: before.buyingUnitId,
+    piecesPerBox: before.piecesPerBox,
+    reorderLevel: before.reorderLevel.toFixed(3),
+    reorderQty: before.reorderQty.toFixed(3),
+    allowLooseSale: before.allowLooseSale,
+    mixProductId: before.mixProductId,
+    trackExpiry: before.trackExpiry,
+    active: before.active,
+    confirmCodeChange: input.confirmCodeChange,
+  });
+
+  for (const [i, edit] of input.subProducts.entries()) {
+    const sp = await tx.subProduct.findUnique({ where: { id: edit.id } });
+    if (!sp || sp.productId !== id) {
+      throw new DomainError(
+        'NOT_FOUND',
+        'That sub-product is not part of this product.',
+        `subProducts.${i}.code`,
+      );
+    }
+    if (edit.name !== sp.name) await editSubProduct(tx, actor, sp.id, { name: edit.name });
+    if (codeKey(edit.code) !== sp.codeKey) {
+      const taken = await tx.subProduct.findUnique({ where: { codeKey: codeKey(edit.code) } });
+      if (taken)
+        throw new DomainError(
+          'DUPLICATE',
+          `${edit.code} is already used.`,
+          `subProducts.${i}.code`,
+        );
+      await tx.subProduct.update({
+        where: { id: sp.id },
+        data: { code: edit.code, codeKey: codeKey(edit.code) },
+      });
+      const lines = await renameOnOldBills(tx, sp.id, { code: [sp.code, edit.code] });
+      await audit(tx, actor, {
+        action: 'product.rename',
+        entity: 'product',
+        entityId: id,
+        before: { subProduct: sp.code, code: sp.code },
+        after: { subProduct: edit.code, code: edit.code },
+        note: lines
+          ? `${lines} line${lines === 1 ? '' : 's'} on old bills now show the new code.`
+          : 'No old bills had this item.',
+      });
+    }
+  }
+  await refreshSearchText(tx, id);
+  return getProduct(tx, id, { canSeeCost: true });
 }

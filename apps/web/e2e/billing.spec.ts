@@ -158,3 +158,38 @@ test('No discount (Alt+N) bills every line at full price and can be turned off a
   await page.keyboard.press('n');
   await expect(page.getByText(/INV-\d{6} · change Rs 0.00/)).toBeVisible();
 });
+
+test('the same item at the same discount joins its line; arrows move between Yes and No', async ({
+  page,
+}) => {
+  await loginAtCounter(page, 'cashier');
+  const lines = page.getByRole('table', { name: 'Bill lines' });
+  for (const qty of ['2', '3']) {
+    await page.keyboard.press('F2');
+    await expect(page.getByRole('textbox', { name: 'Item code' })).toBeFocused();
+    await page.keyboard.type('brush');
+    await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('Brush 2 inch');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(qty);
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+  }
+  // One line of 5, not two lines.
+  await expect(lines.getByRole('textbox', { name: 'Quantity for Brush 2 inch' })).toHaveCount(1);
+  await expect(lines.getByRole('textbox', { name: 'Quantity for Brush 2 inch' })).toHaveValue('5');
+  await expect(page.locator('[aria-live="polite"]', { hasText: /^Rs / })).toHaveText('Rs 2,250.00');
+
+  // Pay with exact cash; on "Print receipt?" the arrows move between Yes and No.
+  await page.keyboard.press('F10');
+  await page.keyboard.press('Enter');
+  const yes = page.getByRole('button', { name: 'Yes' });
+  const no = page.getByRole('button', { name: 'No', exact: true });
+  await expect(yes).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(no).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(yes).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText(/INV-\d{6} · change Rs 0.00/)).toBeVisible();
+});

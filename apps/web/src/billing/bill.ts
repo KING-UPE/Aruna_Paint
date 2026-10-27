@@ -178,3 +178,34 @@ export function toSaleInput(lines: BillLine[], noDiscount = false): SaleLineInpu
         },
   );
 }
+
+/**
+ * Lines that are the same thing at the same price become one, with the quantities added up:
+ * the same batch at the same discount, or the same loose paint at the same price per liter.
+ * A different batch, discount or price stays its own line. The first line keeps its place.
+ */
+export function mergeLines(lines: BillLine[], wholesale: boolean): BillLine[] {
+  const out: BillLine[] = [];
+  // Compared on each line's own discount (not "No discount"), so turning that off gives each
+  // line its own discount back.
+  const key = (l: BillLine) => {
+    const p = priceBillLine(l, wholesale);
+    if (p.error) return null;
+    return l.kind === 'LOOSE'
+      ? `L|${l.item.productId}|${p.unitPrice}`
+      : `B|${l.batch?.id}|${p.unitPrice}|${p.discountPerUnit}`;
+  };
+  const at = new Map<string, number>();
+  for (const l of lines) {
+    const k = key(l);
+    const i = k ? at.get(k) : undefined;
+    if (k && i !== undefined) {
+      const first = out[i]!;
+      out[i] = { ...first, qty: D(first.qty).plus(D(l.qty)).toFixed(3) };
+    } else {
+      if (k) at.set(k, out.length);
+      out.push(l);
+    }
+  }
+  return out;
+}

@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority';
-import { forwardRef, type ButtonHTMLAttributes } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Kbd } from './kbd';
 
@@ -31,11 +31,18 @@ export interface ButtonProps
     VariantProps<typeof buttonVariants> {
   /** The user's own key for this button, shown as a hint ("Pay F10"). */
   keyHint?: string;
+  /** A small icon before the words (16 px lucide icon). */
+  icon?: ReactNode;
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, keyHint, children, ...props }, ref) => (
+  ({ className, variant, size, keyHint, icon, children, ...props }, ref) => (
     <button ref={ref} className={cn(buttonVariants({ variant, size }), className)} {...props}>
+      {icon ? (
+        <span aria-hidden className="-ml-0.5 inline-flex shrink-0">
+          {icon}
+        </span>
+      ) : null}
       {children}
       {keyHint ? (
         <Kbd className={variant === 'primary' ? 'border-white/40 bg-white/15 text-inherit' : ''}>

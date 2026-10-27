@@ -6,7 +6,21 @@ import {
   type Permission,
 } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, KeyRound, Pencil, RectangleEllipsis, Trash2 } from 'lucide-react';
+import {
+  CheckCheck,
+  ChevronDown,
+  EyeOff,
+  KeyRound,
+  ListChecks,
+  Pencil,
+  RectangleEllipsis,
+  RotateCcw,
+  ShieldPlus,
+  Trash2,
+  Undo2,
+  UserPlus,
+  X,
+} from 'lucide-react';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useAsk, useConfirm } from '@/components/AskDialog';
@@ -144,8 +158,10 @@ export function UsersPage() {
         title="Users and roles"
         description="At least one active Super Admin must always exist."
       >
-        <Button onClick={() => setRoleEditing('new')}>New role</Button>
-        <Button variant="primary" onClick={() => setEditing('new')}>
+        <Button icon={<ShieldPlus size={16} />} onClick={() => setRoleEditing('new')}>
+          New role
+        </Button>
+        <Button variant="primary" icon={<UserPlus size={16} />} onClick={() => setEditing('new')}>
           New user
         </Button>
       </PageHeader>
@@ -665,12 +681,18 @@ function UserDialog({
                     type="button"
                     size="sm"
                     variant="ghost"
+                    icon={<Undo2 size={15} />}
                     onClick={() => setOverrides(new Map())}
                   >
                     Undo {changeCount === 1 ? '1 change' : `${changeCount} changes`}
                   </Button>
                 ) : null}
-                <Button type="button" size="sm" onClick={() => setShowOwn(!showOwn)}>
+                <Button
+                  type="button"
+                  size="sm"
+                  icon={showOwn ? <EyeOff size={15} /> : <ListChecks size={15} />}
+                  onClick={() => setShowOwn(!showOwn)}
+                >
                   {showOwn ? 'Hide' : 'Show all permissions'}
                 </Button>
               </div>
@@ -696,6 +718,7 @@ function UserDialog({
                 type="button"
                 variant="ghost"
                 className="text-danger hover:bg-danger/10 hover:text-danger"
+                icon={<Trash2 size={16} />}
                 onClick={() => onDelete(u)}
               >
                 Delete user
@@ -814,7 +837,12 @@ function RoleDialog({
           </span>
           <div className="flex gap-2">
             {defaults && !atDefaults ? (
-              <Button type="button" size="sm" onClick={() => setPerms(new Set(defaults))}>
+              <Button
+                type="button"
+                size="sm"
+                icon={<RotateCcw size={15} />}
+                onClick={() => setPerms(new Set(defaults))}
+              >
                 Back to default
               </Button>
             ) : null}
@@ -822,6 +850,7 @@ function RoleDialog({
               type="button"
               size="sm"
               variant="ghost"
+              icon={<CheckCheck size={15} />}
               onClick={() =>
                 change(
                   ALL_PERMISSIONS.filter((p) => !locked(p)),
@@ -831,7 +860,13 @@ function RoleDialog({
             >
               Tick all
             </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setPerms(new Set())}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              icon={<X size={15} />}
+              onClick={() => setPerms(new Set())}
+            >
               Clear
             </Button>
           </div>

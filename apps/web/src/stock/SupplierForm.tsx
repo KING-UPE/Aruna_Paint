@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
+import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -157,9 +158,10 @@ export function SupplierForm({
                 type="button"
                 size="sm"
                 className="h-10"
+                icon={<Plus size={15} />}
                 onClick={() => setF({ ...f, phones: [...f.phones, ''] })}
               >
-                + Phone
+                Phone
               </Button>
             ) : null}
           </div>
@@ -247,9 +249,10 @@ export function SupplierForm({
           <Button
             type="button"
             size="sm"
+            icon={<Plus size={15} />}
             onClick={() => setF({ ...f, reps: [...f.reps, { name: '', phone: '', active: true }] })}
           >
-            + Sales rep
+            Sales rep
           </Button>
         </div>
         {warning ? (
@@ -282,6 +285,7 @@ export function SupplierForm({
                 type="button"
                 variant="ghost"
                 className="text-danger hover:bg-danger/10 hover:text-danger"
+                icon={<Trash2 size={16} />}
                 onClick={async () => {
                   const ok = await confirm({
                     title: 'Delete supplier?',

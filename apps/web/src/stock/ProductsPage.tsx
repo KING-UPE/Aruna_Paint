@@ -1,12 +1,14 @@
 import { formatQty } from '@aruna/shared';
+import { ChevronLeft, ChevronRight, PackagePlus, PaintBucket, Pencil } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '@/auth/AuthProvider';
 import { DataTable } from '@/components/DataTable';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Checkbox, Input, Select } from '@/components/ui/input';
 import { EmptyState, PageHeader } from '@/components/ui/misc';
 import { useValues } from '@/components/values';
@@ -16,8 +18,9 @@ import { useDebounced } from '@/lib/hooks';
 import type { Page, StockListItem, Supplier } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ProductForm } from './ProductForm';
+import { ProductNamesDialog } from './ProductNamesDialog';
 
-const columns: ColumnDef<StockListItem, unknown>[] = [
+const baseColumns: ColumnDef<StockListItem, unknown>[] = [
   {
     header: 'Code',
     accessorKey: 'code',
@@ -66,6 +69,32 @@ const columns: ColumnDef<StockListItem, unknown>[] = [
 export function ProductsPage() {
   const { can } = useAuth();
   const nav = useNavigate();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const columns = useMemo<ColumnDef<StockListItem, unknown>[]>(
+    () =>
+      can('products.edit')
+        ? [
+            ...baseColumns,
+            {
+              id: 'actions',
+              header: () => <span className="sr-only">Edit</span>,
+              cell: (c) => (
+                <div className="flex justify-end">
+                  <IconButton
+                    label={`Edit ${c.row.original.code} · ${c.row.original.name}`}
+                    icon={<Pencil size={16} />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(c.row.original.id);
+                    }}
+                  />
+                </div>
+              ),
+            },
+          ]
+        : baseColumns,
+    [can],
+  );
   const [q, setQ] = useState('');
   const [f, setF] = useState({
     categoryId: '',
@@ -125,12 +154,20 @@ export function ProductsPage() {
       >
         <div className="flex items-center gap-2">
           {can('mix_paint.view') ? (
-            <Button variant="ghost" onClick={() => nav('/stock/mix-paint')}>
+            <Button
+              variant="ghost"
+              icon={<PaintBucket size={16} />}
+              onClick={() => nav('/stock/mix-paint')}
+            >
               Transfer cans to mix
             </Button>
           ) : null}
           {can('products.create') ? (
-            <Button variant="primary" onClick={() => setCreating(true)}>
+            <Button
+              variant="primary"
+              icon={<PackagePlus size={16} />}
+              onClick={() => setCreating(true)}
+            >
               New product
             </Button>
           ) : null}
@@ -177,9 +214,7 @@ export function ProductsPage() {
             }}
             className={cn(
               'flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-medium transition',
-              stockTab === 'ALL'
-                ? 'bg-surface text-text shadow-sm'
-                : 'text-muted hover:text-text',
+              stockTab === 'ALL' ? 'bg-surface text-text shadow-sm' : 'text-muted hover:text-text',
             )}
           >
             All stock
@@ -290,17 +325,24 @@ export function ProductsPage() {
       />
       {pages > 1 ? (
         <div className="flex items-center justify-end gap-2 text-sm">
-          <Button size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-            Previous
-          </Button>
+          <IconButton
+            label="Previous page"
+            icon={<ChevronLeft size={18} />}
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          />
           <span>
             Page {page} of {pages}
           </span>
-          <Button size="sm" disabled={page >= pages} onClick={() => setPage(page + 1)}>
-            Next
-          </Button>
+          <IconButton
+            label="Next page"
+            icon={<ChevronRight size={18} />}
+            disabled={page >= pages}
+            onClick={() => setPage(page + 1)}
+          />
         </div>
       ) : null}
+      <ProductNamesDialog productId={editingId} onClose={() => setEditingId(null)} />
       <ProductForm
         open={creating}
         onClose={() => setCreating(false)}

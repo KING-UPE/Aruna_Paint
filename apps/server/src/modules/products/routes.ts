@@ -13,6 +13,7 @@ import {
   listProducts,
   priceHistory,
   renameHistory,
+  renameProduct,
   searchForStock,
   updateProduct,
 } from './service';
@@ -85,13 +86,30 @@ export async function productRoutes(app: FastifyInstance) {
     return out;
   });
 
+  /** Quick edit from the list: code and name of the product and of each sub-product. */
+  app.patch(
+    '/api/products/:id/names',
+    { preHandler: [shopOnly(), perm('products.edit')] },
+    async (req) => {
+      const out = await db.$transaction(
+        (tx) => renameProduct(tx, actorOf(req.ctx), idParam(req.params), req.body),
+        TX_OPTIONS,
+      );
+      events.publish({ type: 'products' });
+      return canSeeItemCost(req)
+        ? out
+        : await getProduct(db, out.product.id, { canSeeCost: false });
+    },
+  );
+
   app.put('/api/products/:id', { preHandler: [shopOnly(), perm('products.edit')] }, async (req) => {
     const out = await db.$transaction(
       (tx) => updateProduct(tx, actorOf(req.ctx), idParam(req.params), req.body),
       TX_OPTIONS,
     );
     events.publish({ type: 'products' });
-    return out;
+    // Cost privacy: only cost viewers get cost fields back.
+    return canSeeItemCost(req) ? out : await getProduct(db, out.product.id, { canSeeCost: false });
   });
 
   app.post(

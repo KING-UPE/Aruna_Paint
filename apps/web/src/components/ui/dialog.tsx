@@ -1,6 +1,7 @@
 import * as D from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { arrowNav } from '@/lib/arrowNav';
 import { cn } from '@/lib/utils';
 
 export interface DialogProps {
@@ -40,6 +41,7 @@ export function Dialog({
               el.focus();
             }
           }}
+          onKeyDown={arrowNav}
           onEscapeKeyDown={(e) => {
             // Esc inside an open dropdown closes only the dropdown.
             if (document.querySelector('[data-select-open]')) e.preventDefault();

@@ -19,6 +19,7 @@ import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/auth/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
+import { arrowNav } from '@/lib/arrowNav';
 import { useQueryClient } from '@tanstack/react-query';
 
 export function MenuPage() {
@@ -31,7 +32,7 @@ export function MenuPage() {
   };
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 py-2">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 py-2" onKeyDown={arrowNav}>
       {/* Welcome Banner */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-6 shadow-sm">
         <div className="flex items-center gap-4">
@@ -39,20 +40,14 @@ export function MenuPage() {
             A
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-text">
-              {me.settings.shopName}
-            </h1>
-            <p className="text-sm text-muted">
-              {me.location?.name ?? 'Main Shop'}
-            </p>
+            <h1 className="text-xl font-bold tracking-tight text-text">{me.settings.shopName}</h1>
+            <p className="text-sm text-muted">{me.location?.name ?? 'Main Shop'}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
             <div className="text-sm font-semibold">{me.user.fullName}</div>
-            <div className="text-xs text-muted">
-              {me.roles.join(', ')}
-            </div>
+            <div className="text-xs text-muted">{me.roles.join(', ')}</div>
           </div>
           <Button variant="ghost" onClick={() => void handleLogout()} title="Log Out">
             <LogOut size={16} />
@@ -68,9 +63,7 @@ export function MenuPage() {
               <Receipt size={22} />
             </div>
             <div>
-              <div className="text-base font-bold text-accent-strong">
-                Billing & Point of Sale
-              </div>
+              <div className="text-base font-bold text-accent-strong">Billing & Point of Sale</div>
               <div className="text-sm text-muted">
                 Fast keyboard-driven cash billing, quotations, barcodes and receipts
               </div>
@@ -150,7 +143,10 @@ export function MenuPage() {
         </div>
 
         {/* Stock Group */}
-        {(can('products.view', 'stock.view') || can('purchases.view') || can('suppliers.view') || can('mix_paint.view')) && (
+        {(can('products.view', 'stock.view') ||
+          can('purchases.view') ||
+          can('suppliers.view') ||
+          can('mix_paint.view')) && (
           <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-5">
             <div className="flex items-center gap-2 border-b border-border pb-2 text-sm font-bold uppercase tracking-wider text-accent-strong">
               <Package size={16} /> Stock & Inventory
@@ -254,7 +250,8 @@ export function MenuPage() {
                     Monthly Commission & Salaries
                   </div>
                   <div className="text-xs text-muted">
-                    Commission sharing (Aruna 3%, Owner 3%, Savings 4%), fixed expenses & staff salaries
+                    Commission sharing (Aruna 3%, Owner 3%, Savings 4%), fixed expenses & staff
+                    salaries
                   </div>
                 </div>
               </Link>
@@ -263,7 +260,11 @@ export function MenuPage() {
         )}
 
         {/* Administration Group */}
-        {(can('dashboard.view') || can('settings.view') || can('users.view') || can('values.edit') || can('audit_log.view')) && (
+        {(can('dashboard.view') ||
+          can('settings.view') ||
+          can('users.view') ||
+          can('values.edit') ||
+          can('audit_log.view')) && (
           <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-5">
             <div className="flex items-center gap-2 border-b border-border pb-2 text-sm font-bold uppercase tracking-wider text-accent-strong">
               <LayoutDashboard size={16} /> Administration
@@ -338,9 +339,7 @@ export function MenuPage() {
                     <div className="font-semibold text-text group-hover:text-accent-strong">
                       Value Manager
                     </div>
-                    <div className="text-xs text-muted">
-                      Categories, brands, units & reasons
-                    </div>
+                    <div className="text-xs text-muted">Categories, brands, units & reasons</div>
                   </div>
                 </Link>
               )}
@@ -357,9 +356,7 @@ export function MenuPage() {
                     <div className="font-semibold text-text group-hover:text-accent-strong">
                       Audit Log
                     </div>
-                    <div className="text-xs text-muted">
-                      Append-only log of modifications
-                    </div>
+                    <div className="text-xs text-muted">Append-only log of modifications</div>
                   </div>
                 </Link>
               )}

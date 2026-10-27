@@ -436,6 +436,31 @@ describe('bill history', () => {
   });
 });
 
+describe('dashboard', () => {
+  it('charts paid bills only, keeps profit for the Super Admin and hides it from others', async () => {
+    const sale = await shop.cashier.post('/api/sales', { lines: mockupLines(), cashGiven: '7000' });
+    expect(sale.status).toBe(200);
+    // A quotation is not a sale.
+    await shop.cashier.post('/api/sales', {
+      kind: 'QUOTATION',
+      lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
+    });
+    const d = (await shop.sa.get('/api/dashboard?range=7d')).body;
+    expect(d.totals.current).toMatchObject({ sales: '6325.00', bills: 1, averageBill: '6325.00' });
+    expect(d.totals.current.profit).toBeDefined();
+    expect(d.daily).toHaveLength(7);
+    expect(d.daily.at(-1)).toMatchObject({ date: d.today, sales: '6325.00', bills: 1 });
+    expect(d.topProducts[0]).toMatchObject({ name: 'Thinner 4L', sales: '4900.00' });
+    expect(d.counters).toEqual([expect.objectContaining({ code: 'C1', sales: '6325.00' })]);
+    expect(d.hourly.reduce((n: number, h: { bills: number }) => n + h.bills, 0)).toBe(1);
+
+    const forAdmin = (await shop.admin.get('/api/dashboard?range=today')).body;
+    expect(forAdmin.totals.current.profit).toBeUndefined();
+    expect(forAdmin.daily[0].profit).toBeUndefined();
+    expect((await shop.cashier.get('/api/dashboard')).status).toBe(403);
+  });
+});
+
 describe('renaming a product', () => {
   it('old bills show the new code and name, and the Super Admin sees what changed', async () => {
     const sale = await shop.cashier.post('/api/sales', { lines: mockupLines(), cashGiven: '7000' });

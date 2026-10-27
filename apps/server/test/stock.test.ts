@@ -71,6 +71,49 @@ describe('products', () => {
     expect(mix.feeders.map((f: { code: string }) => f.code)).toEqual(['10002']);
   });
 
+  it('the quick editor changes the product and each sub-product code and name in one save', async () => {
+    await postGrn(shop, cat.supplierA, [{ productId: cat.thinner, value: '2600', qty: '2' }]);
+    await postGrn(shop, cat.supplierA, [{ productId: cat.thinner, value: '2700', qty: '2' }]);
+    const [a, b] = await subProducts(shop, cat.thinner);
+    const body = {
+      code: '30001',
+      name: 'Thinner 4L Extra',
+      subProducts: [
+        { id: a!.id, code: '30001-01', name: 'Thinner 4L Extra' },
+        { id: b!.id, code: 'TH-SPECIAL', name: 'Thinner 4L (old stock)' },
+      ],
+    };
+    // A new main code asks first, as in the full editor.
+    expect((await shop.admin.patch(`/api/products/${cat.thinner}/names`, body)).status).toBe(409);
+    const r = await shop.admin.patch(`/api/products/${cat.thinner}/names`, {
+      ...body,
+      confirmCodeChange: true,
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.product).toMatchObject({ code: '30001', name: 'Thinner 4L Extra' });
+    // Admins never get cost back.
+    expect(r.body.subProducts[0].costPrice).toBeUndefined();
+    const subs = await subProducts(shop, cat.thinner);
+    expect(subs.map((x) => [x.code, x.name])).toEqual([
+      ['30001-01', 'Thinner 4L Extra'],
+      ['TH-SPECIAL', 'Thinner 4L (old stock)'],
+    ]);
+    // A sub code already in use is refused, under that row.
+    const dup = await shop.admin.patch(`/api/products/${cat.thinner}/names`, {
+      code: '30001',
+      name: 'Thinner 4L Extra',
+      subProducts: [{ id: b!.id, code: '30001-01', name: 'Thinner 4L (old stock)' }],
+    });
+    expect(dup.status).toBe(409);
+    expect(dup.body.error.field).toBe('subProducts.0.code');
+    const history = (await shop.sa.get(`/api/products/${cat.thinner}/renames`)).body.items;
+    expect(history[0]).toMatchObject({
+      subProduct: 'TH-SPECIAL',
+      // The new main code had already made it 30001-02.
+      changes: [{ field: 'code', from: '30001-02', to: 'TH-SPECIAL' }],
+    });
+  });
+
   it('changing a main code renames sub and mix paint codes after a confirmation', async () => {
     await postGrn(shop, cat.supplierA, [{ productId: cat.emulsion, value: '2000', qty: '2' }]);
     const p = (await shop.stock.get(`/api/products/${cat.emulsion}`)).body.product;

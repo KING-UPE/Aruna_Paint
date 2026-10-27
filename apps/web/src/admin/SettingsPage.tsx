@@ -1,4 +1,5 @@
 import type { AppearanceSettings } from '@aruna/shared';
+import { Plus } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -269,6 +270,7 @@ function Counters() {
         <CardTitle>Counters and printers</CardTitle>
         <Button
           size="sm"
+          icon={<Plus size={16} />}
           onClick={() =>
             setRows([
               ...(rows ?? []),

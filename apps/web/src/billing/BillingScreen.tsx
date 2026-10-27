@@ -1,6 +1,6 @@
 import { D, discountPerUnit, formatMoney, formatQty, parseDiscountText } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BadgePercent, Menu, Trash2 } from 'lucide-react';
+import { BadgePercent, ClipboardList, History, Keyboard, Menu, Pause, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -14,10 +14,12 @@ import { StatusBar } from '@/layout/StatusBar';
 import { api, ApiError, errorMessage, qs } from '@/lib/api';
 import { useDebounced } from '@/lib/hooks';
 import type { BillingItem, BillingStatus } from '@/lib/types';
+import { arrowNav } from '@/lib/arrowNav';
 import { cn } from '@/lib/utils';
 import {
   batchPricing,
   billTotals,
+  mergeLines,
   newKey,
   priceBillLine,
   toSaleInput,
@@ -92,10 +94,20 @@ export function BillingScreen() {
     focusEntry();
   };
 
+  // The same item at the same price and discount adds to its line instead of a new one.
   const onAdd = (added: BillLine[]) => {
     setLines((ls) => {
-      const next = [...ls, ...added];
-      setSelected(next.length - 1);
+      const next = mergeLines([...ls, ...added], wholesale);
+      const last = added[added.length - 1];
+      const merged = last ? next.findIndex((l) => l.key === last.key) : -1;
+      if (merged >= 0) {
+        setSelected(merged);
+      } else if (last) {
+        // Added onto an existing line: select that line.
+        const keys = new Set(ls.map((l) => l.key));
+        const grown = next.findIndex((l, i) => keys.has(l.key) && l.qty !== ls[i]?.qty);
+        setSelected(grown >= 0 ? grown : next.length - 1);
+      }
       return next;
     });
   };
@@ -196,7 +208,12 @@ export function BillingScreen() {
 
     const trimmed = rawDiscount.trim().replace('%', '').trim();
     if (trimmed === '' || trimmed === '0' || trimmed === '0.00') {
-      setLines((ls) => ls.map((l, i) => (i === index ? { ...l, discountText: '0%' } : l)));
+      setLines((ls) =>
+        mergeLines(
+          ls.map((l, i) => (i === index ? { ...l, discountText: '0%' } : l)),
+          wholesale,
+        ),
+      );
       return true;
     }
 
@@ -226,7 +243,13 @@ export function BillingScreen() {
       }
     }
 
-    setLines((ls) => ls.map((l, i) => (i === index ? { ...l, discountText: pctText } : l)));
+    // A line whose discount now matches another line of the same batch joins it.
+    setLines((ls) =>
+      mergeLines(
+        ls.map((l, i) => (i === index ? { ...l, discountText: pctText } : l)),
+        wholesale,
+      ),
+    );
     return true;
   };
 
@@ -436,7 +459,10 @@ export function BillingScreen() {
   const nextNo = status.data?.nextNumbers[mode] ?? '';
   return (
     <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-border bg-surface px-4 py-2.5">
+      <header
+        className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-border bg-surface px-4 py-2.5"
+        onKeyDown={arrowNav}
+      >
         <button
           onClick={() =>
             can('quotations.create') &&
@@ -539,8 +565,10 @@ export function BillingScreen() {
                   <th className="num py-2 font-medium">{wholesale ? 'W-price' : 'R-price'}</th>
                   <th className="w-28 py-2 text-center font-medium">Discount (%)</th>
                   <th className="w-36 py-2 text-center font-medium">Qty</th>
-                  <th className="num py-2 pr-1 font-medium">Amount</th>
-                  <th className="w-8 py-2" />
+                  <th className="num py-2 pr-3 font-medium">Amount</th>
+                  <th className="w-14 py-2">
+                    <span className="sr-only">Remove</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -568,27 +596,45 @@ export function BillingScreen() {
               </p>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" onKeyDown={arrowNav}>
             <Button
               size="sm"
+              icon={<Pause size={15} />}
               onClick={() => void hold()}
               keyHint={keys.hold}
               disabled={!lines.length}
             >
               Hold
             </Button>
-            <Button size="sm" onClick={() => setDialog('held')} keyHint={keys.recall}>
+            <Button
+              size="sm"
+              icon={<ClipboardList size={15} />}
+              onClick={() => setDialog('held')}
+              keyHint={keys.recall}
+            >
               Recall
             </Button>
-            <Button size="sm" onClick={() => setDialog('history')} keyHint={keys.history}>
+            <Button
+              size="sm"
+              icon={<History size={15} />}
+              onClick={() => setDialog('history')}
+              keyHint={keys.history}
+            >
               History
             </Button>
-            <Button size="sm" onClick={removeLine} keyHint={keys.remove} disabled={selected < 0}>
+            <Button
+              size="sm"
+              icon={<Trash2 size={15} />}
+              onClick={removeLine}
+              keyHint={keys.remove}
+              disabled={selected < 0}
+            >
               Remove line
             </Button>
             <Button
               size="sm"
               variant="ghost"
+              icon={<Keyboard size={15} />}
               keyHint={helpKey}
               onClick={() =>
                 window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F1', bubbles: true }))
@@ -909,18 +955,20 @@ function BillLineRow({
           {line.kind === 'LOOSE' ? <span className="text-xs text-muted">L</span> : null}
         </div>
       </td>
-      <td className="num py-2 font-semibold align-middle">{formatMoney(line.amount)}</td>
-      <td className="w-8 py-2 text-right align-middle">
+      <td className="num py-2 pr-3 font-semibold align-middle">{formatMoney(line.amount)}</td>
+      <td className="w-14 py-1.5 text-center align-middle">
         <button
           type="button"
+          tabIndex={-1}
           onClick={(e) => {
             e.stopPropagation();
             onRemove();
           }}
-          className="rounded p-1 text-muted transition hover:bg-danger/10 hover:text-danger"
-          title="Remove line"
+          aria-label={`Remove ${line.description}`}
+          title="Remove line (Delete)"
+          className="inline-grid h-9 w-9 place-items-center rounded-full text-muted transition-colors hover:bg-danger-soft hover:text-danger focus-visible:bg-danger-soft focus-visible:text-danger"
         >
-          <Trash2 size={15} />
+          <Trash2 size={18} />
         </button>
       </td>
     </tr>

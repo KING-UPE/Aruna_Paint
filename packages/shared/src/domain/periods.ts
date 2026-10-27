@@ -55,3 +55,125 @@ export function periodInstants(p: MonthPeriod): { from: Date; to: Date } {
     to: new Date(`${p.nextStart}T00:00:00+05:30`),
   };
 }
+
+export const DASHBOARD_RANGES = ['today', '7d', '30d', '90d', 'month', '12m'] as const;
+export type DashboardRange = (typeof DASHBOARD_RANGES)[number];
+
+export interface DateRange {
+  /** First day, inclusive (YYYY-MM-DD, shop time). */
+  start: string;
+  /** Day after the last day (exclusive). */
+  nextStart: string;
+  /** Every day in the range, in order. */
+  days: string[];
+}
+
+function addDays(date: string, n: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysBetween(start: string, nextStart: string): string[] {
+  const out: string[] = [];
+  for (let d = start; d < nextStart; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+
+/**
+ * The dashboard's date range and the one it is compared with: the same number of days just
+ * before ("last 7 days" against the 7 before them), or the previous business month for "This
+ * month" (which follows the month start day). A month still running includes the days to come,
+ * so the chart shows the whole month.
+ */
+export function dashboardRanges(
+  range: DashboardRange,
+  today: string,
+  monthStartDay = 1,
+): { current: DateRange; previous: DateRange } {
+  if (range === 'month') {
+    const [y, m, d] = today.split('-').map(Number) as [number, number, number];
+    const start = clampStartDay(monthStartDay);
+    const cur =
+      d >= start
+        ? monthPeriod(y, m, start)
+        : monthPeriod(m === 1 ? y - 1 : y, m === 1 ? 12 : m - 1, start);
+    const prev = monthPeriod(
+      cur.month === 1 ? cur.year - 1 : cur.year,
+      cur.month === 1 ? 12 : cur.month - 1,
+      start,
+    );
+    return {
+      current: {
+        start: cur.start,
+        nextStart: cur.nextStart,
+        days: daysBetween(cur.start, cur.nextStart),
+      },
+      previous: {
+        start: prev.start,
+        nextStart: prev.nextStart,
+        days: daysBetween(prev.start, prev.nextStart),
+      },
+    };
+  }
+  const n =
+    range === 'today' ? 1 : range === '7d' ? 7 : range === '30d' ? 30 : range === '90d' ? 90 : 365;
+  const nextStart = addDays(today, 1);
+  const start = addDays(nextStart, -n);
+  const prevStart = addDays(start, -n);
+  return {
+    current: { start, nextStart, days: daysBetween(start, nextStart) },
+    previous: { start: prevStart, nextStart: start, days: daysBetween(prevStart, start) },
+  };
+}
+
+export type SalesGrouping = 'day' | 'week' | 'month';
+
+export interface SalesBucket {
+  /** First and last day of the bucket that fall inside the range. */
+  start: string;
+  end: string;
+  /** Sum of the days that have happened; null when every day is still to come. */
+  total: number | null;
+}
+
+/** The business month a calendar date falls in (by its first day). */
+function monthStartOf(date: string, startDay: number): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const s = clampStartDay(startDay);
+  return d >= s
+    ? monthPeriod(y, m, s).start
+    : monthPeriod(m === 1 ? y - 1 : y, m === 1 ? 12 : m - 1, s).start;
+}
+
+/** Monday of the week a date falls in. */
+function weekStartOf(date: string): string {
+  const dow = (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
+  return addDays(date, -dow);
+}
+
+/**
+ * Days added up into weeks (Monday to Sunday) or business months (from the month start day),
+ * for the one sales chart. Days still to come count as nothing; a bucket of only such days is
+ * null so the line stops at today.
+ */
+export function groupSales(
+  days: { date: string; value: number | null }[],
+  by: SalesGrouping,
+  monthStartDay = 1,
+): SalesBucket[] {
+  if (by === 'day') return days.map((d) => ({ start: d.date, end: d.date, total: d.value }));
+  const out: SalesBucket[] = [];
+  let key = '';
+  for (const d of days) {
+    const k = by === 'week' ? weekStartOf(d.date) : monthStartOf(d.date, monthStartDay);
+    if (k !== key) {
+      out.push({ start: d.date, end: d.date, total: null });
+      key = k;
+    }
+    const b = out[out.length - 1]!;
+    b.end = d.date;
+    if (d.value !== null) b.total = (b.total ?? 0) + d.value;
+  }
+  return out;
+}

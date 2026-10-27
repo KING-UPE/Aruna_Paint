@@ -116,6 +116,15 @@ export const priceChangeSchema = z.object({
 });
 export type PriceChangeInput = z.input<typeof priceChangeSchema>;
 
+/** The quick editor: a product's code and name, and each sub-product's code and name. */
+export const productNamesSchema = z.object({
+  code: codeSchema,
+  name: nameSchema,
+  confirmCodeChange: z.boolean().optional(),
+  subProducts: z.array(z.object({ id: idSchema, code: codeSchema, name: nameSchema })).default([]),
+});
+export type ProductNamesInput = z.input<typeof productNamesSchema>;
+
 export const subProductEditSchema = z.object({
   name: nameSchema.optional(),
   description: optionalText(500).optional(),

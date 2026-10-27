@@ -1,9 +1,11 @@
 import { formatDateTime } from '@aruna/shared';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useState } from 'react';
 import { DataTable } from '@/components/DataTable';
 import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/misc';
@@ -87,15 +89,21 @@ export function AuditLogPage() {
         onOpen={setOpen}
       />
       <div className="flex items-center justify-end gap-2 text-sm">
-        <Button size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-          Previous
-        </Button>
+        <IconButton
+          label="Previous page"
+          icon={<ChevronLeft size={18} />}
+          disabled={page <= 1}
+          onClick={() => setPage(page - 1)}
+        />
         <span>
           Page {page} of {pages}
         </span>
-        <Button size="sm" disabled={page >= pages} onClick={() => setPage(page + 1)}>
-          Next
-        </Button>
+        <IconButton
+          label="Next page"
+          icon={<ChevronRight size={18} />}
+          disabled={page >= pages}
+          onClick={() => setPage(page + 1)}
+        />
       </div>
       <Dialog
         open={Boolean(open)}

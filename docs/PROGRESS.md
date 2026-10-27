@@ -7,7 +7,7 @@ This file is for whoever continues the work: a person or a new Claude session. T
 
 Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Phase 2 (reports, closing, reorder, cloud) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status on 27 Oct 2026: `pnpm typecheck` is clean; 80 shared unit tests, 84 server integration tests and 3 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
+Test status on 27 Oct 2026: `pnpm typecheck` is clean; 86 shared unit tests, 86 server integration tests and 4 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -35,6 +35,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Suppliers: auto SUP- codes, 1–3 phones in one format, reps, similar-name warning, credit days, opening balance (locked once entries exist), deactivate.
 - ✅ Supplier activity log: opening, running and closing balance; filters by date and type; print with the browser. Export to PDF/Excel is not built.
 - ✅ Supplier payments: cash, cheque or bank transfer; settled against the oldest bills first; warning and advance when paying more than the balance; cheque register; a bounced cheque puts the balance back. **Missing:** reminders for post-dated cheques.
+- ✅ **Quick product editor:** a pencil on each products-list row opens a dialog for the product's code and name and each sub-product's code and name, saved together (`PATCH /api/products/:id/names`, `renameProduct`). A new main code asks first, then renames the sub-product codes unless one was typed by hand. Old bills and the rename history follow every change. The full and quick product saves return cost fields only to cost viewers.
 - ✅ Products and sub-products: auto 5-digit codes, old codes kept, box-to-piece buying, mix paint item created for loose-sale paints (several sizes can link to one), code renames that cascade to sub and MP codes after confirmation, price changes for one or all sub-products with price history.
 - ✅ Renaming a product (code, name or receipt name), or renaming one sub-product, also updates old bills, quotations and held bills (`sale_lines` code, name and print name). Amounts never change. Each rename is logged as `product.rename`. The Super Admin sees "old → new" under "Name and code changes" on the product page (`GET /api/products/:id/renames`).
 - ✅ Purchases (GRN): draft or post; server-side line maths; Rs 1 match against the supplier invoice total; duplicate-invoice warning; automatic sub-product rules 1–7 (match, reuse at zero stock, new code when anything differs); paid now; edit while stock is unmoved (reopen); Admin reversal; keyboard grid; inline new item.
@@ -49,6 +50,8 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Loose sales (`1.5L` or `0.375`), open a can with a Stock Manager or Admin PIN, price per liter changed with an Admin PIN.
 - ✅ Discount rules (at most the purchase discount, never below cost, never above the R-price, wholesale takes the W-price), cash payment with change, the "Print receipt?" prompt, drawer kick.
 - ✅ Hold (F7) and recall (F8); bill history (F9) with P reprint, R return, C convert, V void.
+- ✅ **Same item, same line:** adding the same batch at the same discount (or the same loose paint at the same price per liter) adds to that line's qty (`mergeLines` in `billing/bill.ts`). A different batch, discount or price stays a separate line. Changing a line's discount to match another line of the same batch merges them. Lines are compared on their own discounts, never on "No discount".
+- ✅ **Arrow keys between buttons** (`lib/arrowNav.ts`): in every dialog (Yes/No on "Print receipt?", confirm boxes, PIN prompt…), the billing header and toolbar, and the main menu. ←↑ go to the previous button and →↓ to the next. Text boxes, lists, dropdowns and radio groups keep their own arrow keys.
 - ✅ **No discount (Alt+N)**, a toggle next to Wholesale. While it is on, every line sells at the R-price with no discount, lines added later included, and item entry skips the discount box. Turning it off gives each line its own discount back. It is sent as a 0% discount per line, so the server prices it the same way. It can't be used on wholesale bills, which already have no extra discount.
 - ✅ Receipts: 80 mm ESC/POS with "You saved Rs X", reprint stamps, return notes, the day-end report. Drivers: network 9100, shared Windows printer, file (testing), none.
 - 🟡 Sinhala receipts: the setting exists but receipts always print in English. Printing Sinhala as a raster image is not built.
@@ -58,6 +61,17 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 ### HRM and commission (added by the owner on `main`)
 - ✅ Monthly commission share, fixed expenses and salaries (`modules/hrm`, `hrm/HrmPage.tsx`).
 - ✅ **Month start day.** The Super Admin picks the day sales months start (1–28; setting `closing.monthStartDay`, also on the Settings page). A month is named after the month it starts in: with day 25, "October" runs 25 Oct – 24 Nov. The helpers are `monthPeriod` and `periodContaining` in `shared/domain/periods.ts`. **Any future monthly report or closing must use them**, so every screen agrees on what "this month" is.
+
+### Dashboard (Admin)
+- ✅ Charts over one date range (Today, 7, 30 or 90 days, This month, which follows the month start day, or 12 months), each compared with the period before (`GET /api/dashboard`, `modules/dashboard/service.ts`; the ranges are `dashboardRanges` in `shared/domain/periods.ts`):
+  - headline tiles with a trend line and the change against the period before;
+  - **one sales chart** that switches between By hour, day, week (Monday to Sunday), month (business months, 12-month range only) or weekday (`groupSales`);
+  - gross profit and returns by day;
+  - best-selling products and sales by category;
+  - stock health, supplier dues, cashiers, counters, alerts and system.
+- Charts are small hand-drawn SVGs in `components/charts/charts.tsx`: no chart library, theme colours only, hover and keyboard tooltips, and a table view for every chart.
+- Profit is Super Admin only (`cost.totals`), and supplier dues need `suppliers.view`.
+- Only paid invoices count: quotations, held and voided bills don't.
 
 ### Look and feel
 - ✅ Custom rounded controls instead of the browser's:
@@ -70,6 +84,8 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
   - a custom colour (picker or colour code);
   - light, dark, or "Same as the PC".
   The choice is stored in the `appearance` setting and applies to every screen and counter, including the login screen (`/api/setup/status` is public and carries it). Each PC remembers the last theme so it doesn't flash the old colours at start. `shared/domain/themes.ts` works out all colours from one accent and keeps text readable (tests check 4.5:1 contrast). Green, amber and red never change. Screens must use the colour tokens (`bg-accent`, `text-muted`…), never Tailwind palette colours, or they won't follow the theme.
+- ✅ The permission editor's sections (Billing, Stock, HRM, Admin, Cost privacy) open and close one by one, with Open all / Close all, a count, a change count and a tick-all box. The View/Add/Edit/Approve/Export toggles have icons.
+- ✅ Page actions have icons beside their words (`Button icon={…}`). Print, Edit and Delete in page headers and the Previous/Next page buttons are icon buttons with tooltips.
 - ✅ Row actions are icon buttons (`components/ui/icon-button.tsx`) with a tooltip on hover and keyboard focus, and the words as `aria-label`.
 - ✅ The app's own confirm and one-line question dialogs (`components/AskDialog.tsx`, `useConfirm()` and `useAsk()`) replace `window.confirm` and `window.prompt`.
 
@@ -107,7 +123,7 @@ These were my calls; confirm them with the owner if any matters:
 ## Known gaps and rough edges
 
 - The cloud side (`APP_MODE=cloud`, the mirror DB, the sync agent, the online admin panel) is not built. `shopOnly()` already blocks writes in cloud mode.
-- No reports, charts, PDF or Excel exports yet. The dashboard shows today's cards only.
+- No reports, PDF or Excel exports yet (the dashboard has charts, see Admin below).
 - No screens yet for monthly closing, commission, reorder, purchase returns, stock count, location transfers or adjustments. The shared formulas exist for closing and reorder, and the database tables exist for all of them.
 - Alerts: only backup failures create alerts. Low stock shows on the dashboard straight from the stock query. Near expiry, cheques due, day end not done and high returns are not generated.
 - The clock guard compares the PC with the shop server, not with the cloud.

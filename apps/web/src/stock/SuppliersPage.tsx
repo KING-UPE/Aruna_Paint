@@ -1,4 +1,5 @@
 import { formatRs } from '@aruna/shared';
+import { UserPlus } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useMemo, useState } from 'react';
@@ -57,7 +58,7 @@ export function SuppliersPage() {
         description={`The shop owes ${formatRs(owed)} in total. Enter opens the activity log.`}
       >
         {can('suppliers.create') ? (
-          <Button variant="primary" onClick={() => setCreating(true)}>
+          <Button variant="primary" icon={<UserPlus size={16} />} onClick={() => setCreating(true)}>
             New supplier
           </Button>
         ) : null}

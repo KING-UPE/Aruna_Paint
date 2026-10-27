@@ -5,22 +5,34 @@ import {
   type Permission,
   type SpecialPermission,
 } from '@aruna/shared';
-import { Lock } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Download,
+  Eye,
+  Lock,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  type LucideIcon,
+} from 'lucide-react';
+import { useState } from 'react';
 import { Checkbox } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-const ACTION_LABELS: Record<string, string> = {
-  view: 'View',
-  create: 'Add',
-  edit: 'Edit',
-  approve: 'Approve',
-  export: 'Export',
+const ACTIONS: Record<string, { label: string; icon: LucideIcon }> = {
+  view: { label: 'View', icon: Eye },
+  create: { label: 'Add', icon: Plus },
+  edit: { label: 'Edit', icon: Pencil },
+  approve: { label: 'Approve', icon: ShieldCheck },
+  export: { label: 'Export', icon: Download },
 };
 
 interface Row {
   key: string;
   label: string;
-  items: { permission: Permission; label: string }[];
+  items: { permission: Permission; label: string; icon: LucideIcon }[];
 }
 
 interface Group {
@@ -38,7 +50,8 @@ function allGroups(): Group[] {
       label: m.label,
       items: m.permissions.map((p) => ({
         permission: p.permission,
-        label: ACTION_LABELS[p.action] ?? p.action,
+        label: ACTIONS[p.action]?.label ?? p.action,
+        icon: ACTIONS[p.action]?.icon ?? Eye,
       })),
     })),
   }));
@@ -48,7 +61,7 @@ function allGroups(): Group[] {
     rows: (Object.keys(SPECIAL_PERMISSIONS) as SpecialPermission[]).map((p) => ({
       key: p,
       label: SPECIAL_PERMISSIONS[p].label,
-      items: [{ permission: p, label: 'Can see' }],
+      items: [{ permission: p, label: 'Can see', icon: Eye }],
     })),
   });
   return groups;
@@ -69,6 +82,8 @@ export interface PermissionEditorProps {
   /** Show only these permissions (a role's own list). */
   only?: ReadonlySet<string>;
   readOnly?: boolean;
+  /** Sections start open (short lists) or closed (the full list). */
+  defaultOpen?: boolean;
   className?: string;
 }
 
@@ -84,8 +99,10 @@ export function PermissionEditor({
   locked,
   only,
   readOnly,
+  defaultOpen = false,
   className,
 }: PermissionEditorProps) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const groups = GROUPS.map((g) => ({
     ...g,
     rows: g.rows
@@ -97,70 +114,151 @@ export function PermissionEditor({
     return <p className="py-2 text-sm text-muted">No permissions.</p>;
   }
 
+  const isOpen = (key: string) => open[key] ?? defaultOpen;
+  const allOpen = groups.every((g) => isOpen(g.key));
+  const setAll = (value: boolean) => setOpen(Object.fromEntries(groups.map((g) => [g.key, value])));
+
   return (
-    <div className={cn('flex flex-col gap-4', className)}>
-      {groups.map((g) => (
-        <section key={g.key}>
-          <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
-            {g.label}
-          </h4>
-          <div className="divide-y divide-border rounded-[12px] border border-border">
-            {g.rows.map((r) => {
-              const editable = r.items.filter((i) => !locked?.(i.permission));
-              const on = editable.filter((i) => checked(i.permission)).length;
-              const all = editable.length > 0 && on === editable.length;
-              const disabled = readOnly || !onChange || editable.length === 0;
-              return (
-                <div key={r.key} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
-                  <label
-                    className={cn(
-                      'flex min-w-[12rem] flex-1 items-center gap-2.5 text-sm',
-                      !disabled && 'cursor-pointer',
-                    )}
-                  >
-                    <Checkbox
-                      aria-label={`${r.label}: all`}
-                      checked={all}
-                      indeterminate={on > 0 && !all}
-                      disabled={disabled}
-                      onChange={() =>
-                        onChange?.(
-                          editable.map((i) => i.permission),
-                          !all,
-                        )
-                      }
-                    />
-                    <span className="font-medium">{r.label}</span>
-                  </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {r.items.map((i) => (
-                      <PermissionChip
-                        key={i.permission}
-                        label={i.label}
-                        title={`${r.label}: ${i.label}`}
-                        on={checked(i.permission)}
-                        changed={
-                          baseline ? baseline(i.permission) !== checked(i.permission) : false
-                        }
-                        changedLabel={baselineLabel}
-                        locked={locked?.(i.permission) ?? false}
-                        disabled={disabled}
-                        onToggle={() => onChange?.([i.permission], !checked(i.permission))}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ))}
+    <div className={cn('flex flex-col gap-2', className)}>
+      {groups.length > 1 ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setAll(!allOpen)}
+            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-muted hover:bg-surface-2 hover:text-text"
+          >
+            {allOpen ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
+            {allOpen ? 'Close all' : 'Open all'}
+          </button>
+        </div>
+      ) : null}
+      {groups.map((g) => {
+        const items = g.rows.flatMap((r) => r.items);
+        const editable = items.filter((i) => !locked?.(i.permission));
+        const onCount = items.filter((i) => checked(i.permission)).length;
+        const editableOn = editable.filter((i) => checked(i.permission)).length;
+        const allOn = editable.length > 0 && editableOn === editable.length;
+        const changes = baseline
+          ? items.filter((i) => baseline(i.permission) !== checked(i.permission)).length
+          : 0;
+        const disabled = readOnly || !onChange || editable.length === 0;
+        const expanded = isOpen(g.key);
+        const bodyId = `perm-section-${g.key}`;
+        return (
+          <section key={g.key} className="rounded-[12px] border border-border">
+            <div
+              className={cn(
+                'flex items-center gap-2 px-2 py-1.5',
+                expanded && 'border-b border-border',
+              )}
+            >
+              <button
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={bodyId}
+                onClick={() => setOpen((o) => ({ ...o, [g.key]: !expanded }))}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-[8px] px-1.5 py-1 text-left hover:bg-surface-2"
+              >
+                <ChevronDown
+                  size={16}
+                  aria-hidden
+                  className={cn(
+                    'shrink-0 text-muted transition-transform',
+                    !expanded && '-rotate-90',
+                  )}
+                />
+                <span className="text-xs font-semibold uppercase tracking-wide">{g.label}</span>
+                <span className="text-xs text-muted">
+                  {onCount} of {items.length}
+                </span>
+                {changes ? (
+                  <span className="rounded-full bg-warn-soft px-1.5 text-[11px] font-semibold text-warn">
+                    {changes === 1 ? '1 change' : `${changes} changes`}
+                  </span>
+                ) : null}
+              </button>
+              {!disabled ? (
+                <label className="flex cursor-pointer items-center gap-2 px-1.5 text-xs text-muted">
+                  All
+                  <Checkbox
+                    aria-label={`${g.label}: everything`}
+                    checked={allOn}
+                    indeterminate={editableOn > 0 && !allOn}
+                    onChange={() =>
+                      onChange?.(
+                        editable.map((i) => i.permission),
+                        !allOn,
+                      )
+                    }
+                  />
+                </label>
+              ) : null}
+            </div>
+            {expanded ? (
+              <div id={bodyId} className="divide-y divide-border">
+                {g.rows.map((r) => {
+                  const rowEditable = r.items.filter((i) => !locked?.(i.permission));
+                  const on = rowEditable.filter((i) => checked(i.permission)).length;
+                  const all = rowEditable.length > 0 && on === rowEditable.length;
+                  const rowDisabled = disabled || rowEditable.length === 0;
+                  return (
+                    <div
+                      key={r.key}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2"
+                    >
+                      <label
+                        className={cn(
+                          'flex min-w-[12rem] flex-1 items-center gap-2.5 text-sm',
+                          !rowDisabled && 'cursor-pointer',
+                        )}
+                      >
+                        <Checkbox
+                          aria-label={`${r.label}: all`}
+                          checked={all}
+                          indeterminate={on > 0 && !all}
+                          disabled={rowDisabled}
+                          onChange={() =>
+                            onChange?.(
+                              rowEditable.map((i) => i.permission),
+                              !all,
+                            )
+                          }
+                        />
+                        <span className="font-medium">{r.label}</span>
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {r.items.map((i) => (
+                          <PermissionChip
+                            key={i.permission}
+                            label={i.label}
+                            icon={i.icon}
+                            title={`${r.label}: ${i.label}`}
+                            on={checked(i.permission)}
+                            changed={
+                              baseline ? baseline(i.permission) !== checked(i.permission) : false
+                            }
+                            changedLabel={baselineLabel}
+                            locked={locked?.(i.permission) ?? false}
+                            disabled={rowDisabled}
+                            onToggle={() => onChange?.([i.permission], !checked(i.permission))}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+        );
+      })}
     </div>
   );
 }
 
 function PermissionChip({
   label,
+  icon: Icon,
   title,
   on,
   changed,
@@ -170,6 +268,7 @@ function PermissionChip({
   onToggle,
 }: {
   label: string;
+  icon: LucideIcon;
   title: string;
   on: boolean;
   changed: boolean;
@@ -198,7 +297,7 @@ function PermissionChip({
         locked && 'opacity-60',
       )}
     >
-      {locked ? <Lock size={11} aria-hidden /> : null}
+      {locked ? <Lock size={12} aria-hidden /> : <Icon size={13} aria-hidden />}
       {label}
       {changed ? (
         <span

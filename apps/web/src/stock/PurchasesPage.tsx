@@ -1,4 +1,5 @@
 import { formatDate } from '@aruna/shared';
+import { FilePlus2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useState } from 'react';
@@ -68,7 +69,11 @@ export function PurchasesPage() {
         description="Drafts change nothing; posting adds stock and the supplier balance."
       >
         {can('purchases.create') ? (
-          <Button variant="primary" onClick={() => void nav('/stock/purchases/new')}>
+          <Button
+            variant="primary"
+            icon={<FilePlus2 size={16} />}
+            onClick={() => void nav('/stock/purchases/new')}
+          >
             New GRN
           </Button>
         ) : null}

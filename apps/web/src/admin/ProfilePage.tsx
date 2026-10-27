@@ -1,4 +1,5 @@
 import { DEFAULT_SHORTCUTS, eventToCombo, type ShortcutScreen } from '@aruna/shared';
+import { KeyRound, RotateCcw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -42,8 +43,11 @@ export function ProfilePage() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="My profile" description={`${me.user.fullName} · ${me.user.username}`}>
-        <Button onClick={() => setPasswordOpen(true)}>Change password</Button>
+        <Button icon={<KeyRound size={16} />} onClick={() => setPasswordOpen(true)}>
+          Change password
+        </Button>
         <Button
+          icon={<RotateCcw size={16} />}
           onClick={async () => {
             await api.delete('/api/auth/shortcuts');
             await qc.invalidateQueries({ queryKey: ['me'] });

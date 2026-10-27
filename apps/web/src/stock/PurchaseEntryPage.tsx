@@ -16,12 +16,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
-import { Trash2 } from 'lucide-react';
+import { ArrowLeft, PackagePlus, Pencil, Plus, Printer, Save, Trash2, Undo2 } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
 import { useAsk } from '@/components/AskDialog';
 import { usePinPrompt } from '@/components/PinPrompt';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Card, CardBody } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
 import { Input, Select } from '@/components/ui/input';
@@ -389,11 +390,21 @@ export function PurchaseEntryPage() {
         description="Ctrl+S saves a draft (no stock change). Ctrl+Enter posts."
       >
         {can('products.create') ? (
-          <Button type="button" variant="ghost" onClick={() => handleNewItem()}>
-            + New item
+          <Button
+            type="button"
+            variant="ghost"
+            icon={<PackagePlus size={16} />}
+            onClick={() => handleNewItem()}
+          >
+            New item
           </Button>
         ) : null}
-        <Button onClick={() => void save(false)} disabled={busy} keyHint="Ctrl+S">
+        <Button
+          icon={<Save size={16} />}
+          onClick={() => void save(false)}
+          disabled={busy}
+          keyHint="Ctrl+S"
+        >
           Save draft
         </Button>
         <Button
@@ -673,19 +684,20 @@ export function PurchaseEntryPage() {
             type="button"
             variant="ghost"
             size="sm"
+            icon={<Plus size={16} />}
             onClick={() => setLines((ls) => [...ls, emptyLine()])}
           >
-            + Add row
+            Add row
           </Button>
           {can('products.create') ? (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="text-primary hover:text-primary"
+              icon={<PackagePlus size={16} />}
               onClick={() => handleNewItem()}
             >
-              + New item
+              New item
             </Button>
           ) : null}
         </div>
@@ -1154,16 +1166,22 @@ function PostedPurchase({
         description={`${formatDate(p.date)} · invoice ${p.supplierInvoiceNo || '—'} · ${p.location.name}${p.ref ? ` · ${p.ref}` : ''}`}
       >
         <Badge tone={p.status === 'POSTED' ? 'ok' : 'danger'}>{p.status.toLowerCase()}</Badge>
-        <Button onClick={() => window.print()}>Print</Button>
+        <IconButton label="Print" icon={<Printer size={17} />} onClick={() => window.print()} />
         {p.status === 'POSTED' && can('purchases.edit') ? (
-          <Button onClick={() => void reopen()}>Edit (if stock unmoved)</Button>
+          <Button icon={<Pencil size={16} />} onClick={() => void reopen()}>
+            Edit (if stock unmoved)
+          </Button>
         ) : null}
         {p.status === 'POSTED' ? (
-          <Button variant="danger" onClick={() => void reverse()}>
+          <Button variant="danger" icon={<Undo2 size={16} />} onClick={() => void reverse()}>
             Reverse
           </Button>
         ) : null}
-        <Button variant="ghost" onClick={() => void nav('/stock/purchases')}>
+        <Button
+          variant="ghost"
+          icon={<ArrowLeft size={16} />}
+          onClick={() => void nav('/stock/purchases')}
+        >
           Back
         </Button>
       </PageHeader>

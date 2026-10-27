@@ -6,7 +6,7 @@ import {
   parseDiscountText,
 } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Pencil, Tags } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -74,10 +74,12 @@ export function ProductDetailPage() {
           .join(' · ')}
       >
         {can('products.edit') && product.type === 'STANDARD' ? (
-          <Button onClick={() => setPricing(true)}>Change prices</Button>
+          <Button icon={<Tags size={16} />} onClick={() => setPricing(true)}>
+            Change prices
+          </Button>
         ) : null}
         {can('products.edit') ? (
-          <Button variant="primary" onClick={() => setEditing(true)}>
+          <Button variant="primary" icon={<Pencil size={16} />} onClick={() => setEditing(true)}>
             Edit
           </Button>
         ) : null}
@@ -405,7 +407,9 @@ function RenameHistory({ productId }: { productId: string }) {
               {e.changes.map((c) => (
                 <div key={c.field} className="flex flex-wrap items-center gap-2 text-[15px]">
                   <span className="w-28 shrink-0 text-sm text-muted">
-                    {e.subProduct ? `${e.subProduct} name` : FIELD_LABELS[c.field]}
+                    {e.subProduct
+                      ? `${e.subProduct} ${FIELD_LABELS[c.field].toLowerCase()}`
+                      : FIELD_LABELS[c.field]}
                   </span>
                   <span className="text-muted line-through decoration-muted/50">
                     {c.from || '—'}
