@@ -1,3 +1,4 @@
+import { D } from '@aruna/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestApp, PINS, setupShop, valueId, type Shop } from './helpers';
@@ -64,7 +65,7 @@ describe('products', () => {
     expect(p.product.code).toBe('10002');
     expect(p.product.mixProduct.code).toBe('MP-10002');
     const mix = (await shop.stock.get(`/api/products/${cat.mixEmulsion}`)).body;
-    expect(mix.product.name).toBe('White Emulsion');
+    expect(mix.product.name).toBe('White Emulsion (Mix Paint)');
     expect(mix.product.unit.name).toBe('L');
     expect(mix.subProducts.map((s: { code: string }) => s.code)).toEqual(['MP-10002']);
     expect(mix.feeders.map((f: { code: string }) => f.code)).toEqual(['10002']);
@@ -395,11 +396,6 @@ describe('mix paint', () => {
     await postGrn(shop, cat.supplierA, [{ productId: cat.emulsion, value: '2000', qty: '5' }]);
     const [can1] = await subProducts(shop, cat.emulsion);
     // First can: 4 L at Rs 500 per L, priced at Rs 650 per L.
-    const noPrice = await shop.stock.post('/api/mix-paint/transfers', {
-      sourceSubProductId: can1!.id,
-      cans: 1,
-    });
-    expect(noPrice.status).toBe(400);
     const t1 = await shop.stock.post('/api/mix-paint/transfers', {
       sourceSubProductId: can1!.id,
       cans: 1,
@@ -443,6 +439,22 @@ describe('mix paint', () => {
     expect(
       (await shop.admin.get(`/api/mix-paint/${cat.mixEmulsion}`)).body.averageCost,
     ).toBeUndefined();
+  });
+
+  it("with no price yet, the first can sets the price per liter from the can's sales price", async () => {
+    // The owner's change on main: no price given means the can's sales price ÷ its liters.
+    await postGrn(shop, cat.supplierA, [{ productId: cat.emulsion, value: '2000', qty: '1' }]);
+    const [can] = await subProducts(shop, cat.emulsion);
+    const r = await shop.stock.post('/api/mix-paint/transfers', {
+      sourceSubProductId: can!.id,
+      cans: 1,
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      liters: '4.000',
+      newAverageCost: '500.00',
+      pricePerLiter: D(can!.salesPrice).dividedBy(4).toFixed(2),
+    });
   });
 
   it('never prices below the new average cost', async () => {

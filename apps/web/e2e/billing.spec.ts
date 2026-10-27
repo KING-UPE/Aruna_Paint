@@ -7,14 +7,18 @@ async function loginAtCounter(page: Page, username: string) {
   await page.keyboard.press('Enter');
 }
 
-test('a cashier rings up the plan mock-up bill without the mouse', async ({ page }) => {
-  await loginAtCounter(page, 'cashier');
+/** Cashiers land on the Main menu after login; its banner button opens the billing screen. */
+async function openBilling(page: Page) {
+  await page.getByRole('button', { name: 'Open Billing Screen →' }).press('Enter');
+  await expect(page.getByRole('table', { name: 'Bill lines' })).toBeVisible();
+}
 
-  // Start of day: the opening float.
-  await expect(page.getByRole('dialog', { name: 'Start the day' })).toBeVisible();
-  await page.keyboard.type('5000');
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('dialog')).toBeHidden();
+test('a cashier rings up the plan mock-up bill (seed prices) without the mouse', async ({
+  page,
+}) => {
+  await loginAtCounter(page, 'cashier');
+  // The first bill opens the day on this counter by itself (no opening float prompt any more).
+  await openBilling(page);
 
   // Thinner 4L has two batches at different prices: the pop-up opens with the oldest highlighted.
   await page.keyboard.press('F2');
@@ -26,12 +30,16 @@ test('a cashier rings up the plan mock-up bill without the mouse', async ({ page
   await page.keyboard.press('Enter');
   await page.keyboard.type('2');
   await page.keyboard.press('Enter');
-  await expect(page.getByLabel('Discount')).toHaveValue('150.00');
+  // Discounts are entered in percent; the seed's default sales discount is 5% (Rs 130 a can).
+  await expect(page.getByLabel('Discount')).toHaveValue('5%');
   await page.keyboard.press('Enter');
 
   // Loose emulsion: 1.5L sells liters from mix paint at its price per liter.
-  await page.keyboard.type('white');
-  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('White Emulsion');
+  // Typing the can's code (not "white", which now also lists the mix paint item on its own).
+  await page.keyboard.type('10002');
+  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText(
+    'White Emulsion 4L',
+  );
   await page.keyboard.press('Enter');
   await page.keyboard.type('1.5L');
   await page.keyboard.press('Enter');
@@ -46,24 +54,27 @@ test('a cashier rings up the plan mock-up bill without the mouse', async ({ page
 
   const lines = page.getByRole('table', { name: 'Bill lines' });
   await expect(lines).toContainText('Thinner 4L');
-  await expect(lines).toContainText('White Emulsion, loose');
-  await expect(lines).toContainText('1.5 L');
-  await expect(page.getByText('Rs 6,325.00')).toBeVisible();
+  await expect(lines).toContainText('White Emulsion (Mix Paint), loose');
+  // Quantities are editable in the bill lines; the loose line holds 1.5 (liters).
+  await expect(
+    lines.getByLabel('Quantity for White Emulsion (Mix Paint), loose', { exact: true }),
+  ).toHaveValue('1.5');
+  await expect(page.getByText('Rs 6,365.00')).toBeVisible();
 
   // F10, cash given, Enter shows the change, Enter prints.
   await page.keyboard.press('F10');
   await page.keyboard.type('7000');
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('dialog')).toContainText('Rs 675.00');
+  await expect(page.getByRole('dialog')).toContainText('Rs 635.00');
   await page.keyboard.press('Enter');
-  await expect(page.getByText('INV-000001 · change Rs 675.00')).toBeVisible();
-  await expect(page.getByText('This counter today: Rs 6,325.00 · 1 bills')).toBeVisible();
+  await expect(page.getByText('INV-000001 · change Rs 635.00')).toBeVisible();
+  await expect(page.getByText('Today: Rs 6,365.00 · 1 bills')).toBeVisible();
   await expect(lines).not.toContainText('Thinner');
 });
 
 test('hold, recall and bill history keys', async ({ page }) => {
   await loginAtCounter(page, 'cashier');
-  await expect(page.getByRole('table', { name: 'Bill lines' })).toBeVisible();
+  await openBilling(page);
 
   await page.keyboard.press('F2');
   await page.keyboard.type('brush');

@@ -1,18 +1,13 @@
 # Build progress and handoff
 
-Last updated: 27 Oct 2026, after the UI and permissions session (branch `claude/affectionate-hopper-q0hr5p`).
+Last updated: 27 Oct 2026, after bringing the tests up to date with the owner's changes (branch `claude/modest-darwin-ks31u8`).
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
 
 Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Phase 2 (reports, closing, reorder, cloud) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status on 27 Oct 2026: `pnpm typecheck` is clean. All 69 shared unit tests pass. Of the 81 server integration tests, 75 pass. The 6 that fail fail the same way on `main` without this session's changes. They expect behaviour the owner later changed on `main`:
-- mix paint items are now named "… (Mix Paint)";
-- the shift and day-start rules changed;
-- the lookup flags and the mix price errors changed.
-
-Both Playwright e2e tests fail because cashiers now land on the Main menu, not the billing screen. These tests need updating to match the new behaviour (see Known gaps).
+Test status on 27 Oct 2026 (branch `claude/modest-darwin-ks31u8`): `pnpm typecheck` is clean. All 69 shared unit tests, all 82 server integration tests and both Playwright e2e tests pass. The tests that had fallen behind the owner's changes on `main` were brought up to date; one was a real bug and was fixed in the code. Each call is listed under "Tests brought up to date with the owner's changes" below.
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -44,7 +39,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Renaming a product (code, name or receipt name), or renaming one sub-product, also updates old bills, quotations and held bills (`sale_lines` code, name and print name). Amounts never change. Each rename is logged as `product.rename`. The Super Admin sees "old → new" under "Name and code changes" on the product page (`GET /api/products/:id/renames`).
 - ✅ Purchases (GRN): draft or post; server-side line maths; Rs 1 match against the supplier invoice total; duplicate-invoice warning; automatic sub-product rules 1–7 (match, reuse at zero stock, new code when anything differs); paid now; edit while stock is unmoved (reopen); Admin reversal; keyboard grid; inline new item.
 - ✅ Stock view with filters (category, brand, supplier, location, low, out, expiring, inactive), product detail, bin card, zero-stock sub-products hidden.
-- ✅ Mix paint transfers at weighted-average cost; price kept or changed (never below the average); PIN flow when a cashier opens a can at the counter.
+- ✅ Mix paint transfers at weighted-average cost; price kept or changed (never below the average); PIN flow when a cashier opens a can at the counter. Since the owner's changes: the mix item is named "White Emulsion (Mix Paint)" and is created on the first transfer if missing; the price can be given per can (`adminCanPrice` ÷ liters); with no price at all, the first can sets it from the can's sales price ÷ liters.
 - ✅ Location transfers (API, plus "Move 1 from Store?" in billing). There is no stand-alone transfer screen yet.
 - ✅ Adjustments (API; write-offs need an Admin). There is no adjustment screen yet; only the API and tests.
 
@@ -57,7 +52,8 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Receipts: 80 mm ESC/POS with "You saved Rs X", reprint stamps, return notes, the day-end report. Drivers: network 9100, shared Windows printer, file (testing), none.
 - 🟡 Sinhala receipts: the setting exists but receipts always print in English. Printing Sinhala as a raster image is not built.
 - ✅ Returns: refund = what was paid; restock to the same batch, or to the Damaged location; loose paint blocked; old-system bills need an Admin.
-- ✅ Day end: opening float, cash in/out with reasons, counted denominations, expected-cash difference, printed report, then a backup.
+- ✅ Day end: opening float, cash in/out with reasons, counted denominations, expected-cash difference, printed report, then a backup. Since the owner's "Simplify Day End": counting the drawer is optional (no count means no difference), and the first invoice on a counter opens the day by itself with a float of 0. The billing screen no longer asks for the float (`StartDayDialog.tsx` is unused; the Day end page still has "Start the day").
+- ✅ Mix paint items are also listed in the billing lookup on their own and sell by the liter from their MP code (owner's change), next to the loose sale from the can item.
 
 ### HRM and commission (added by the owner on `main`)
 - ✅ Monthly commission share, fixed expenses and salaries (`modules/hrm`, `hrm/HrmPage.tsx`).
@@ -81,7 +77,7 @@ These were my calls; confirm them with the owner if any matters:
 4. **Converting a quotation keeps the quoted net price until the validity date**, even above the counter discount cap. A lower current price wins, and it never sells below cost; if it would, the cashier is told to quote again. Batches are re-picked oldest first.
 5. **Admins don't create GRNs**, because the GRN screen shows cost and Admins must not see cost. They can view purchases (cost fields hidden) and reverse them. A person who does both gets both roles ticked.
 6. **Any negative adjustment counts as a write-off and needs an Admin**, MP wastage included.
-7. **One day end per counter per date.** Invoices need an open day (float entered). Quotations don't. Yesterday's open day must be closed before billing today.
+7. **One day end per counter per date.** Invoices need an open day; the owner changed this so the first invoice opens it with a float of 0 if nobody started it. Once the day end is done, that counter bills no more invoices that day. Quotations don't need a day. Yesterday's open day must be closed before billing today. A login that names no counter is put on the first active counter (owner's change), so "Billing runs on a counter PC" only shows when the shop has no active counter.
 8. **Cash rounding** setting: none by default; Rs 1, 5 or 10 are possible, stored as a rounding adjustment on the bill.
 9. **Reprints** are numbered from #2; the original print is copy #1.
 10. **PINs are stored as HMAC-SHA256** with the server's `PIN_SECRET`, so a PIN alone can identify the user (they are unique). Losing `PIN_SECRET` means resetting every PIN.
@@ -93,6 +89,23 @@ These were my calls; confirm them with the owner if any matters:
 16. **Permission changes for one user** are stored as differences from their roles: "add X" or "take away Y". If the roles change later, the differences still apply. A Super Admin always has everything, and Super Admin-only permissions can never be given to anyone else.
 17. **Customised built-in roles** keep their name. The Super Admin role can't be edited.
 
+## Tests brought up to date with the owner's changes (27 Oct 2026)
+
+Six server tests and both e2e tests had been written before the owner's own commits on `main`. For each failure I checked the history on `main`. If the change was deliberate, the test now follows it and still checks the plan rule it was guarding. One change was a bug, so the code was fixed.
+
+- **Mix paint name** (`stock.test.ts` › products). Commit 916a2dd deliberately names the mix item "White Emulsion (Mix Paint)", so the test expects that name. Bill lines therefore read "White Emulsion (Mix Paint), loose". The billing mock-up test was updated the same way, and it still checks the plan's Rs 6,325.00 total and Rs 675.00 change.
+- **Transfer with no price** (`stock.test.ts` › mix paint plan example). The same commit deliberately takes the can's sales price ÷ liters when no price is given, where the old code refused with a 400. The plan example (Rs 466.67 average, price kept at Rs 650) still runs unchanged. A new test covers the default price.
+- **Below-cost mix price: code fixed.** The 916a2dd rewrite dropped the `assertMixPrice` call. A price below the new average cost was still refused, but only by a database CHECK, with the generic "That change would make a quantity or price invalid." The plan rule ("never below the new average cost") was not meant to go: the function's own doc comment still states it, and the database still enforces it. The call is back in `transferToMix`, so the screen again shows "The price per liter cannot be below the average cost." (`BELOW_COST`).
+- **Day start** (`billing.test.ts`). The owner's initial commit deliberately opens the day by itself on the first invoice (float 0). After the day end, the counter refuses invoices with "The day end for today is already done on this counter." A login without a counter falls back to the first active counter. The test now checks the automatic start, the refusal after day end, and `needCounter` when no counter is active.
+- **Billing lookup** (`billing.test.ts`). Commit 916a2dd deliberately lists MIX items too, so searching "emulsion" returns the can and the MP item. The test now finds the can by code. It also checks that the MP item is listed by the liter without cost.
+- **e2e.** These changes were all deliberate on `main`:
+  - Cashiers land on `/menu`, so the tests open billing with the "Open Billing Screen →" button, from the keyboard.
+  - There is no float prompt.
+  - Discounts are entered in percent. The seed now uses 5%, so the seed bill is Rs 6,365.00 with Rs 635.00 change.
+  - Quantities are editable inputs in the bill lines.
+  - The status bar reads "Today: …".
+  - Typing "white" now lists the mix paint item first. The loose-sale step therefore types the can code `10002`, to keep testing the plan's loose sale from the can.
+
 ## Known gaps and rough edges
 
 - The cloud side (`APP_MODE=cloud`, the mirror DB, the sync agent, the online admin panel) is not built. `shopOnly()` already blocks writes in cloud mode.
@@ -103,7 +116,7 @@ These were my calls; confirm them with the owner if any matters:
 - Native date inputs follow the browser language (they may show MM/DD/YYYY). Everything else shows DD/MM/YYYY.
 - The web bundle is about 740 kB in one chunk (fine on a LAN; it could be split).
 - ESLint is not set up; Prettier and `tsc` are the checks.
-- **Tests behind the owner's changes on `main`:** 6 server tests (`stock.test.ts` products and mix paint; `billing.test.ts` mock-up receipt, day-start check and lookup) and both e2e tests (cashiers now land on `/menu`). Decide which behaviour is intended, then update the tests or the code.
+- After the owner's change to land everyone on `/menu`, the `home` value in `App.tsx` (the old per-role start page) is computed but no longer used.
 - `e2e/start-server.sh` lost its executable bit in a commit made on Windows. It was restored in this session with `git update-index --chmod=+x`.
 - No desktop shell yet (Tauri or Electron full-screen wrapper that starts with Windows and blocks browser keys).
 

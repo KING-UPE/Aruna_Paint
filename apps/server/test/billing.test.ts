@@ -1,7 +1,7 @@
 import { readFile, rm } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createTestApp, PINS, setupShop, valueId, type Shop } from './helpers';
+import { Client, createTestApp, login, PINS, setupShop, valueId, type Shop } from './helpers';
 import { createCatalog, postGrn, subProducts, type Catalog } from './fixtures';
 
 let app: FastifyInstance;
@@ -83,7 +83,7 @@ describe('a sale, start to finish', () => {
     });
     expect(sale.lines.map((l: { name: string; amount: string }) => [l.name, l.amount])).toEqual([
       ['Thinner 4L', '4900.00'],
-      ['White Emulsion, loose', '975.00'],
+      ['White Emulsion (Mix Paint), loose', '975.00'],
       ['Brush 2 inch', '450.00'],
     ]);
     // Cashiers never see cost on a bill.
@@ -131,16 +131,39 @@ describe('a sale, start to finish', () => {
     expect(short.body.error.field).toBe('cashGiven');
   });
 
-  it('needs the day started with a float, and a counter PC', async () => {
+  it('starts the day itself on the first bill, stops after the day end, and needs a counter PC', async () => {
+    // The owner changed this on main: a counter with no open day opens one (float 0) on its
+    // first invoice instead of asking for the float first.
+    await app.deps.db.counter.create({
+      data: { code: 'C3', name: 'Counter 3', locationId: shop.ids.shop! },
+    });
+    const c3 = new Client(app);
+    await login(c3, 'cashier2', 'C3');
+    const first = await c3.post('/api/sales', {
+      lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
+    });
+    expect(first.status).toBe(200);
+    expect((await c3.get('/api/shifts/current')).body.shift).toMatchObject({
+      status: 'OPEN',
+      openingFloat: '0.00',
+      billCount: 1,
+    });
+    // One day end per counter per date: once it is done, the counter bills no more today.
     await shop.cashier.post('/api/shifts/current/close', { denominations: {} });
     const r = await shop.cashier.post('/api/sales', {
       lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
     });
     expect(r.status).toBe(409);
-    expect(r.body.error.details.needShift).toBe(true);
-    const noCounter = await shop.admin.post('/api/sales', {
+    expect(r.body.error.message).toBe('The day end for today is already done on this counter.');
+    // A login that names no counter now falls back to the first active one (owner's change on
+    // main), so billing is refused only when the shop has no active counter at all.
+    await app.deps.db.counter.updateMany({ data: { active: false } });
+    const noCounterPc = new Client(app);
+    await login(noCounterPc, 'admin');
+    const noCounter = await noCounterPc.post('/api/sales', {
       lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
     });
+    expect(noCounter.status).toBe(409);
     expect(noCounter.body.error.details.needCounter).toBe(true);
   });
 
@@ -597,13 +620,20 @@ describe('billing lookup', () => {
     ]);
     expect(t.batches[0].costPrice).toBeUndefined();
     expect(t.stockHere).toBe('13.000');
-    const emulsion = (await shop.cashier.get('/api/billing/items?q=emulsion')).body.items[0];
+    const emulsionHits = (await shop.cashier.get('/api/billing/items?q=emulsion')).body.items;
+    const emulsion = emulsionHits.find((i: { code: string }) => i.code === '10002');
     expect(emulsion.allowLooseSale).toBe(true);
     expect(emulsion.mix).toMatchObject({
       code: 'MP-10002',
       litersHere: '4.000',
       pricePerLiter: '650.00',
     });
+    // Since the owner's change on main, the mix paint item is also listed on its own, sold by the
+    // liter from its MP code, still without cost.
+    const mixItem = emulsionHits.find((i: { code: string }) => i.code === 'MP-10002');
+    expect(mixItem.name).toBe('White Emulsion (Mix Paint)');
+    expect(mixItem.batches.map((b: { code: string }) => b.code)).toEqual(['MP-10002']);
+    expect(mixItem.batches[0].costPrice).toBeUndefined();
     const bySub = (await shop.cashier.get('/api/billing/items?q=10001-02')).body.items[0];
     expect(bySub.matchedSubProductId).toBe(t.batches[1].id);
   });

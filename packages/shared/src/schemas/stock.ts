@@ -184,7 +184,7 @@ export const mixTransferSchema = z.object({
   sourceSubProductId: idSchema.optional().nullable(),
   sourceProductId: idSchema.optional().nullable(),
   cans: z.number().int().min(1, { message: 'Move whole cans only.' }).max(1000),
-  /** Keep the price per liter or change it */
+  /** Keep the price per liter or change it, never below the new average cost. */
   pricePerLiter: moneySchema.optional().nullable(),
   /** The total can price set by admin; price per 1L = adminCanPrice / packSize */
   adminCanPrice: moneySchema.optional().nullable(),
