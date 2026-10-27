@@ -57,6 +57,18 @@ describe('suppliers', () => {
     expect(byPhone.map((s: { name: string }) => s.name)).toEqual(['Supplier B']);
     expect(byPhone[0].balance).toBe('0.00');
   });
+
+  it('a sales rep is added from the GRN screen, once per name', async () => {
+    const r = await shop.stock.post(`/api/suppliers/${cat.supplierA}/reps`, { name: 'Nimal' });
+    expect(r.status).toBe(200);
+    expect(r.body.name).toBe('Nimal');
+    const again = await shop.stock.post(`/api/suppliers/${cat.supplierA}/reps`, { name: 'nimal' });
+    expect(again.status).toBe(409);
+    const reps = (await shop.stock.get(`/api/suppliers/${cat.supplierA}`)).body.reps;
+    expect(reps.map((x: { name: string }) => x.name)).toContain('Nimal');
+    const cashier = await shop.cashier.post(`/api/suppliers/${cat.supplierA}/reps`, { name: 'X' });
+    expect(cashier.status).toBe(403);
+  });
 });
 
 describe('products', () => {

@@ -43,11 +43,17 @@ export function SupplierForm({
   supplier,
   onClose,
   onSaved,
+  initialName,
+  onUseSimilar,
 }: {
   open: boolean;
   supplier?: Supplier;
   onClose: () => void;
   onSaved?: (s: Supplier) => void;
+  /** A new supplier's name, typed in a picker before "+ Add supplier". */
+  initialName?: string;
+  /** Opened from a picker: the similar-name warning offers to use that supplier instead. */
+  onUseSimilar?: (id: string) => void;
 }) {
   const qc = useQueryClient();
   const confirm = useConfirm();
@@ -77,9 +83,9 @@ export function SupplierForm({
             active: supplier.active,
             reps: supplier.reps,
           }
-        : blank,
+        : { ...blank, name: initialName ?? '' },
     );
-  }, [open, supplier]);
+  }, [open, supplier, initialName]);
 
   const save = async (confirmSimilarName = false) => {
     setErrors({});
@@ -120,6 +126,7 @@ export function SupplierForm({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     void save();
   };
 
@@ -268,11 +275,13 @@ export function SupplierForm({
                   size="sm"
                   variant="ghost"
                   onClick={() => {
+                    const similar = warning.similar!.id;
                     onClose();
-                    nav(`/stock/suppliers/${warning.similar?.id}`);
+                    if (onUseSimilar) onUseSimilar(similar);
+                    else nav(`/stock/suppliers/${similar}`);
                   }}
                 >
-                  View {warning.similar.code} ({warning.similar.name})
+                  {onUseSimilar ? 'Use' : 'View'} {warning.similar.code} ({warning.similar.name})
                 </Button>
               ) : null}
             </div>

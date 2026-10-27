@@ -6,11 +6,11 @@ import { useAuth } from '@/auth/AuthProvider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
+import { Combobox } from '@/components/ui/combobox';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/misc';
 import { api, errorMessage, qs } from '@/lib/api';
-import { useDebounced } from '@/lib/hooks';
 import type { Page, ProductDetail, StockListItem } from '@/lib/types';
 
 interface Transfer {
@@ -34,19 +34,7 @@ export function MixPaintPage() {
   const { can } = useAuth();
   const qc = useQueryClient();
 
-  // Search for paint product to transfer
-  const [paintSearch, setPaintSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<StockListItem | null>(null);
-  const debouncedSearch = useDebounced(paintSearch.trim(), 150);
-
-  const searchResults = useQuery({
-    queryKey: ['products', 'paint-search', debouncedSearch],
-    queryFn: () =>
-      api.get<Page<StockListItem>>(
-        `/api/products${qs({ q: debouncedSearch, type: 'STANDARD', pageSize: 15 })}`,
-      ),
-    enabled: debouncedSearch.length >= 1 && !selectedProduct,
-  });
 
   // Load detailed product with sub-products/batches to check stock
   const productDetail = useQuery({
@@ -96,14 +84,12 @@ export function MixPaintPage() {
 
   const onSelectPaint = (p: StockListItem) => {
     setSelectedProduct(p);
-    setPaintSearch(`${p.code} · ${p.name}`);
     setCansCount('1');
     setError('');
   };
 
   const clearSelection = () => {
     setSelectedProduct(null);
-    setPaintSearch('');
     setCansCount('1');
     setAdminCanPrice('');
     setError('');
@@ -156,56 +142,37 @@ export function MixPaintPage() {
           </CardHeader>
           <CardBody>
             <form onSubmit={submitTransfer} className="flex flex-col gap-4">
-              {/* Paint Product Search */}
-              <div className="relative">
-                <Field
-                  label="Search paint to mix"
-                  hint="Type paint name or code to select from stock"
-                >
-                  <div className="flex gap-2">
-                    <Input
-                      autoFocus
-                      placeholder="e.g. Apex 4L, Dulux, 10007..."
-                      value={paintSearch}
-                      onChange={(e) => {
-                        setPaintSearch(e.target.value);
-                        if (selectedProduct) setSelectedProduct(null);
-                      }}
-                      className="flex-1"
-                    />
-                    {selectedProduct ? (
-                      <Button type="button" variant="ghost" onClick={clearSelection}>
-                        Change
-                      </Button>
-                    ) : null}
-                  </div>
-                </Field>
-
-                {/* Search Suggestions Dropdown */}
-                {searchResults.data?.items &&
-                searchResults.data.items.length > 0 &&
-                !selectedProduct ? (
-                  <ul className="absolute left-0 right-0 top-[70px] z-30 max-h-60 overflow-y-auto rounded-lg border border-border bg-surface shadow-xl">
-                    {searchResults.data.items.map((p) => (
-                      <li
-                        key={p.id}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          onSelectPaint(p);
-                        }}
-                        className="flex cursor-pointer items-center justify-between gap-4 px-3 py-2 hover:bg-surface-2"
-                      >
-                        <span className="font-medium">
-                          {p.code} · {p.name}
-                        </span>
-                        <span className="text-sm text-muted">
-                          {formatQty(p.stock)} {p.unit.name} in stock
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
+              <Field label="Search paint to mix" hint="Type the paint name or code, then pick it.">
+                <Combobox<StockListItem>
+                  autoFocus
+                  inputProps={{ 'aria-label': 'Paint to mix' }}
+                  placeholder="e.g. Apex 4L, Dulux, 10007..."
+                  value={selectedProduct}
+                  onChange={(p) => (p ? onSelectPaint(p) : clearSelection())}
+                  clearable
+                  display={(p) => `${p.code} · ${p.name}`}
+                  itemKey={(p) => p.id}
+                  search={{
+                    key: ['products', 'paint-search'],
+                    fn: (term) =>
+                      api
+                        .get<
+                          Page<StockListItem>
+                        >(`/api/products${qs({ q: term, type: 'STANDARD', pageSize: 15 })}`)
+                        .then((r) => r.items),
+                  }}
+                  render={(p) => (
+                    <>
+                      <span className="truncate font-medium">
+                        {p.code} · {p.name}
+                      </span>
+                      <span className="shrink-0 text-sm text-muted">
+                        {formatQty(p.stock)} {p.unit.name} in stock
+                      </span>
+                    </>
+                  )}
+                />
+              </Field>
 
               {/* Selected Paint Info Box */}
               {selectedProduct ? (

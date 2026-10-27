@@ -8,6 +8,7 @@ import {
   shopDate,
   supplierInputSchema,
   supplierPaymentSchema,
+  supplierRepSchema,
   type Decimal,
 } from '@aruna/shared';
 import { Prisma, type SupplierEntryType } from '@prisma/client';
@@ -142,6 +143,30 @@ async function syncReps(
       });
     }
   }
+}
+
+/** "+ Add rep" from the GRN screen: one new sales rep, without the whole supplier form. */
+export async function addSupplierRep(tx: Tx, actor: ActorRef, supplierId: string, raw: unknown) {
+  const input = supplierRepSchema.omit({ id: true, active: true }).parse(raw);
+  const supplier = await tx.supplier.findUnique({ where: { id: supplierId } });
+  if (!supplier) throw new DomainError('NOT_FOUND', 'Supplier not found.');
+  const reps = await tx.supplierRep.findMany({ where: { supplierId } });
+  if (reps.some((r) => r.active && nameKey(r.name) === nameKey(input.name)))
+    throw new DomainError(
+      'DUPLICATE',
+      `${supplier.name} already has a rep called ${input.name}.`,
+      'name',
+    );
+  const rep = await tx.supplierRep.create({
+    data: { supplierId, name: input.name, phone: input.phone },
+  });
+  await audit(tx, actor, {
+    action: 'supplier.rep_add',
+    entity: 'supplier',
+    entityId: supplierId,
+    after: { rep: rep.name, phone: rep.phone },
+  });
+  return { id: rep.id, name: rep.name, phone: rep.phone, active: rep.active };
 }
 
 async function similarName(tx: Tx, name: string, exceptId?: string) {

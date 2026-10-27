@@ -13,7 +13,6 @@ import {
 } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { ArrowLeft, PackagePlus, Pencil, Plus, Printer, Save, Trash2, Undo2 } from 'lucide-react';
@@ -24,16 +23,17 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { Card, CardBody } from '@/components/ui/card';
+import { Combobox } from '@/components/ui/combobox';
 import { Field } from '@/components/ui/field';
 import { Input, Select } from '@/components/ui/input';
 import { Money, PageHeader, Spinner } from '@/components/ui/misc';
 import { useValues } from '@/components/values';
 import { useHotkeys } from '@/keyboard/keymap';
 import { api, ApiError, errorMessage, qs } from '@/lib/api';
-import { useDebounced } from '@/lib/hooks';
 import type { StockSearchItem, Supplier } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ProductForm } from './ProductForm';
+import { SupplierForm } from './SupplierForm';
 
 interface GrnProduct {
   id: string;
@@ -173,8 +173,10 @@ export function PurchaseEntryPage() {
   } | null>(null);
   const [warning, setWarning] = useState<{ message: string; confirm: string } | null>(null);
   const [newItemFor, setNewItemFor] = useState<number | null>(null);
+  const [newItemText, setNewItemText] = useState('');
 
   const handleNewItem = (rowIdx?: number) => {
+    setNewItemText('');
     if (rowIdx !== undefined) {
       setNewItemFor(rowIdx);
       return;
@@ -456,21 +458,18 @@ export function PurchaseEntryPage() {
               onChange={(e) => setHeader({ ...header, date: e.target.value })}
             />
           </Field>
-          <Field label="Sales rep">
-            <Select
-              value={header.salesRepId}
-              onChange={(e) => setHeader({ ...header, salesRepId: e.target.value })}
-            >
-              <option value="">—</option>
-              {(header.supplier?.reps ?? [])
-                .filter((r) => r.active)
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-            </Select>
-          </Field>
+          <RepPicker
+            supplier={header.supplier}
+            value={header.salesRepId}
+            onChange={(id) => setHeader((h) => ({ ...h, salesRepId: id }))}
+            onAdded={(rep) =>
+              setHeader((h) => ({
+                ...h,
+                supplier: h.supplier ? { ...h.supplier, reps: [...h.supplier.reps, rep] } : null,
+                salesRepId: rep.id,
+              }))
+            }
+          />
           <Field label="Location">
             <Select
               value={header.locationId || me.location?.id || ''}
@@ -601,7 +600,10 @@ export function PurchaseEntryPage() {
                           });
                           focusCell(i, 1);
                         }}
-                        onNew={() => setNewItemFor(i)}
+                        onNew={(typed) => {
+                          setNewItemText(typed);
+                          setNewItemFor(i);
+                        }}
                         onEnterEmpty={() => (i > 0 ? void save(true) : undefined)}
                       />
                       {rowIssues.map((m) => (
@@ -845,6 +847,7 @@ export function PurchaseEntryPage() {
 
       <ProductForm
         open={newItemFor !== null}
+        initialText={newItemText}
         onClose={() => setNewItemFor(null)}
         onSaved={(p) => {
           if (newItemFor === null) return;
@@ -874,18 +877,12 @@ function SupplierPicker({
   value: Supplier | null;
   onChange: (s: Supplier) => void;
 }) {
-  const [text, setText] = useState('');
-  const [hi, setHi] = useState(0);
-  const term = useDebounced(text.trim(), 150);
-  const q = useQuery({
-    queryKey: ['suppliers', 'pick', term],
-    queryFn: () => api.get<{ items: Supplier[] }>(`/api/suppliers${qs({ q: term, limit: 10 })}`),
-    enabled: term.length >= 1,
-  });
-  const items = q.data?.items ?? [];
-  const open = term.length >= 1 && items.length > 0;
+  const { can } = useAuth();
+  const [adding, setAdding] = useState<string | null>(null);
+  const useSimilar = async (id: string) =>
+    onChange(await api.get<Supplier>(`/api/suppliers/${id}`));
   return (
-    <div className="relative">
+    <>
       <Field
         label="Supplier"
         hint={
@@ -894,45 +891,98 @@ function SupplierPicker({
             : 'Type a code, name or phone.'
         }
       >
-        <Input
+        <Combobox<Supplier>
           autoFocus
-          value={text || value?.name || ''}
-          onChange={(e) => {
-            setText(e.target.value);
-            setHi(0);
+          inputProps={{ 'aria-label': 'Supplier' }}
+          value={value}
+          onChange={(s) => s && onChange(s)}
+          display={(s) => s.name}
+          itemKey={(s) => s.id}
+          search={{
+            key: ['suppliers', 'pick'],
+            fn: (term) =>
+              api
+                .get<{ items: Supplier[] }>(`/api/suppliers${qs({ q: term, limit: 10 })}`)
+                .then((r) => r.items),
           }}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowDown')
-              (e.preventDefault(), setHi((h) => Math.min(items.length - 1, h + 1)));
-            else if (e.key === 'ArrowUp') (e.preventDefault(), setHi((h) => Math.max(0, h - 1)));
-            else if (e.key === 'Enter' && open) {
-              e.preventDefault();
-              onChange(items[hi]!);
-              setText('');
-            }
-          }}
-        />
-      </Field>
-      {open ? (
-        <ul className="absolute z-30 mt-1 w-full rounded-[var(--radius-card)] border border-border bg-surface shadow-lg">
-          {items.map((s, i) => (
-            <li
-              key={s.id}
-              onMouseDown={(e) => (e.preventDefault(), onChange(s), setText(''))}
-              className={cn(
-                'flex cursor-pointer justify-between px-3 py-2 text-sm',
-                i === hi && 'bg-selected',
-              )}
-            >
-              <span>
+          render={(s) => (
+            <>
+              <span className="truncate">
                 {s.code} · {s.name}
               </span>
-              <span className="num text-muted">Rs {formatMoney(s.balance)}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
+              <span className="num shrink-0 text-muted">Rs {formatMoney(s.balance)}</span>
+            </>
+          )}
+          addWhat="supplier"
+          onAdd={can('suppliers.create') ? (name) => setAdding(name) : undefined}
+        />
+      </Field>
+      <SupplierForm
+        open={adding !== null}
+        initialName={adding ?? ''}
+        onClose={() => setAdding(null)}
+        onSaved={(s) => onChange(s)}
+        onUseSimilar={(id) => void useSimilar(id)}
+      />
+    </>
+  );
+}
+
+/** The supplier's sales reps; "+ Add rep" adds one without leaving the GRN. */
+function RepPicker({
+  supplier,
+  value,
+  onChange,
+  onAdded,
+}: {
+  supplier: Supplier | null;
+  value: string;
+  onChange: (id: string) => void;
+  onAdded: (rep: Supplier['reps'][number]) => void;
+}) {
+  const { can } = useAuth();
+  const ask = useAsk();
+  const reps = (supplier?.reps ?? []).filter((r) => r.active || r.id === value);
+  const picked = reps.find((r) => r.id === value) ?? null;
+  const add = async (typed: string) => {
+    if (!supplier) return;
+    const name = await ask({
+      title: `Add a sales rep for ${supplier.name}`,
+      label: 'Name',
+      initial: typed,
+      confirmLabel: 'Add rep',
+    });
+    if (!name) return;
+    try {
+      const rep = await api.post<Supplier['reps'][number]>(`/api/suppliers/${supplier.id}/reps`, {
+        name,
+      });
+      toast.success(`${rep.name} added to ${supplier.name}.`);
+      onAdded(rep);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <Field label="Sales rep" hint={supplier ? undefined : 'Pick the supplier first.'}>
+      <Combobox<Supplier['reps'][number]>
+        disabled={!supplier}
+        inputProps={{ 'aria-label': 'Sales rep' }}
+        value={picked}
+        onChange={(r) => onChange(r?.id ?? '')}
+        options={reps}
+        display={(r) => r.name}
+        itemKey={(r) => r.id}
+        clearable
+        placeholder="None"
+        addWhat="rep"
+        onAdd={
+          supplier && can('suppliers.edit', 'purchases.create')
+            ? (name) => void add(name)
+            : undefined
+        }
+      />
+    </Field>
   );
 }
 
@@ -948,156 +998,50 @@ function ItemCell({
   product: GrnProduct | null;
   supplierId?: string;
   onPick: (p: StockSearchItem) => void;
-  onNew: () => void;
+  onNew: (typed: string) => void;
   onEnterEmpty: () => void;
 }) {
-  const [text, setText] = useState('');
-  const [hi, setHi] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [coords, setCoords] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    transform?: string;
-  } | null>(null);
-
-  const term = useDebounced(text.trim(), 150);
-  const q = useQuery({
-    queryKey: ['products', 'grn-search', term, supplierId],
-    queryFn: () =>
-      api.get<{ items: StockSearchItem[] }>(`/api/products/search${qs({ q: term, supplierId })}`),
-    enabled: term.length >= 1,
-  });
-  const items = q.data?.items ?? [];
-  const open = term.length >= 1;
-  const options = items.length + 1;
-
-  useEffect(() => {
-    if (!open) {
-      setCoords(null);
-      return;
-    }
-    const updateCoords = () => {
-      if (inputRef.current) {
-        const rect = inputRef.current.getBoundingClientRect();
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const openUp = spaceBelow < 220 && rect.top > 220;
-        setCoords({
-          top: openUp ? rect.top - 4 : rect.bottom + 4,
-          left: Math.max(8, Math.min(rect.left, window.innerWidth - 420)),
-          width: Math.max(380, rect.width),
-          transform: openUp ? 'translateY(-100%)' : undefined,
-        });
-      }
-    };
-    updateCoords();
-    window.addEventListener('scroll', updateCoords, true);
-    window.addEventListener('resize', updateCoords);
-    return () => {
-      window.removeEventListener('scroll', updateCoords, true);
-      window.removeEventListener('resize', updateCoords);
-    };
-  }, [open]);
-
+  const { can } = useAuth();
+  // The picked line item, in the shape the picker shows.
+  const value = product
+    ? ({ id: product.id, code: product.code, name: product.name } as StockSearchItem)
+    : null;
   return (
-    <div className="relative flex items-center gap-1">
-      <Input
-        ref={inputRef}
-        data-row={row}
-        data-col={0}
-        placeholder="Code or name"
-        value={text || (product ? `${product.code} · ${product.name}` : '')}
-        onChange={(e) => {
-          setText(e.target.value);
-          setHi(0);
-        }}
-        onBlur={() => {
-          setTimeout(() => {
-            setText('');
-          }, 200);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowDown')
-            (e.preventDefault(), setHi((h) => Math.min(options - 1, h + 1)));
-          else if (e.key === 'ArrowUp') (e.preventDefault(), setHi((h) => Math.max(0, h - 1)));
-          else if (e.key === 'Enter' && !e.ctrlKey) {
-            e.preventDefault();
-            if (open) {
-              if (hi < items.length) onPick(items[hi]!);
-              else onNew();
-              setText('');
-            } else if (product) {
-              document
-                .querySelector<HTMLInputElement>(`[data-row="${row}"][data-col="1"]`)
-                ?.focus();
-            } else onEnterEmpty();
-          } else if (e.key === 'Escape') setText('');
-        }}
-        className="h-8 w-52 px-2"
-      />
-      <button
-        type="button"
-        tabIndex={-1}
-        onClick={onNew}
-        title="Add new product"
-        className="flex h-8 w-7 shrink-0 items-center justify-center rounded border border-border bg-surface-2 text-sm font-semibold text-muted transition hover:bg-surface-3 hover:text-primary"
-      >
-        +
-      </button>
-      {open && coords && typeof document !== 'undefined'
-        ? createPortal(
-            <ul
-              style={{
-                position: 'fixed',
-                top: `${coords.top}px`,
-                left: `${coords.left}px`,
-                width: `${coords.width}px`,
-                transform: coords.transform,
-                zIndex: 99999,
-                maxHeight: '320px',
-                overflowY: 'auto',
-              }}
-              className="rounded-[var(--radius-card)] border border-border bg-surface shadow-2xl"
-            >
-              {items.map((p, i) => (
-                <li
-                  key={p.id}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    onPick(p);
-                    setText('');
-                  }}
-                  className={cn(
-                    'flex cursor-pointer justify-between gap-3 px-3 py-2 text-sm hover:bg-surface-2',
-                    i === hi && 'bg-selected font-medium',
-                  )}
-                >
-                  <span className="truncate">
-                    {p.code} · {p.name}
-                  </span>
-                  <span className="shrink-0 text-muted">
-                    {formatQty(p.stockHere)} {p.unit.name}
-                  </span>
-                </li>
-              ))}
-              <li
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onNew();
-                  setText('');
-                }}
-                className={cn(
-                  'cursor-pointer px-3 py-2 text-sm font-semibold text-accent-strong hover:bg-surface-2',
-                  hi === items.length && 'bg-selected',
-                )}
-              >
-                + New item
-              </li>
-            </ul>,
-            document.body,
-          )
-        : null}
-    </div>
+    <Combobox<StockSearchItem>
+      size="sm"
+      minListWidth={380}
+      inputClassName="w-52"
+      inputProps={{ 'data-row': row, 'data-col': 0, 'aria-label': `Item on line ${row + 1}` }}
+      placeholder="Code or name"
+      value={value}
+      onChange={(p) => p && onPick(p)}
+      display={(p) => `${p.code} · ${p.name}`}
+      itemKey={(p) => p.id}
+      search={{
+        key: ['products', 'grn-search', supplierId],
+        fn: (term) =>
+          api
+            .get<{ items: StockSearchItem[] }>(`/api/products/search${qs({ q: term, supplierId })}`)
+            .then((r) => r.items),
+      }}
+      render={(p) => (
+        <>
+          <span className="truncate">
+            {p.code} · {p.name}
+          </span>
+          <span className="shrink-0 text-muted">
+            {formatQty(p.stockHere)} {p.unit.name}
+          </span>
+        </>
+      )}
+      addWhat="item"
+      onAdd={can('products.create') ? onNew : undefined}
+      onEnterIdle={() =>
+        product
+          ? document.querySelector<HTMLInputElement>(`[data-row="${row}"][data-col="1"]`)?.focus()
+          : onEnterEmpty()
+      }
+    />
   );
 }
 

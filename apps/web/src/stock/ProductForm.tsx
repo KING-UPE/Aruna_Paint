@@ -47,11 +47,14 @@ export function ProductForm({
   product,
   onClose,
   onSaved,
+  initialText,
 }: {
   open: boolean;
   product?: ProductSummary;
   onClose: () => void;
   onSaved?: (p: ProductDetail) => void;
+  /** What was typed in a picker before "+ New item": a code if it is all digits, else the name. */
+  initialText?: string;
 }) {
   const qc = useQueryClient();
   const form = useForm<FormIn, unknown, FormOut>({
@@ -87,10 +90,13 @@ export function ProductForm({
 
   useEffect(() => {
     if (open) {
-      form.reset(toForm(product));
+      const typed = initialText?.trim() ?? '';
+      const start =
+        product || !typed ? {} : /^\d+$/.test(typed) ? { code: typed } : { name: typed };
+      form.reset({ ...toForm(product), ...start });
       setConfirm(null);
     }
-  }, [open, product, form]);
+  }, [open, product, form, initialText]);
 
   const save = async (values: FormOut, confirmCodeChange = false) => {
     try {

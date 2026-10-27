@@ -6,6 +6,7 @@ import { actorOf } from '../../core/context';
 import { TX_OPTIONS } from '../../db';
 import { dateOnly } from '../../lib/json';
 import {
+  addSupplierRep,
   createSupplier,
   createSupplierPayment,
   deleteSupplier,
@@ -51,6 +52,16 @@ export async function supplierRoutes(app: FastifyInstance) {
       (tx) => updateSupplier(tx, actorOf(req.ctx), idParam(req.params), req.body),
       TX_OPTIONS,
     ),
+  );
+
+  app.post(
+    '/api/suppliers/:id/reps',
+    { preHandler: [shopOnly(), perm('suppliers.edit', 'purchases.create')] },
+    async (req) =>
+      db.$transaction(
+        (tx) => addSupplierRep(tx, actorOf(req.ctx), idParam(req.params), req.body),
+        TX_OPTIONS,
+      ),
   );
 
   app.delete(

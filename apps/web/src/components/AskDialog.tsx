@@ -27,6 +27,8 @@ export interface AskOptions {
   message?: ReactNode;
   label: string;
   hint?: string;
+  /** The box starts with this (e.g. the name typed in a picker). */
+  initial?: string;
   confirmLabel?: string;
   type?: 'text' | 'password';
   inputMode?: 'text' | 'numeric';
@@ -55,7 +57,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
   const resolver = useRef<((v: unknown) => void) | null>(null);
 
   const open = useCallback((s: NonNullable<State>) => {
-    setValue('');
+    setValue(s.kind === 'ask' ? (s.o.initial ?? '') : '');
     setError('');
     setState(s);
     return new Promise<unknown>((resolve) => {
