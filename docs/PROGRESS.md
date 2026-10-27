@@ -7,12 +7,7 @@ This file is for whoever continues the work: a person or a new Claude session. T
 
 Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Phase 2 (reports, closing, reorder, cloud) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status on 27 Oct 2026: `pnpm typecheck` is clean. All 69 shared unit tests pass. Of the 81 server integration tests, 75 pass. The 6 that fail fail the same way on `main` without this session's changes. They expect behaviour the owner later changed on `main`:
-- mix paint items are now named "… (Mix Paint)";
-- the shift and day-start rules changed;
-- the lookup flags and the mix price errors changed.
-
-Both Playwright e2e tests fail because cashiers now land on the Main menu, not the billing screen. These tests need updating to match the new behaviour (see Known gaps).
+Test status on 27 Oct 2026: `pnpm typecheck` is clean; 69 shared unit tests, 83 server integration tests and 2 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -44,7 +39,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Renaming a product (code, name or receipt name), or renaming one sub-product, also updates old bills, quotations and held bills (`sale_lines` code, name and print name). Amounts never change. Each rename is logged as `product.rename`. The Super Admin sees "old → new" under "Name and code changes" on the product page (`GET /api/products/:id/renames`).
 - ✅ Purchases (GRN): draft or post; server-side line maths; Rs 1 match against the supplier invoice total; duplicate-invoice warning; automatic sub-product rules 1–7 (match, reuse at zero stock, new code when anything differs); paid now; edit while stock is unmoved (reopen); Admin reversal; keyboard grid; inline new item.
 - ✅ Stock view with filters (category, brand, supplier, location, low, out, expiring, inactive), product detail, bin card, zero-stock sub-products hidden.
-- ✅ Mix paint transfers at weighted-average cost; price kept or changed (never below the average); PIN flow when a cashier opens a can at the counter.
+- ✅ Mix paint transfers at weighted-average cost; PIN flow when a cashier opens a can at the counter. Price per liter: the one typed, or the Admin's price for the whole can ÷ liters (`adminCanPrice`), or the current price; the very first can takes its own sales price ÷ liters. Never below the new average cost (`assertMixPrice`, plain-words `BELOW_COST` message).
 - ✅ Location transfers (API, plus "Move 1 from Store?" in billing). There is no stand-alone transfer screen yet.
 - ✅ Adjustments (API; write-offs need an Admin). There is no adjustment screen yet; only the API and tests.
 
@@ -68,8 +63,17 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
   - a dropdown (`components/ui/select.tsx`). It takes the same props as a native select, works from the keyboard and inside dialogs, and Esc closes only the list.
   - styled checkboxes, with a dash for "some ticked";
   - number inputs without spinners;
-  - thin scrollbars.
+  - rounded, theme-coloured scrollbars (pill thumb that darkens on hover; Firefox gets a thin bar in the same colours).
 - ✅ The app's own confirm and one-line question dialogs (`components/AskDialog.tsx`, `useConfirm()` and `useAsk()`) replace `window.confirm` and `window.prompt`.
+
+### Owner's changes the tests now follow
+These came in with the owner's own work on `main`; the tests were updated to match them:
+- A loose-sale paint's mix item is named "… (Mix Paint)", so loose bill lines read "White Emulsion (Mix Paint), loose". Mix items also show in billing suggestions and can be sold by their MP code.
+- The day starts by itself (zero float) on a counter's first bill; after that day's day end the counter takes no more bills that day.
+- A PC that logs in without a counter code works as the first active counter, so "Log in at a counter" only happens when no counter exists.
+- Staff land on the Main menu (`/menu`); "Open Billing Screen" opens billing. The billing footer reads "Today: Rs … · N bills".
+- Sales discounts can be percentages; the billing discount box shows the batch default as a percent (the seed uses 5%, so the e2e mock-up bill totals Rs 6,365.00).
+- One fix in code rather than tests: the mix paint transfer had lost its "never below the average cost" check (the database still refused, with an unclear message). It was put back.
 
 ## Decisions taken where the plan was silent or ambiguous
 
@@ -103,7 +107,6 @@ These were my calls; confirm them with the owner if any matters:
 - Native date inputs follow the browser language (they may show MM/DD/YYYY). Everything else shows DD/MM/YYYY.
 - The web bundle is about 740 kB in one chunk (fine on a LAN; it could be split).
 - ESLint is not set up; Prettier and `tsc` are the checks.
-- **Tests behind the owner's changes on `main`:** 6 server tests (`stock.test.ts` products and mix paint; `billing.test.ts` mock-up receipt, day-start check and lookup) and both e2e tests (cashiers now land on `/menu`). Decide which behaviour is intended, then update the tests or the code.
 - `e2e/start-server.sh` lost its executable bit in a commit made on Windows. It was restored in this session with `git update-index --chmod=+x`.
 - No desktop shell yet (Tauri or Electron full-screen wrapper that starts with Windows and blocks browser keys).
 

@@ -68,7 +68,10 @@ export async function transferToMix(
   if (!source) throw new DomainError('NOT_FOUND', 'Can / paint product not found.');
   const product = source.product;
   if (!product.packSize || Number(product.packSize) <= 0)
-    throw new DomainError('INVALID_STATE', `${product.name} has no pack size in liters (needed for can-to-units conversion).`);
+    throw new DomainError(
+      'INVALID_STATE',
+      `${product.name} has no pack size in liters (needed for can-to-units conversion).`,
+    );
 
   const mixProduct = await ensureMixProduct(tx, product);
   const mix = await mixSubProduct(tx, mixProduct.id);
@@ -95,6 +98,8 @@ export async function transferToMix(
   } else {
     price = money(D(source.salesPrice).dividedBy(product.packSize));
   }
+  // "The price per liter can be kept or changed, but never below the new average cost."
+  assertMixPrice(price, newAvg);
 
   // Update MP selling price so POS sells at this price per liter
   await tx.subProduct.update({

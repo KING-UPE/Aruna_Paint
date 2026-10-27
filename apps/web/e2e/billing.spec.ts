@@ -5,19 +5,22 @@ async function loginAtCounter(page: Page, username: string) {
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password').fill('password123');
   await page.keyboard.press('Enter');
+  // Staff land on the main menu; the billing screen opens from there.
+  await page.getByRole('button', { name: /Open Billing Screen/ }).press('Enter');
+  await expect(page.getByRole('table', { name: 'Bill lines' })).toBeVisible();
+  // Wait until the counter's day is loaded (it starts by itself), so no typed key is lost.
+  await expect(page.getByText(/^Today: Rs/)).toBeVisible();
 }
 
 test('a cashier rings up the plan mock-up bill without the mouse', async ({ page }) => {
   await loginAtCounter(page, 'cashier');
 
-  // Start of day: the opening float.
-  await expect(page.getByRole('dialog', { name: 'Start the day' })).toBeVisible();
-  await page.keyboard.type('5000');
-  await page.keyboard.press('Enter');
+  // The day starts by itself with the first bill; no opening float is asked for.
   await expect(page.getByRole('dialog')).toBeHidden();
 
   // Thinner 4L has two batches at different prices: the pop-up opens with the oldest highlighted.
   await page.keyboard.press('F2');
+  await expect(page.getByRole('textbox', { name: 'Item code' })).toBeFocused();
   await page.keyboard.type('10001');
   await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('Thinner 4L');
   await page.keyboard.press('Enter');
@@ -26,12 +29,16 @@ test('a cashier rings up the plan mock-up bill without the mouse', async ({ page
   await page.keyboard.press('Enter');
   await page.keyboard.type('2');
   await page.keyboard.press('Enter');
-  await expect(page.getByLabel('Discount')).toHaveValue('150.00');
+  // The seeded batch carries a 5% sales discount (Rs 130 on Rs 2,600), shown as a percent.
+  await expect(page.getByLabel('Discount')).toHaveValue('5%');
   await page.keyboard.press('Enter');
 
-  // Loose emulsion: 1.5L sells liters from mix paint at its price per liter.
-  await page.keyboard.type('white');
-  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('White Emulsion');
+  // Loose emulsion: the 4 L can's code, then 1.5L, sells liters from mix paint at its price
+  // per liter. (Its mix paint item also shows in suggestions and sells by its MP code.)
+  await page.keyboard.type('10002');
+  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText(
+    'White Emulsion 4L',
+  );
   await page.keyboard.press('Enter');
   await page.keyboard.type('1.5L');
   await page.keyboard.press('Enter');
@@ -46,26 +53,28 @@ test('a cashier rings up the plan mock-up bill without the mouse', async ({ page
 
   const lines = page.getByRole('table', { name: 'Bill lines' });
   await expect(lines).toContainText('Thinner 4L');
-  await expect(lines).toContainText('White Emulsion, loose');
-  await expect(lines).toContainText('1.5 L');
-  await expect(page.getByText('Rs 6,325.00')).toBeVisible();
+  await expect(lines).toContainText('White Emulsion (Mix Paint), loose');
+  await expect(
+    lines.getByRole('textbox', { name: 'Quantity for White Emulsion (Mix Paint), loose' }),
+  ).toHaveValue('1.5');
+  await expect(page.getByText('Rs 6,365.00')).toBeVisible();
 
   // F10, cash given, Enter shows the change, Enter prints.
   await page.keyboard.press('F10');
   await page.keyboard.type('7000');
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('dialog')).toContainText('Rs 675.00');
+  await expect(page.getByRole('dialog')).toContainText('Rs 635.00');
   await page.keyboard.press('Enter');
-  await expect(page.getByText('INV-000001 · change Rs 675.00')).toBeVisible();
-  await expect(page.getByText('This counter today: Rs 6,325.00 · 1 bills')).toBeVisible();
+  await expect(page.getByText('INV-000001 · change Rs 635.00')).toBeVisible();
+  await expect(page.getByText('Today: Rs 6,365.00 · 1 bills')).toBeVisible();
   await expect(lines).not.toContainText('Thinner');
 });
 
 test('hold, recall and bill history keys', async ({ page }) => {
   await loginAtCounter(page, 'cashier');
-  await expect(page.getByRole('table', { name: 'Bill lines' })).toBeVisible();
 
   await page.keyboard.press('F2');
+  await expect(page.getByRole('textbox', { name: 'Item code' })).toBeFocused();
   await page.keyboard.type('brush');
   await expect(page.getByRole('listbox', { name: 'Suggestions' })).toBeVisible();
   await page.keyboard.press('Enter');

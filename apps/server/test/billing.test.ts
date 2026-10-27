@@ -1,7 +1,7 @@
 import { readFile, rm } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createTestApp, PINS, setupShop, valueId, type Shop } from './helpers';
+import { Client, createTestApp, login, PINS, setupShop, valueId, type Shop } from './helpers';
 import { createCatalog, postGrn, subProducts, type Catalog } from './fixtures';
 
 let app: FastifyInstance;
@@ -83,7 +83,7 @@ describe('a sale, start to finish', () => {
     });
     expect(sale.lines.map((l: { name: string; amount: string }) => [l.name, l.amount])).toEqual([
       ['Thinner 4L', '4900.00'],
-      ['White Emulsion, loose', '975.00'],
+      ['White Emulsion (Mix Paint), loose', '975.00'],
       ['Brush 2 inch', '450.00'],
     ]);
     // Cashiers never see cost on a bill.
@@ -131,17 +131,42 @@ describe('a sale, start to finish', () => {
     expect(short.body.error.field).toBe('cashGiven');
   });
 
-  it('needs the day started with a float, and a counter PC', async () => {
-    await shop.cashier.post('/api/shifts/current/close', { denominations: {} });
+  it('the day opens by itself on the first bill and stops after its day end', async () => {
+    // A counter with no day started yet gets one with a zero float on its first bill.
+    const counters = (await shop.sa.get('/api/counters')).body.items;
+    const c3 = await shop.sa.post('/api/counters', {
+      code: 'C3',
+      name: 'Counter 3',
+      locationId: counters[0].locationId,
+    });
+    expect(c3.status).toBe(200);
+    const third = new Client(app);
+    await login(third, 'cashier', 'C3');
+    const first = await third.post('/api/sales', {
+      lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
+    });
+    expect(first.status).toBe(200);
+    const day = (await third.get('/api/shifts/current')).body;
+    expect(day.shift).toMatchObject({ openingFloat: '0.00' });
+
+    // Once today's day end is done, that counter takes no more bills today.
+    expect(
+      (await shop.cashier.post('/api/shifts/current/close', { denominations: {} })).status,
+    ).toBe(200);
     const r = await shop.cashier.post('/api/sales', {
       lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
     });
     expect(r.status).toBe(409);
-    expect(r.body.error.details.needShift).toBe(true);
-    const noCounter = await shop.admin.post('/api/sales', {
+    expect(r.body.error.message).toBe('The day end for today is already done on this counter.');
+  });
+
+  it('a PC logged in without a counter code bills on the first counter', async () => {
+    const me = (await shop.admin.get('/api/auth/me')).body;
+    expect(me.counter?.code).toBe('C1');
+    const r = await shop.admin.post('/api/sales', {
       lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
     });
-    expect(noCounter.body.error.details.needCounter).toBe(true);
+    expect(r.status).toBe(200);
   });
 
   it('invoice numbers have no gaps when a bill fails', async () => {
@@ -597,7 +622,12 @@ describe('billing lookup', () => {
     ]);
     expect(t.batches[0].costPrice).toBeUndefined();
     expect(t.stockHere).toBe('13.000');
-    const emulsion = (await shop.cashier.get('/api/billing/items?q=emulsion')).body.items[0];
+    const emulsionItems = (await shop.cashier.get('/api/billing/items?q=emulsion')).body.items;
+    // The mix paint item shows up in the search too, so it can be sold by its MP code.
+    expect(emulsionItems.map((i: { code: string }) => i.code)).toEqual(
+      expect.arrayContaining(['10002', 'MP-10002']),
+    );
+    const emulsion = emulsionItems.find((i: { code: string }) => i.code === '10002');
     expect(emulsion.allowLooseSale).toBe(true);
     expect(emulsion.mix).toMatchObject({
       code: 'MP-10002',

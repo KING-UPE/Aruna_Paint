@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { D } from '@aruna/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestApp, PINS, setupShop, valueId, type Shop } from './helpers';
 import { createCatalog, postGrn, subProducts, TODAY, type Catalog } from './fixtures';
@@ -64,7 +65,7 @@ describe('products', () => {
     expect(p.product.code).toBe('10002');
     expect(p.product.mixProduct.code).toBe('MP-10002');
     const mix = (await shop.stock.get(`/api/products/${cat.mixEmulsion}`)).body;
-    expect(mix.product.name).toBe('White Emulsion');
+    expect(mix.product.name).toBe('White Emulsion (Mix Paint)');
     expect(mix.product.unit.name).toBe('L');
     expect(mix.subProducts.map((s: { code: string }) => s.code)).toEqual(['MP-10002']);
     expect(mix.feeders.map((f: { code: string }) => f.code)).toEqual(['10002']);
@@ -395,11 +396,6 @@ describe('mix paint', () => {
     await postGrn(shop, cat.supplierA, [{ productId: cat.emulsion, value: '2000', qty: '5' }]);
     const [can1] = await subProducts(shop, cat.emulsion);
     // First can: 4 L at Rs 500 per L, priced at Rs 650 per L.
-    const noPrice = await shop.stock.post('/api/mix-paint/transfers', {
-      sourceSubProductId: can1!.id,
-      cans: 1,
-    });
-    expect(noPrice.status).toBe(400);
     const t1 = await shop.stock.post('/api/mix-paint/transfers', {
       sourceSubProductId: can1!.id,
       cans: 1,
@@ -443,6 +439,33 @@ describe('mix paint', () => {
     expect(
       (await shop.admin.get(`/api/mix-paint/${cat.mixEmulsion}`)).body.averageCost,
     ).toBeUndefined();
+  });
+
+  it('with no price typed, the first can takes its own sales price per liter; an Admin can price the whole can', async () => {
+    await postGrn(shop, cat.supplierA, [
+      { productId: cat.emulsion, value: '2000', qty: '3', rPrice: '2600' },
+    ]);
+    const [can] = await subProducts(shop, cat.emulsion);
+    const first = await shop.stock.post('/api/mix-paint/transfers', {
+      sourceSubProductId: can!.id,
+      cans: 1,
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.pricePerLiter).toBe(D(can!.salesPrice).dividedBy(4).toFixed(2));
+    // Later cans keep the current price unless a new one is given.
+    const kept = await shop.stock.post('/api/mix-paint/transfers', {
+      sourceSubProductId: can!.id,
+      cans: 1,
+    });
+    expect(kept.body.pricePerLiter).toBe(first.body.pricePerLiter);
+    // A price for the whole 4 L can: Rs 2,800 is Rs 700 per liter.
+    const byCan = await shop.stock.post('/api/mix-paint/transfers', {
+      sourceProductId: cat.emulsion,
+      cans: 1,
+      adminCanPrice: '2800',
+    });
+    expect(byCan.status).toBe(200);
+    expect(byCan.body.pricePerLiter).toBe('700.00');
   });
 
   it('never prices below the new average cost', async () => {
