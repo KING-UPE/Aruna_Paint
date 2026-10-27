@@ -32,6 +32,8 @@ export type EmptyKey = 'ArrowUp' | 'ArrowDown' | 'Delete' | '+' | '-';
 
 interface Props {
   wholesale: boolean;
+  /** The bill is set to "No discount": the discount box is skipped. */
+  noDiscount: boolean;
   existing: BillLine[];
   onAdd: (lines: BillLine[]) => void;
   /** Keys typed while the item field is empty act on the selected line. */
@@ -237,7 +239,7 @@ export const ItemEntry = forwardRef<ItemEntryHandle, Props>(function ItemEntry(p
     }
     setLoose(null);
     setUnitsQty(parsed.qty);
-    if (props.wholesale) return addUnits(parsed.qty);
+    if (props.wholesale || props.noDiscount) return addUnits(parsed.qty);
     setStep('discount');
     focusStep('discount');
   }
@@ -254,7 +256,7 @@ export const ItemEntry = forwardRef<ItemEntryHandle, Props>(function ItemEntry(p
       }
       const lines = splitIntoBatchLines(item, qty, startBatch, typed, props.existing);
       for (const l of lines) {
-        const p = priceBillLine(l, props.wholesale);
+        const p = priceBillLine(l, props.wholesale, props.noDiscount);
         if (p.error) {
           setError(p.error);
           focusStep('discount');
@@ -443,7 +445,7 @@ export const ItemEntry = forwardRef<ItemEntryHandle, Props>(function ItemEntry(p
               <>
                 {batch ? `${batch.code} · ` : ''}Rs {formatMoney(shownPrice)} ·{' '}
                 {formatQty(item.stockHere)} {item.unit.name} here
-                {batch && !props.wholesale
+                {batch && !props.wholesale && !props.noDiscount
                   ? ` · up to ${
                       D(batch.rPrice).greaterThan(0)
                         ? D(batch.maxDiscount)

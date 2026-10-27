@@ -49,8 +49,7 @@ export function DayEndPage() {
       toast.success(
         `Day end ${r.summary.no} finished. Total sales: Rs ${formatMoney(r.summary.cashSales)}.`,
       );
-      if (r.heldBills)
-        toast.warning(`${r.heldBills} held bills are still waiting.`);
+      if (r.heldBills) toast.warning(`${r.heldBills} held bills are still waiting.`);
       setNote('');
       refresh();
     } catch (err) {
@@ -62,10 +61,7 @@ export function DayEndPage() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <PageHeader
-        title="Day End Sales Calculation"
-        description={formatDate(new Date())}
-      />
+      <PageHeader title="Day End Sales Calculation" description={formatDate(new Date())} />
 
       {!current.isLoading && !shift ? (
         <Card>
@@ -103,7 +99,8 @@ export function DayEndPage() {
                 Rs {formatMoney(shift.cashSales)}
               </div>
               <div className="text-xs text-muted mt-1.5">
-                Calculated from {shift.billCount} completed {shift.billCount === 1 ? 'bill' : 'bills'}
+                Calculated from {shift.billCount} completed{' '}
+                {shift.billCount === 1 ? 'bill' : 'bills'}
               </div>
             </div>
 

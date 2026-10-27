@@ -1,6 +1,6 @@
 import { D, discountPerUnit, formatMoney, formatQty, parseDiscountText } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Menu, Trash2 } from 'lucide-react';
+import { BadgePercent, Menu, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -46,6 +46,8 @@ export function BillingScreen() {
   const customerRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<BillMode>(can('billing.create') ? 'INVOICE' : 'QUOTATION');
   const [wholesale, setWholesale] = useState(false);
+  // "No discount": the whole bill at full price; turning it off gives each line its own back.
+  const [noDiscount, setNoDiscount] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [lines, setLines] = useState<BillLine[]>([]);
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
@@ -67,14 +69,13 @@ export function BillingScreen() {
   const priced = useMemo(
     () =>
       lines.map((l) => ({
-        ...priceBillLine(l, wholesale),
+        ...priceBillLine(l, wholesale, noDiscount),
         serverError: lineErrors[l.key] ?? null,
       })),
-    [lines, wholesale, lineErrors],
+    [lines, wholesale, noDiscount, lineErrors],
   );
   const totals = billTotals(priced);
   const hasErrors = priced.some((l) => l.error || l.serverError);
-
 
   const focusEntry = () => window.requestAnimationFrame(() => entry.current?.focus());
 
@@ -86,6 +87,7 @@ export function BillingScreen() {
     setApprovalPin(undefined);
     setCustomerName('');
     setWholesale(false);
+    setNoDiscount(false);
     setPayError('');
     focusEntry();
   };
@@ -190,7 +192,7 @@ export function BillingScreen() {
   const updateLineDiscount = (index: number, rawDiscount: string): boolean => {
     const line = lines[index];
     if (!line) return false;
-    if (wholesale || line.kind === 'LOOSE') return false;
+    if (wholesale || noDiscount || line.kind === 'LOOSE') return false;
 
     const trimmed = rawDiscount.trim().replace('%', '').trim();
     if (trimmed === '' || trimmed === '0' || trimmed === '0.00') {
@@ -240,7 +242,7 @@ export function BillingScreen() {
         kind: mode,
         wholesale,
         customerName,
-        lines: toSaleInput(lines),
+        lines: toSaleInput(lines, noDiscount),
         cashGiven,
         print,
         heldSaleId,
@@ -293,7 +295,7 @@ export function BillingScreen() {
         kind: mode,
         wholesale,
         customerName,
-        lines: toSaleInput(lines),
+        lines: toSaleInput(lines, noDiscount),
         heldSaleId,
       });
       toast.success('Bill held. F8 brings it back.');
@@ -379,6 +381,12 @@ export function BillingScreen() {
     }
   };
 
+  const toggleNoDiscount = () => {
+    if (wholesale) return;
+    setNoDiscount(!noDiscount);
+    focusEntry();
+  };
+
   const openPay = () => {
     if (!lines.length) return;
     if (hasErrors) {
@@ -399,6 +407,7 @@ export function BillingScreen() {
           setMode((m) => (m === 'INVOICE' ? 'QUOTATION' : 'INVOICE'));
       },
       wholesale: () => setWholesale((w) => !w),
+      noDiscount: toggleNoDiscount,
       hold: () => void hold(),
       recall: () => setDialog('held'),
       history: () => setDialog('history'),
@@ -414,6 +423,7 @@ export function BillingScreen() {
   const keys = {
     mode: k('toggleMode'),
     wholesale: k('wholesale'),
+    noDiscount: k('noDiscount'),
     customer: k('customer'),
     hold: k('hold'),
     recall: k('recall'),
@@ -447,6 +457,26 @@ export function BillingScreen() {
           <Checkbox checked={wholesale} onChange={(e) => setWholesale(e.target.checked)} />{' '}
           Wholesale ({keys.wholesale})
         </label>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={noDiscount}
+          onClick={toggleNoDiscount}
+          disabled={wholesale}
+          title={wholesale ? 'Wholesale bills already have no extra discount.' : undefined}
+          className={cn(
+            'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+            noDiscount
+              ? 'border-warn bg-warn-soft text-warn'
+              : 'border-border bg-surface text-muted hover:border-muted/60 hover:text-text',
+          )}
+        >
+          <BadgePercent size={15} aria-hidden />
+          No discount
+          <kbd className="rounded border border-current/30 px-1 text-[11px] leading-4 opacity-80">
+            {keys.noDiscount}
+          </kbd>
+        </button>
         <CustomerInput
           ref={customerRef}
           value={customerName}
@@ -454,9 +484,7 @@ export function BillingScreen() {
           keyLabel={keys.customer}
           onDone={focusEntry}
         />
-        <span className="ml-auto text-sm text-muted">
-          {me.user.fullName}
-        </span>
+        <span className="ml-auto text-sm text-muted">{me.user.fullName}</span>
         <button
           type="button"
           onClick={() => setDialog('menu')}
@@ -483,6 +511,7 @@ export function BillingScreen() {
           <ItemEntry
             ref={entry}
             wholesale={wholesale}
+            noDiscount={noDiscount}
             existing={lines}
             onAdd={onAdd}
             onEmptyKey={onEmptyKey}
@@ -522,6 +551,7 @@ export function BillingScreen() {
                     index={i}
                     selected={i === selected}
                     wholesale={wholesale}
+                    noDiscount={noDiscount}
                     onSelect={() => setSelected(i)}
                     onBumpQty={(dir) => bumpLineQty(i, dir)}
                     onUpdateQty={(qty) => updateLineQty(i, qty)}
@@ -602,6 +632,10 @@ export function BillingScreen() {
           {wholesale ? (
             <p className="text-sm font-medium text-accent-strong">
               Wholesale bill: W-prices, no extra discount.
+            </p>
+          ) : noDiscount ? (
+            <p className="text-sm font-medium text-warn">
+              No discount: every line at full price. {keys.noDiscount} turns discounts back on.
             </p>
           ) : null}
         </aside>
@@ -703,6 +737,7 @@ function BillLineRow({
   index,
   selected,
   wholesale,
+  noDiscount,
   onSelect,
   onBumpQty,
   onUpdateQty,
@@ -714,6 +749,7 @@ function BillLineRow({
   index: number;
   selected: boolean;
   wholesale: boolean;
+  noDiscount: boolean;
   onSelect: () => void;
   onBumpQty: (dir: 1 | -1) => void;
   onUpdateQty: (qty: string) => boolean;
@@ -783,7 +819,7 @@ function BillLineRow({
       </td>
       <td className="num py-2 text-muted align-middle">{formatMoney(line.unitPrice)}</td>
       <td className="w-28 py-2 align-middle">
-        {wholesale || line.kind === 'LOOSE' ? (
+        {wholesale || noDiscount || line.kind === 'LOOSE' ? (
           <div className="text-center text-muted">0%</div>
         ) : (
           <div className="flex flex-col items-center justify-center">

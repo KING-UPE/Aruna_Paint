@@ -64,10 +64,7 @@ export function HistoryPanel({
     list.data?.totalAmount !== undefined
       ? list.data.totalAmount
       : items
-          .reduce(
-            (sum, item) => (item.status === 'VOID' ? sum : sum.plus(D(item.netTotal))),
-            D(0),
-          )
+          .reduce((sum, item) => (item.status === 'VOID' ? sum : sum.plus(D(item.netTotal))), D(0))
           .toFixed(2);
   const selected = items[Math.min(hi, items.length - 1)];
   const [detailId, setDetailId] = useState<string | null>(initialOpenId ?? null);
@@ -174,9 +171,7 @@ export function HistoryPanel({
             }}
             className={cn(
               'flex-1 rounded-lg py-1.5 text-center text-xs font-semibold transition',
-              type === 'ALL'
-                ? 'bg-surface text-text shadow-sm'
-                : 'text-muted hover:text-text',
+              type === 'ALL' ? 'bg-surface text-text shadow-sm' : 'text-muted hover:text-text',
             )}
           >
             All Bills

@@ -56,7 +56,14 @@ function Decimal_min(a: ReturnType<typeof D>, b: ReturnType<typeof D>) {
   return a.lessThan(b) ? a : b;
 }
 
-export function priceBillLine(line: BillLine, wholesale: boolean): PricedBillLine {
+/** "No discount" on the bill: every line at its full price, whatever each line had. */
+const NO_DISCOUNT = parseDiscountText('0%');
+
+export function priceBillLine(
+  line: BillLine,
+  wholesale: boolean,
+  noDiscount = false,
+): PricedBillLine {
   try {
     if (line.kind === 'LOOSE') {
       const mix = line.item.mix!;
@@ -73,8 +80,12 @@ export function priceBillLine(line: BillLine, wholesale: boolean): PricedBillLin
       };
     }
     const batch = line.batch!;
-    const typed = line.discountText.trim() ? parseDiscountText(line.discountText) : null;
-    if (line.discountText.trim() && !typed)
+    const typed = noDiscount
+      ? NO_DISCOUNT
+      : line.discountText.trim()
+        ? parseDiscountText(line.discountText)
+        : null;
+    if (!noDiscount && line.discountText.trim() && !typed)
       throw new DomainError('VALIDATION', 'Type 50 for rupees or 5% for percent.');
     const p = priceLine(batchPricing(batch), { wholesale, discount: typed });
     const a = lineAmounts(p.unitPrice, p.discountPerUnit, line.qty);
@@ -146,7 +157,7 @@ export function litersOnBill(lines: BillLine[], mixSubProductId: string): Return
     .reduce((s, l) => s.plus(D(l.qty)), D(0));
 }
 
-export function toSaleInput(lines: BillLine[]): SaleLineInput[] {
+export function toSaleInput(lines: BillLine[], noDiscount = false): SaleLineInput[] {
   return lines.map((l) =>
     l.kind === 'LOOSE'
       ? {
@@ -159,7 +170,11 @@ export function toSaleInput(lines: BillLine[]): SaleLineInput[] {
           kind: 'BATCH',
           subProductId: l.batch!.id,
           qty: l.qty,
-          discount: l.discountText.trim() ? parseDiscountText(l.discountText) : null,
+          discount: noDiscount
+            ? NO_DISCOUNT
+            : l.discountText.trim()
+              ? parseDiscountText(l.discountText)
+              : null,
         },
   );
 }

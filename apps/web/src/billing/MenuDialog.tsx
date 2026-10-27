@@ -38,14 +38,20 @@ export function MenuDialog({ open, onClose }: { open: boolean; onClose: () => vo
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => (!o ? onClose() : undefined)} title="System Menu" className="max-w-4xl">
+    <Dialog
+      open={open}
+      onOpenChange={(o) => (!o ? onClose() : undefined)}
+      title="System Menu"
+      className="max-w-4xl"
+    >
       <div className="flex flex-col gap-5 py-1">
         <div className="flex items-center justify-between border-b border-border pb-3 text-sm text-muted">
           <div>
             <span className="font-semibold text-text">{me.settings.shopName}</span>
           </div>
           <div>
-            User: <span className="font-medium text-text">{me.user.fullName}</span> ({me.roles.join(', ')})
+            User: <span className="font-medium text-text">{me.user.fullName}</span> (
+            {me.roles.join(', ')})
           </div>
         </div>
 
@@ -84,7 +90,10 @@ export function MenuDialog({ open, onClose }: { open: boolean; onClose: () => vo
           </div>
 
           {/* Stock Section */}
-          {(can('products.view', 'stock.view') || can('purchases.view') || can('suppliers.view') || can('mix_paint.view')) && (
+          {(can('products.view', 'stock.view') ||
+            can('purchases.view') ||
+            can('suppliers.view') ||
+            can('mix_paint.view')) && (
             <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2/40 p-3">
               <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-accent-strong">
                 <Package size={14} /> Stock & Products
@@ -165,7 +174,11 @@ export function MenuDialog({ open, onClose }: { open: boolean; onClose: () => vo
           )}
 
           {/* Admin Section */}
-          {(can('dashboard.view') || can('settings.view') || can('users.view') || can('values.edit') || can('audit_log.view')) && (
+          {(can('dashboard.view') ||
+            can('settings.view') ||
+            can('users.view') ||
+            can('values.edit') ||
+            can('audit_log.view')) && (
             <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2/40 p-3">
               <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-accent-strong">
                 <LayoutDashboard size={14} /> Administration

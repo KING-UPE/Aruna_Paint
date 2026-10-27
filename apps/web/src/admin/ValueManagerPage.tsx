@@ -1,10 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { Merge, Trash2 } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
+import { IconButton } from '@/components/ui/icon-button';
 import { Checkbox, Input, Select } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/misc';
 import { useValues, type ValueListName } from '@/components/values';
@@ -217,20 +219,21 @@ export function ValueManagerPage() {
                   </td>
                   <td className="text-right">
                     {canEditList && !isLoc ? (
-                      <>
-                        <Button size="sm" variant="ghost" onClick={() => setMergeFrom(v)}>
-                          Merge into…
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
+                      <div className="flex justify-end gap-0.5">
+                        <IconButton
+                          label={`Merge ${v.name} into another`}
+                          icon={<Merge size={16} />}
+                          onClick={() => setMergeFrom(v)}
+                        />
+                        <IconButton
+                          label={`Delete ${v.name}`}
+                          tone="danger"
+                          icon={<Trash2 size={16} />}
                           onClick={() =>
                             void run(() => api.delete(`/api/values/${tab}/${v.id}`), 'Deleted.')
                           }
-                        >
-                          Delete
-                        </Button>
-                      </>
+                        />
+                      </div>
                     ) : null}
                   </td>
                 </tr>

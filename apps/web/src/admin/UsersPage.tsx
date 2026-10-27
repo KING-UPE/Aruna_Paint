@@ -6,7 +6,7 @@ import {
   type Permission,
 } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, KeyRound, Pencil, RectangleEllipsis, Trash2 } from 'lucide-react';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useAsk, useConfirm } from '@/components/AskDialog';
@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
+import { IconButton } from '@/components/ui/icon-button';
 import { Field } from '@/components/ui/field';
 import { Checkbox, Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/misc';
@@ -194,26 +195,33 @@ export function UsersPage() {
                     {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(u)}>
-                        Edit
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => void reset(u, 'password')}>
-                        Reset password
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => void reset(u, 'pin')}>
-                        Reset PIN
-                      </Button>
+                    <div className="flex items-center justify-end gap-0.5">
+                      <IconButton
+                        label={`Edit ${u.fullName}`}
+                        icon={<Pencil size={16} />}
+                        onClick={() => setEditing(u)}
+                      />
+                      <IconButton
+                        label="Reset password"
+                        icon={<KeyRound size={16} />}
+                        onClick={() => void reset(u, 'password')}
+                      />
+                      <IconButton
+                        label="Reset PIN"
+                        icon={<RectangleEllipsis size={16} />}
+                        onClick={() => void reset(u, 'pin')}
+                      />
+                      {/* Keeps the icons lined up when a Super Admin row has no delete. */}
                       {!isSuperAdmin(u) ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-danger hover:bg-danger/10 hover:text-danger"
+                        <IconButton
+                          label={`Delete ${u.fullName}`}
+                          tone="danger"
+                          icon={<Trash2 size={16} />}
                           onClick={() => void deleteUser(u)}
-                        >
-                          Delete
-                        </Button>
-                      ) : null}
+                        />
+                      ) : (
+                        <span className="w-8" aria-hidden />
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -297,19 +305,19 @@ function RoleCard({
           </span>
         </button>
         {!sa ? (
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" onClick={onEdit}>
-              Edit
-            </Button>
+          <div className="flex gap-0.5">
+            <IconButton
+              label={`Edit ${roleLabel(r)} permissions`}
+              icon={<Pencil size={16} />}
+              onClick={onEdit}
+            />
             {!r.builtIn ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-danger hover:bg-danger/10 hover:text-danger"
+              <IconButton
+                label={`Delete ${roleLabel(r)}`}
+                tone="danger"
+                icon={<Trash2 size={16} />}
                 onClick={onDelete}
-              >
-                Delete
-              </Button>
+              />
             ) : null}
           </div>
         ) : null}

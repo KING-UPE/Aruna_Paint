@@ -7,7 +7,7 @@ This file is for whoever continues the work: a person or a new Claude session. T
 
 Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Phase 2 (reports, closing, reorder, cloud) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status on 27 Oct 2026: `pnpm typecheck` is clean; 80 shared unit tests, 84 server integration tests and 2 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
+Test status on 27 Oct 2026: `pnpm typecheck` is clean; 80 shared unit tests, 84 server integration tests and 3 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -49,6 +49,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Loose sales (`1.5L` or `0.375`), open a can with a Stock Manager or Admin PIN, price per liter changed with an Admin PIN.
 - ✅ Discount rules (at most the purchase discount, never below cost, never above the R-price, wholesale takes the W-price), cash payment with change, the "Print receipt?" prompt, drawer kick.
 - ✅ Hold (F7) and recall (F8); bill history (F9) with P reprint, R return, C convert, V void.
+- ✅ **No discount (Alt+N)**, a toggle next to Wholesale. While it is on, every line sells at the R-price with no discount, lines added later included, and item entry skips the discount box. Turning it off gives each line its own discount back. It is sent as a 0% discount per line, so the server prices it the same way. It can't be used on wholesale bills, which already have no extra discount.
 - ✅ Receipts: 80 mm ESC/POS with "You saved Rs X", reprint stamps, return notes, the day-end report. Drivers: network 9100, shared Windows printer, file (testing), none.
 - 🟡 Sinhala receipts: the setting exists but receipts always print in English. Printing Sinhala as a raster image is not built.
 - ✅ Returns: refund = what was paid; restock to the same batch, or to the Damaged location; loose paint blocked; old-system bills need an Admin.
@@ -69,6 +70,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
   - a custom colour (picker or colour code);
   - light, dark, or "Same as the PC".
   The choice is stored in the `appearance` setting and applies to every screen and counter, including the login screen (`/api/setup/status` is public and carries it). Each PC remembers the last theme so it doesn't flash the old colours at start. `shared/domain/themes.ts` works out all colours from one accent and keeps text readable (tests check 4.5:1 contrast). Green, amber and red never change. Screens must use the colour tokens (`bg-accent`, `text-muted`…), never Tailwind palette colours, or they won't follow the theme.
+- ✅ Row actions are icon buttons (`components/ui/icon-button.tsx`) with a tooltip on hover and keyboard focus, and the words as `aria-label`.
 - ✅ The app's own confirm and one-line question dialogs (`components/AskDialog.tsx`, `useConfirm()` and `useAsk()`) replace `window.confirm` and `window.prompt`.
 
 ### Owner's changes the tests now follow

@@ -112,3 +112,49 @@ test('hold, recall and bill history keys', async ({ page }) => {
     page.getByText(`Reprint #2 of ${invoiceNo}`).or(page.getByText(`Reprint #2 logged`)),
   ).toBeVisible();
 });
+
+test('No discount (Alt+N) bills every line at full price and can be turned off again', async ({
+  page,
+}) => {
+  await loginAtCounter(page, 'cashier');
+  const net = page.locator('[aria-live="polite"]', { hasText: /^Rs / });
+
+  // Thinner 4L with its 5% default discount: Rs 2,470.00.
+  await page.keyboard.press('F2');
+  await expect(page.getByRole('textbox', { name: 'Item code' })).toBeFocused();
+  await page.keyboard.type('10001');
+  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('Thinner 4L');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('listbox', { name: 'Batches' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('1');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await expect(net).toHaveText('Rs 2,470.00');
+
+  // Alt+N: full price, and the next item skips the discount box.
+  await page.keyboard.press('Alt+N');
+  await expect(page.getByRole('switch', { name: /No discount/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(net).toHaveText('Rs 2,600.00');
+  await page.keyboard.type('brush');
+  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('Brush 2 inch');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await expect(net).toHaveText('Rs 3,050.00');
+
+  // Off again: the Thinner gets its own discount back.
+  await page.keyboard.press('Alt+N');
+  await expect(net).toHaveText('Rs 2,920.00');
+
+  // On, then pay: the server charges the same full price.
+  await page.keyboard.press('Alt+N');
+  await expect(net).toHaveText('Rs 3,050.00');
+  await page.keyboard.press('F10');
+  await expect(page.getByRole('dialog')).toContainText('Rs 3,050.00');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('n');
+  await expect(page.getByText(/INV-\d{6} · change Rs 0.00/)).toBeVisible();
+});

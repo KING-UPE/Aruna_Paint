@@ -29,6 +29,7 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutScreen, Record<string, ShortcutAc
     customer: { label: 'Customer name', keys: 'F3' },
     toggleMode: { label: 'Invoice or quotation', keys: 'F4' },
     wholesale: { label: 'Wholesale checkbox', keys: 'F6' },
+    noDiscount: { label: 'No discount on this bill', keys: 'Alt+N' },
     hold: { label: 'Hold bill', keys: 'F7' },
     recall: { label: 'Recall a held bill', keys: 'F8' },
     history: { label: 'Bill history', keys: 'F9' },

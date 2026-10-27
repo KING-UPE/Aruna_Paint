@@ -83,6 +83,7 @@ docs/             plan PDF and PROGRESS.md
 ## Gotchas learned the hard way
 
 - Colours come only from the theme tokens in `index.css` (`bg-accent`, `text-muted`, `border-border`…). Never use Tailwind palette colours (`bg-teal-600`) or hex codes in screens: the Super Admin's colour theme (`lib/theme.ts`, `shared/domain/themes.ts`) rewrites the tokens.
+- Row actions in tables (edit, reset, delete…) use `IconButton` (`components/ui/icon-button`) with a `label`, not word buttons.
 - Use `Select` from `components/ui/input` (our dropdown), never a native `<select>`. Use `useConfirm()` and `useAsk()` from `components/AskDialog`, never `window.confirm` or `window.prompt`. A `Checkbox` takes `indeterminate`.
 - React's `autoFocus` does nothing on a `div`. Dialog lists need `initialFocus` on our `Dialog`, and its Close button is out of the tab order. Pass `restoreFocus={false}` when the caller moves focus on after closing.
 - Move focus with a `useLayoutEffect` after state changes, not `requestAnimationFrame`. Cashiers (and Playwright) type the next key immediately.
