@@ -40,6 +40,10 @@ export function Dialog({
               el.focus();
             }
           }}
+          onEscapeKeyDown={(e) => {
+            // Esc inside an open dropdown closes only the dropdown.
+            if (document.querySelector('[data-select-open]')) e.preventDefault();
+          }}
           onCloseAutoFocus={(e) => {
             if (!restoreFocus) e.preventDefault();
           }}

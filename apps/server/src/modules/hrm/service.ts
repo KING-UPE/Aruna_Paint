@@ -1,6 +1,10 @@
 import {
   D,
+  formatDate,
   hrmMonthConfigSchema,
+  monthPeriod,
+  periodContaining,
+  periodInstants,
   type HrmMonthConfig,
   type HrmSettings,
 } from '@aruna/shared';
@@ -35,6 +39,13 @@ export interface HrmMonthlySummary {
     endDate: string;
     isCurrentMonth: boolean;
     label: string;
+    /** Day of the month the business month starts on (1–28). */
+    monthStartDay: number;
+    /** Inclusive calendar dates of this period (YYYY-MM-DD). */
+    firstDay: string;
+    lastDay: string;
+    /** The period that contains today. */
+    current: { year: number; month: number };
   };
   sales: {
     grossSales: string;
@@ -75,17 +86,15 @@ export async function getHrmMonthlySummary(
   month: number,
 ): Promise<HrmMonthlySummary> {
   const periodKey = `${year}-${String(month).padStart(2, '0')}`;
+  // The month starts on the day the Super Admin set (the 1st by default, or e.g. the 25th).
+  const { monthStartDay } = await settings.get('closing');
+  const period = monthPeriod(year, month, monthStartDay);
+  const today = periodContaining(new Date(), monthStartDay);
+  const isCurrentMonth = today.year === year && today.month === month;
+  const { from: startDate, to: periodEnd } = periodInstants(period);
+  // The current month runs up to now.
   const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-  const isCurrentMonth = year === currentYear && month === currentMonth;
-
-  // Month starts on the 1st
-  const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
-  // If current month, end is now ("start: month 1 end: for now"); otherwise end of month
-  const endDate = isCurrentMonth
-    ? now
-    : new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+  const endDate = isCurrentMonth && now < periodEnd ? now : new Date(periodEnd.getTime() - 1);
 
   // Query completed sales in date range
   const salesAgg = await tx.$queryRaw<
@@ -124,7 +133,8 @@ export async function getHrmMonthlySummary(
   const hrmSettings = (await settings.get('hrm')) as HrmSettings;
   const override = hrmSettings.monthlyOverrides?.[periodKey];
 
-  const maxCommissionPercent = override?.maxCommissionPercent ?? hrmSettings.maxCommissionPercent ?? 10;
+  const maxCommissionPercent =
+    override?.maxCommissionPercent ?? hrmSettings.maxCommissionPercent ?? 10;
   const shopRent = override?.shopRent ?? hrmSettings.shopRent ?? 45000;
   const electricityBill = override?.electricityBill ?? hrmSettings.electricityBill ?? 18500;
   const salaries = override?.salaries ?? hrmSettings.salaries ?? [];
@@ -189,10 +199,22 @@ export async function getHrmMonthlySummary(
   }));
 
   const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
-  const label = `${monthNames[month - 1]} ${year}${isCurrentMonth ? ' (Current - Up to Now)' : ''}`;
+  const range =
+    monthStartDay === 1 ? '' : ` · ${formatDate(period.start)} – ${formatDate(period.end)}`;
+  const label = `${monthNames[month - 1]} ${year}${range}${isCurrentMonth ? ' (current, up to now)' : ''}`;
 
   return {
     period: {
@@ -203,6 +225,10 @@ export async function getHrmMonthlySummary(
       endDate: endDate.toISOString(),
       isCurrentMonth,
       label,
+      monthStartDay,
+      firstDay: period.start,
+      lastDay: period.end,
+      current: { year: today.year, month: today.month },
     },
     sales: {
       grossSales: grossSalesD.toFixed(2),
@@ -288,4 +314,23 @@ export async function updateHrmMonth(
   });
 
   return saved;
+}
+
+/** The Super Admin picks the day a business month starts; sales periods follow it. */
+export async function setMonthStartDay(
+  tx: Tx,
+  settings: SettingsService,
+  actor: ActorRef,
+  day: number,
+) {
+  const before = await settings.get('closing');
+  const saved = await settings.set(tx, 'closing', { ...before, monthStartDay: day });
+  await audit(tx, actor, {
+    action: 'settings.update',
+    entity: 'settings',
+    entityId: 'closing',
+    before: { monthStartDay: before.monthStartDay },
+    after: { monthStartDay: saved.monthStartDay },
+  });
+  return saved.monthStartDay;
 }

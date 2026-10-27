@@ -23,9 +23,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { api } from '@/lib/api';
-import { formatMoney, formatQty } from '@aruna/shared';
+import { formatDate, formatMoney, formatQty } from '@aruna/shared';
 
 interface SalaryItem {
   id: string;
@@ -54,6 +54,10 @@ interface HrmSummaryResponse {
     endDate: string;
     isCurrentMonth: boolean;
     label: string;
+    monthStartDay: number;
+    firstDay: string;
+    lastDay: string;
+    current: { year: number; month: number };
   };
   sales: {
     grossSales: string;
@@ -115,9 +119,11 @@ export function HrmPage() {
   const qc = useQueryClient();
   const today = new Date();
 
-  // Period switch state: default is current year and current month
+  // Period switch state. The month may start on any day (Settings: month start), so the
+  // current period comes from the server on first load.
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
+  const [periodPicked, setPeriodPicked] = useState(false);
 
   // Form states editable by Super Admin
   const [maxCommissionPercent, setMaxCommissionPercent] = useState<number>(10);
@@ -133,9 +139,7 @@ export function HrmPage() {
   const summaryQuery = useQuery({
     queryKey: ['hrm-summary', selectedYear, selectedMonth],
     queryFn: () =>
-      api.get<HrmSummaryResponse>(
-        `/api/hrm/summary?year=${selectedYear}&month=${selectedMonth}`,
-      ),
+      api.get<HrmSummaryResponse>(`/api/hrm/summary?year=${selectedYear}&month=${selectedMonth}`),
   });
 
   // Sync server data into form when summary loads or period changes
@@ -191,9 +195,26 @@ export function HrmPage() {
   });
 
   // Period navigation helpers
+  const currentPeriod = summaryQuery.data?.period.current;
+  const monthStartDay = summaryQuery.data?.period.monthStartDay ?? 1;
+  useEffect(() => {
+    if (!periodPicked && currentPeriod) {
+      setPeriodPicked(true);
+      setSelectedYear(currentPeriod.year);
+      setSelectedMonth(currentPeriod.month);
+    }
+  }, [currentPeriod, periodPicked]);
+
   const goToCurrentMonth = () => {
-    setSelectedYear(today.getFullYear());
-    setSelectedMonth(today.getMonth() + 1);
+    if (!currentPeriod) return;
+    setSelectedYear(currentPeriod.year);
+    setSelectedMonth(currentPeriod.month);
+  };
+
+  const saveMonthStart = async (day: number) => {
+    await api.put('/api/hrm/month-start', { day });
+    setPeriodPicked(false);
+    await qc.invalidateQueries({ queryKey: ['hrm-summary'] });
   };
 
   const goToPrevMonth = () => {
@@ -218,35 +239,24 @@ export function HrmPage() {
   const netSales = Number(summaryQuery.data?.sales.netSales || 0);
   const grossCommissionPool = (netSales * (Number(maxCommissionPercent) || 0)) / 100;
   const totalSalaries = salaries.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
-  const totalFixedExpenses = (Number(shopRent) || 0) + (Number(electricityBill) || 0) + totalSalaries;
+  const totalFixedExpenses =
+    (Number(shopRent) || 0) + (Number(electricityBill) || 0) + totalSalaries;
   const netCommissionPool = Math.max(0, grossCommissionPool - totalFixedExpenses);
   const shortfall = Math.max(0, totalFixedExpenses - grossCommissionPool);
-  const totalMemberRatePercent = members.reduce(
-    (sum, m) => sum + (Number(m.ratePercent) || 0),
-    0,
-  );
+  const totalMemberRatePercent = members.reduce((sum, m) => sum + (Number(m.ratePercent) || 0), 0);
 
   // Handlers for dynamic salaries
   const handleAddSalary = () => {
     const newId = `sal-${Date.now()}`;
-    setSalaries([
-      ...salaries,
-      { id: newId, name: 'New Employee', role: 'Staff', amount: 30000 },
-    ]);
+    setSalaries([...salaries, { id: newId, name: 'New Employee', role: 'Staff', amount: 30000 }]);
   };
 
   const handleRemoveSalary = (id: string) => {
     setSalaries(salaries.filter((s) => s.id !== id));
   };
 
-  const handleSalaryChange = (
-    id: string,
-    field: keyof SalaryItem,
-    val: string | number,
-  ) => {
-    setSalaries(
-      salaries.map((s) => (s.id === id ? { ...s, [field]: val } : s)),
-    );
+  const handleSalaryChange = (id: string, field: keyof SalaryItem, val: string | number) => {
+    setSalaries(salaries.map((s) => (s.id === id ? { ...s, [field]: val } : s)));
   };
 
   // Handlers for dynamic members
@@ -268,11 +278,7 @@ export function HrmPage() {
     setMembers(members.filter((m) => m.id !== id));
   };
 
-  const handleMemberChange = (
-    id: string,
-    field: keyof MemberItem,
-    val: unknown,
-  ) => {
+  const handleMemberChange = (id: string, field: keyof MemberItem, val: unknown) => {
     setMembers(
       members.map((m) => {
         if (m.id !== id) return m;
@@ -283,9 +289,7 @@ export function HrmPage() {
             userId: (val as string) || null,
             name: userObj ? userObj.fullName : m.name,
             role: userObj ? userObj.roles.join(', ') : m.role,
-            ratePercent: userObj?.commissionRate
-              ? Number(userObj.commissionRate)
-              : m.ratePercent,
+            ratePercent: userObj?.commissionRate ? Number(userObj.commissionRate) : m.ratePercent,
           };
         }
         return { ...m, [field]: val };
@@ -294,7 +298,7 @@ export function HrmPage() {
   };
 
   const isCurrentMonth =
-    selectedYear === today.getFullYear() && selectedMonth === today.getMonth() + 1;
+    selectedYear === currentPeriod?.year && selectedMonth === currentPeriod?.month;
 
   return (
     <div className="flex flex-col gap-6 py-2">
@@ -318,7 +322,8 @@ export function HrmPage() {
               )}
             </div>
             <p className="text-xs text-muted">
-              Monthly sales commission share after deducting fixed expenses (Shop rent, electricity, salaries)
+              Monthly sales commission share after deducting fixed expenses (Shop rent, electricity,
+              salaries)
             </p>
           </div>
         </div>
@@ -336,29 +341,31 @@ export function HrmPage() {
               <ChevronLeft size={16} />
             </Button>
 
-            <select
-              value={selectedMonth}
+            <Select
+              aria-label="Month"
+              value={String(selectedMonth)}
               onChange={(e) => setSelectedMonth(Number(e.target.value))}
-              className="h-8 rounded-lg bg-surface px-2.5 text-sm font-semibold text-foreground focus:outline-none"
+              className="h-8 w-36 rounded-lg border-0 text-sm font-semibold"
             >
               {MONTHS.map((m, idx) => (
                 <option key={m} value={idx + 1}>
                   {m}
                 </option>
               ))}
-            </select>
+            </Select>
 
-            <select
-              value={selectedYear}
+            <Select
+              aria-label="Year"
+              value={String(selectedYear)}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="h-8 rounded-lg bg-surface px-2.5 text-sm font-semibold text-foreground focus:outline-none"
+              className="h-8 w-24 rounded-lg border-0 text-sm font-semibold"
             >
               {[2024, 2025, 2026, 2027, 2028].map((y) => (
                 <option key={y} value={y}>
                   {y}
                 </option>
               ))}
-            </select>
+            </Select>
 
             <Button
               variant="ghost"
@@ -370,6 +377,23 @@ export function HrmPage() {
               <ChevronRight size={16} />
             </Button>
           </div>
+
+          <label className="flex items-center gap-2 text-xs font-medium text-muted">
+            Month starts on day
+            <Select
+              aria-label="Month starts on day"
+              value={String(monthStartDay)}
+              disabled={!canEdit}
+              onChange={(e) => void saveMonthStart(Number(e.target.value))}
+              className="h-9 w-20 rounded-lg text-sm font-semibold"
+            >
+              {Array.from({ length: 28 }, (_, i) => (
+                <option key={i + 1} value={String(i + 1)}>
+                  {i + 1}
+                </option>
+              ))}
+            </Select>
+          </label>
 
           <Button
             variant={isCurrentMonth ? 'primary' : 'secondary'}
@@ -400,9 +424,11 @@ export function HrmPage() {
             {MONTHS[selectedMonth - 1]} {selectedYear}
           </span>
           <span className="text-muted">
-            {isCurrentMonth
-              ? `(Start: 1st of month · End: Today up to now)`
-              : `(Full month: 1st to end of month)`}
+            {summaryQuery.data
+              ? `${formatDate(summaryQuery.data.period.firstDay)} to ${
+                  isCurrentMonth ? 'today, up to now' : formatDate(summaryQuery.data.period.lastDay)
+                }`
+              : ''}
           </span>
         </div>
         {!canEdit && (
@@ -423,9 +449,7 @@ export function HrmPage() {
         {/* Month Sales */}
         <Card className="border-border">
           <CardBody className="p-4">
-            <div className="text-xs font-medium uppercase text-muted">
-              1. Month Net Sales
-            </div>
+            <div className="text-xs font-medium uppercase text-muted">1. Month Net Sales</div>
             <div className="mt-1 text-2xl font-extrabold text-foreground">
               Rs {formatMoney(summaryQuery.data?.sales.netSales ?? '0.00')}
             </div>
@@ -441,9 +465,7 @@ export function HrmPage() {
           <CardBody className="p-4">
             <div className="flex items-center justify-between text-xs font-medium uppercase text-muted">
               <span>2. Max Commission Pool</span>
-              <span className="font-bold text-accent-strong">
-                {maxCommissionPercent}%
-              </span>
+              <span className="font-bold text-accent-strong">{maxCommissionPercent}%</span>
             </div>
             <div className="mt-1 text-2xl font-extrabold text-accent-strong">
               Rs {formatMoney(grossCommissionPool.toFixed(2))}
@@ -482,7 +504,9 @@ export function HrmPage() {
             </div>
             <div className="mt-1.5 text-xs text-muted">
               {shortfall > 0 ? (
-                <span className="text-danger font-medium">Shortfall: Rs {formatMoney(shortfall.toFixed(2))}</span>
+                <span className="text-danger font-medium">
+                  Shortfall: Rs {formatMoney(shortfall.toFixed(2))}
+                </span>
               ) : (
                 <span>Distributed to table members based on %</span>
               )}
@@ -514,9 +538,7 @@ export function HrmPage() {
               <div className="grid grid-cols-2 gap-3">
                 {/* Shop Rent */}
                 <div>
-                  <label className="text-xs font-semibold text-muted">
-                    Shop Rent (Rs)
-                  </label>
+                  <label className="text-xs font-semibold text-muted">Shop Rent (Rs)</label>
                   <Input
                     type="number"
                     min="0"
@@ -530,9 +552,7 @@ export function HrmPage() {
 
                 {/* Electricity Bill */}
                 <div>
-                  <label className="text-xs font-semibold text-muted">
-                    Electricity Bill (Rs)
-                  </label>
+                  <label className="text-xs font-semibold text-muted">Electricity Bill (Rs)</label>
                   <Input
                     type="number"
                     min="0"
@@ -576,9 +596,7 @@ export function HrmPage() {
                           placeholder="Employee name"
                           disabled={!canEdit}
                           value={s.name}
-                          onChange={(e) =>
-                            handleSalaryChange(s.id, 'name', e.target.value)
-                          }
+                          onChange={(e) => handleSalaryChange(s.id, 'name', e.target.value)}
                           className="h-7 text-xs font-medium"
                         />
                       </div>
@@ -588,9 +606,7 @@ export function HrmPage() {
                           placeholder="Role"
                           disabled={!canEdit}
                           value={s.role}
-                          onChange={(e) =>
-                            handleSalaryChange(s.id, 'role', e.target.value)
-                          }
+                          onChange={(e) => handleSalaryChange(s.id, 'role', e.target.value)}
                           className="h-7 text-xs text-muted"
                         />
                       </div>
@@ -601,11 +617,7 @@ export function HrmPage() {
                           disabled={!canEdit}
                           value={s.amount}
                           onChange={(e) =>
-                            handleSalaryChange(
-                              s.id,
-                              'amount',
-                              Number(e.target.value) || 0,
-                            )
+                            handleSalaryChange(s.id, 'amount', Number(e.target.value) || 0)
                           }
                           className="h-7 text-xs font-mono font-bold text-right"
                         />
@@ -676,9 +688,7 @@ export function HrmPage() {
                     step="0.5"
                     disabled={!canEdit}
                     value={maxCommissionPercent}
-                    onChange={(e) =>
-                      setMaxCommissionPercent(Number(e.target.value) || 0)
-                    }
+                    onChange={(e) => setMaxCommissionPercent(Number(e.target.value) || 0)}
                     className="h-8 w-16 text-center font-bold"
                   />
                   <span className="text-muted">%</span>
@@ -733,18 +743,14 @@ export function HrmPage() {
                                 <Input
                                   type="text"
                                   value={m.name}
-                                  onChange={(e) =>
-                                    handleMemberChange(m.id, 'name', e.target.value)
-                                  }
+                                  onChange={(e) => handleMemberChange(m.id, 'name', e.target.value)}
                                   className="h-7 text-xs font-semibold"
                                   placeholder="Name (e.g. Aruna, Owner, Savings)"
                                 />
                                 <Input
                                   type="text"
                                   value={m.role}
-                                  onChange={(e) =>
-                                    handleMemberChange(m.id, 'role', e.target.value)
-                                  }
+                                  onChange={(e) => handleMemberChange(m.id, 'role', e.target.value)}
                                   className="h-6 text-[11px] text-muted"
                                   placeholder="Role / Details"
                                 />
@@ -760,12 +766,11 @@ export function HrmPage() {
                           {/* Link to system user */}
                           <td className="px-3 py-3">
                             {canEdit ? (
-                              <select
+                              <Select
+                                aria-label="Link user"
                                 value={m.userId ?? ''}
-                                onChange={(e) =>
-                                  handleMemberChange(m.id, 'userId', e.target.value)
-                                }
-                                className="h-7 rounded-lg border border-border bg-surface px-2 text-xs font-medium focus:outline-none"
+                                onChange={(e) => handleMemberChange(m.id, 'userId', e.target.value)}
+                                className="h-8 w-48 rounded-lg text-xs font-medium"
                               >
                                 <option value="">(Custom / Fund)</option>
                                 {(summaryQuery.data?.users ?? []).map((u) => (
@@ -773,12 +778,12 @@ export function HrmPage() {
                                     {u.fullName} ({u.username})
                                   </option>
                                 ))}
-                              </select>
+                              </Select>
                             ) : (
                               <span className="text-xs text-muted">
                                 {m.userId
-                                  ? summaryQuery.data?.users.find((u) => u.id === m.userId)
-                                      ?.username ?? 'Linked User'
+                                  ? (summaryQuery.data?.users.find((u) => u.id === m.userId)
+                                      ?.username ?? 'Linked User')
                                   : 'Custom'}
                               </span>
                             )}
@@ -813,9 +818,7 @@ export function HrmPage() {
                           </td>
 
                           {/* Share ratio of pool */}
-                          <td className="num px-3 py-3 text-xs text-muted">
-                            {shareRatio}%
-                          </td>
+                          <td className="num px-3 py-3 text-xs text-muted">{shareRatio}%</td>
 
                           {/* Net commission amount */}
                           <td className="num px-4 py-3 font-bold text-ok text-base">
@@ -863,21 +866,25 @@ export function HrmPage() {
                 <div className="flex items-center gap-2">
                   {totalMemberRatePercent === maxCommissionPercent ? (
                     <Badge tone="ok" className="gap-1">
-                      <CheckCircle2 size={12} /> Rates match 100% of max pool ({maxCommissionPercent}%)
+                      <CheckCircle2 size={12} /> Rates match 100% of max pool (
+                      {maxCommissionPercent}%)
                     </Badge>
                   ) : totalMemberRatePercent > maxCommissionPercent ? (
                     <Badge tone="danger" className="gap-1">
-                      <AlertCircle size={12} /> Rates ({totalMemberRatePercent}%) exceed max pool ({maxCommissionPercent}%)
+                      <AlertCircle size={12} /> Rates ({totalMemberRatePercent}%) exceed max pool (
+                      {maxCommissionPercent}%)
                     </Badge>
                   ) : (
                     <Badge tone="warn" className="gap-1">
-                      <HelpCircle size={12} /> Rates ({totalMemberRatePercent}%) are under max pool ({maxCommissionPercent}%)
+                      <HelpCircle size={12} /> Rates ({totalMemberRatePercent}%) are under max pool
+                      ({maxCommissionPercent}%)
                     </Badge>
                   )}
                 </div>
 
                 <div className="text-muted text-[11px]">
-                  Formula: Max Commission Pool ({maxCommissionPercent}%) − Fixed Expenses = Net Pool → Distributed by Member %
+                  Formula: Max Commission Pool ({maxCommissionPercent}%) − Fixed Expenses = Net Pool
+                  → Distributed by Member %
                 </div>
               </div>
             </CardBody>
@@ -944,7 +951,8 @@ export function HrmPage() {
                     </span>
                   </div>
                   <p className="text-xs text-muted">
-                    Applies rates and expenses only to {MONTHS[selectedMonth - 1]} {selectedYear}. Upcoming months remain unchanged.
+                    Applies rates and expenses only to {MONTHS[selectedMonth - 1]} {selectedYear}.
+                    Upcoming months remain unchanged.
                   </p>
                 </button>
 
@@ -967,7 +975,8 @@ export function HrmPage() {
                     </span>
                   </div>
                   <p className="text-xs text-muted">
-                    Applies to {MONTHS[selectedMonth - 1]} {selectedYear} and becomes the default for future months until edited.
+                    Applies to {MONTHS[selectedMonth - 1]} {selectedYear} and becomes the default
+                    for future months until edited.
                   </p>
                 </button>
               </div>

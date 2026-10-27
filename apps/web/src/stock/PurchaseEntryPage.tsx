@@ -18,6 +18,7 @@ import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
+import { useAsk } from '@/components/AskDialog';
 import { usePinPrompt } from '@/components/PinPrompt';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -177,18 +178,16 @@ export function PurchaseEntryPage() {
   useEffect(() => {
     const p = existing.data;
     if (!p || p.status !== 'DRAFT') return;
-    void api
-      .get<Supplier>(`/api/suppliers/${p.supplier.id}`)
-      .then((s) =>
-        setHeader({
-          supplier: s,
-          supplierInvoiceNo: p.supplierInvoiceNo,
-          date: p.date,
-          ref: p.ref,
-          locationId: p.location.id,
-          salesRepId: p.salesRep?.id ?? '',
-        }),
-      );
+    void api.get<Supplier>(`/api/suppliers/${p.supplier.id}`).then((s) =>
+      setHeader({
+        supplier: s,
+        supplierInvoiceNo: p.supplierInvoiceNo,
+        date: p.date,
+        ref: p.ref,
+        locationId: p.location.id,
+        salesRepId: p.salesRep?.id ?? '',
+      }),
+    );
     setFooter({
       invoiceDiscount: p.invoiceDiscount ?? '',
       otherCharges: p.otherCharges ?? '',
@@ -1114,6 +1113,7 @@ function PostedPurchase({
 }) {
   const { can } = useAuth();
   const qc = useQueryClient();
+  const ask = useAsk();
   const nav = useNavigate();
   const showCost = p.lines.some((l) => l.cost !== undefined);
   const reopen = async () => {
@@ -1126,7 +1126,12 @@ function PostedPurchase({
     }
   };
   const reverse = async () => {
-    const reason = window.prompt('Why is this purchase being reversed?');
+    const reason = await ask({
+      title: `Reverse ${p.no}`,
+      message: 'Its stock and the supplier balance are taken back.',
+      label: 'Why is this purchase being reversed?',
+      confirmLabel: 'Reverse purchase',
+    });
     if (!reason) return;
     try {
       let approval: { pin: string } | undefined;

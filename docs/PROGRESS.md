@@ -1,13 +1,18 @@
 # Build progress and handoff
 
-Last updated: 25 Oct 2026, end of the first build session (branch `claude/affectionate-hopper-q0hr5p`).
+Last updated: 27 Oct 2026, after the UI and permissions session (branch `claude/affectionate-hopper-q0hr5p`).
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
 
 Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Phase 2 (reports, closing, reorder, cloud) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status when this was written: 62 shared unit tests, 78 server integration tests and 2 Playwright keyboard e2e tests, all passing. `pnpm typecheck` is clean.
+Test status on 27 Oct 2026: `pnpm typecheck` is clean. All 69 shared unit tests pass. Of the 81 server integration tests, 75 pass. The 6 that fail fail the same way on `main` without this session's changes. They expect behaviour the owner later changed on `main`:
+- mix paint items are now named "… (Mix Paint)";
+- the shift and day-start rules changed;
+- the lookup flags and the mix price errors changed.
+
+Both Playwright e2e tests fail because cashiers now land on the Main menu, not the billing screen. These tests need updating to match the new behaviour (see Known gaps).
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -16,6 +21,10 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 ### Foundation
 - ✅ Login with username + password; PIN user switching; idle screen lock (client timer + server enforcement); forced password change after reset; 8 printed recovery codes for the Super Admin.
 - ✅ Roles by checkbox (combined per user), custom roles built from module permissions, safety rules (an active Super Admin always remains; Super Admin-only permissions can't go into a custom role), and server-side permission checks on every route.
+- ✅ Per-permission control. The Super Admin opens a role to see its permissions:
+  - Built-in roles (not the Super Admin) can be changed for everyone who has them (`roles.customized`) and put back with "Back to default" (`POST /api/roles/:id/reset`).
+  - Each user can also get extra permissions, or lose some, on top of their roles (`user_permissions`, sent as `permissionOverrides`).
+  - The rule lives in `shared/domain/permissions.ts` (`rolePermissions`, `resolvePermissions`), and the screen is `admin/PermissionEditor.tsx`.
 - ✅ Manager override by PIN, with both names in the audit log (void, mix price change, open can, write-off, old-system return, reverse purchase).
 - ✅ Per-user shortcut keys: remap in My profile, validation against reserved and already-used keys, reset to default, F1 help, Ctrl+K command palette.
 - ✅ Value manager: categories, brands, units (with an allows-decimal flag), locations (Super Admin only), reasons (with "applies to"), cutoff types. Unique names ignoring case and spaces, merge with history, deactivate when in use, ordering, "+ Add" inside dropdowns.
@@ -32,6 +41,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Supplier activity log: opening, running and closing balance; filters by date and type; print with the browser. Export to PDF/Excel is not built.
 - ✅ Supplier payments: cash, cheque or bank transfer; settled against the oldest bills first; warning and advance when paying more than the balance; cheque register; a bounced cheque puts the balance back. **Missing:** reminders for post-dated cheques.
 - ✅ Products and sub-products: auto 5-digit codes, old codes kept, box-to-piece buying, mix paint item created for loose-sale paints (several sizes can link to one), code renames that cascade to sub and MP codes after confirmation, price changes for one or all sub-products with price history.
+- ✅ Renaming a product (code, name or receipt name), or renaming one sub-product, also updates old bills, quotations and held bills (`sale_lines` code, name and print name). Amounts never change. Each rename is logged as `product.rename`. The Super Admin sees "old → new" under "Name and code changes" on the product page (`GET /api/products/:id/renames`).
 - ✅ Purchases (GRN): draft or post; server-side line maths; Rs 1 match against the supplier invoice total; duplicate-invoice warning; automatic sub-product rules 1–7 (match, reuse at zero stock, new code when anything differs); paid now; edit while stock is unmoved (reopen); Admin reversal; keyboard grid; inline new item.
 - ✅ Stock view with filters (category, brand, supplier, location, low, out, expiring, inactive), product detail, bin card, zero-stock sub-products hidden.
 - ✅ Mix paint transfers at weighted-average cost; price kept or changed (never below the average); PIN flow when a cashier opens a can at the counter.
@@ -48,6 +58,18 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - 🟡 Sinhala receipts: the setting exists but receipts always print in English. Printing Sinhala as a raster image is not built.
 - ✅ Returns: refund = what was paid; restock to the same batch, or to the Damaged location; loose paint blocked; old-system bills need an Admin.
 - ✅ Day end: opening float, cash in/out with reasons, counted denominations, expected-cash difference, printed report, then a backup.
+
+### HRM and commission (added by the owner on `main`)
+- ✅ Monthly commission share, fixed expenses and salaries (`modules/hrm`, `hrm/HrmPage.tsx`).
+- ✅ **Month start day.** The Super Admin picks the day sales months start (1–28; setting `closing.monthStartDay`, also on the Settings page). A month is named after the month it starts in: with day 25, "October" runs 25 Oct – 24 Nov. The helpers are `monthPeriod` and `periodContaining` in `shared/domain/periods.ts`. **Any future monthly report or closing must use them**, so every screen agrees on what "this month" is.
+
+### Look and feel
+- ✅ Custom rounded controls instead of the browser's:
+  - a dropdown (`components/ui/select.tsx`). It takes the same props as a native select, works from the keyboard and inside dialogs, and Esc closes only the list.
+  - styled checkboxes, with a dash for "some ticked";
+  - number inputs without spinners;
+  - thin scrollbars.
+- ✅ The app's own confirm and one-line question dialogs (`components/AskDialog.tsx`, `useConfirm()` and `useAsk()`) replace `window.confirm` and `window.prompt`.
 
 ## Decisions taken where the plan was silent or ambiguous
 
@@ -67,6 +89,9 @@ These were my calls; confirm them with the owner if any matters:
 12. **Customers** have no table. Names and phones are stored on the bill, and suggestions come from earlier bills.
 13. **The billing lookup sends `maxDiscount`** (purchase discount, capped so the price stays at or above cost) instead of cost, so the screen can enforce limits without revealing cost.
 14. **Boxed items:** Value, Qty, Free and the purchase discount are per box. R-price, W-price, the sales discount and the sales price are per piece.
+15. **Old bills follow product renames** (the owner asked for this). It overrides the plan's "old bills never change" for names and codes only: prices, quantities and totals stay as sold. A bill line keeps its text if someone had changed it separately; only lines still showing the old text are updated.
+16. **Permission changes for one user** are stored as differences from their roles: "add X" or "take away Y". If the roles change later, the differences still apply. A Super Admin always has everything, and Super Admin-only permissions can never be given to anyone else.
+17. **Customised built-in roles** keep their name. The Super Admin role can't be edited.
 
 ## Known gaps and rough edges
 
@@ -78,6 +103,8 @@ These were my calls; confirm them with the owner if any matters:
 - Native date inputs follow the browser language (they may show MM/DD/YYYY). Everything else shows DD/MM/YYYY.
 - The web bundle is about 740 kB in one chunk (fine on a LAN; it could be split).
 - ESLint is not set up; Prettier and `tsc` are the checks.
+- **Tests behind the owner's changes on `main`:** 6 server tests (`stock.test.ts` products and mix paint; `billing.test.ts` mock-up receipt, day-start check and lookup) and both e2e tests (cashiers now land on `/menu`). Decide which behaviour is intended, then update the tests or the code.
+- `e2e/start-server.sh` lost its executable bit in a commit made on Windows. It was restored in this session with `git update-index --chmod=+x`.
 - No desktop shell yet (Tauri or Electron full-screen wrapper that starts with Windows and blocks browser keys).
 
 ## Suggested next steps (in order)

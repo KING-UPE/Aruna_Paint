@@ -17,7 +17,7 @@ import {
   type Decimal,
 } from '@aruna/shared';
 import { Prisma } from '@prisma/client';
-import type { Tx } from '../../db';
+import type { Db, Tx } from '../../db';
 import { audit, diff } from '../../core/audit';
 import type { ActorRef } from '../../core/context';
 import { dateOnly, parseDateOnly } from '../../lib/json';
@@ -250,7 +250,7 @@ export async function updateProduct(tx: Tx, actor: ActorRef, id: string, raw: un
     if (!input.confirmCodeChange) {
       throw new DomainError(
         'CONFLICT',
-        `Changing ${before.code} to ${code} renames its sub-product and mix paint codes. History stays linked.`,
+        `Changing ${before.code} to ${code} renames its sub-product and mix paint codes, and old bills show the new code. History stays linked.`,
         'code',
         {
           warning: true,
@@ -294,6 +294,23 @@ export async function updateProduct(tx: Tx, actor: ActorRef, id: string, raw: un
   };
   await tx.product.update({ where: { id }, data });
 
+  // Old bills, quotations and held bills follow the new code and name (the change is kept in
+  // the rename history). A sub-product renamed on its own keeps its own name.
+  let billLines = 0;
+  for (const sp of before.subProducts) {
+    const newCode = codeChanged
+      ? before.type === 'MIX'
+        ? code
+        : subProductCode(code, sp.seq)
+      : sp.code;
+    const newName = sp.name === before.name ? input.name : sp.name;
+    billLines += await renameOnOldBills(tx, sp.id, {
+      code: [sp.code, newCode],
+      name: [sp.name, newName],
+      printName: [before.printName || sp.name, data.printName || newName],
+    });
+  }
+
   if (codeChanged) {
     for (const sp of before.subProducts) {
       const newCode = before.type === 'MIX' ? code : subProductCode(code, sp.seq);
@@ -310,10 +327,16 @@ export async function updateProduct(tx: Tx, actor: ActorRef, id: string, raw: un
           where: { id: before.mixProduct.id },
           data: { code: mpCode, codeKey: codeKey(mpCode) },
         });
+        const mixSubs = await tx.subProduct.findMany({
+          where: { productId: before.mixProduct.id },
+        });
         await tx.subProduct.updateMany({
           where: { productId: before.mixProduct.id },
           data: { code: mpCode, codeKey: codeKey(mpCode) },
         });
+        for (const ms of mixSubs) {
+          billLines += await renameOnOldBills(tx, ms.id, { code: [ms.code, mpCode] });
+        }
         await refreshSearchText(tx, before.mixProduct.id);
       }
     }
@@ -339,6 +362,19 @@ export async function updateProduct(tx: Tx, actor: ActorRef, id: string, raw: un
     });
   }
   await refreshSearchText(tx, id);
+  const renamed = (['code', 'name', 'printName'] as const).filter((k) => before[k] !== data[k]);
+  if (renamed.length) {
+    await audit(tx, actor, {
+      action: 'product.rename',
+      entity: 'product',
+      entityId: id,
+      before: Object.fromEntries(renamed.map((k) => [k, before[k]])),
+      after: Object.fromEntries(renamed.map((k) => [k, data[k]])),
+      note: billLines
+        ? `${billLines} line${billLines === 1 ? '' : 's'} on old bills now show the new ${renamed.includes('code') ? 'code' : 'name'}.`
+        : 'No old bills had this item.',
+    });
+  }
   const changes = diff(before as unknown as Record<string, unknown>, data);
   if (changes.changed) {
     await audit(tx, actor, {
@@ -667,6 +703,23 @@ export async function editSubProduct(tx: Tx, actor: ActorRef, id: string, raw: u
     description: input.description ?? before.description,
   };
   await tx.subProduct.update({ where: { id }, data });
+  if (data.name !== before.name) {
+    const product = await tx.product.findUniqueOrThrow({ where: { id: before.productId } });
+    const lines = await renameOnOldBills(tx, id, {
+      name: [before.name, data.name],
+      printName: product.printName ? undefined : [before.name, data.name],
+    });
+    await audit(tx, actor, {
+      action: 'product.rename',
+      entity: 'product',
+      entityId: before.productId,
+      before: { subProduct: before.code, name: before.name },
+      after: { subProduct: before.code, name: data.name },
+      note: lines
+        ? `${lines} line${lines === 1 ? '' : 's'} on old bills now show the new name.`
+        : 'No old bills had this item.',
+    });
+  }
   const changes = diff(before as unknown as Record<string, unknown>, data);
   if (changes.changed) {
     await audit(tx, actor, {
@@ -859,4 +912,59 @@ export async function priceHistory(tx: Tx, subProductId: string) {
     salesPrice: [r.oldSalesPrice?.toFixed(2) ?? null, r.newSalesPrice.toFixed(2)],
     note: r.note,
   }));
+}
+
+type Rename = [from: string, to: string];
+
+/**
+ * Old bills show the item's current code and name: lines of one sub-product that still carry
+ * the old text get the new one. Prices, quantities and totals never change. Returns how many
+ * bill lines changed.
+ */
+async function renameOnOldBills(
+  tx: Tx,
+  subProductId: string,
+  r: { code?: Rename | undefined; name?: Rename | undefined; printName?: Rename | undefined },
+): Promise<number> {
+  const same: Rename = ['', ''];
+  const [c0, c1] = r.code && r.code[0] !== r.code[1] ? r.code : same;
+  const [n0, n1] = r.name && r.name[0] !== r.name[1] ? r.name : same;
+  const [p0, p1] = r.printName && r.printName[0] !== r.printName[1] ? r.printName : same;
+  if (!c0 && !n0 && !p0) return 0;
+  return tx.$executeRaw`
+    UPDATE sale_lines SET
+      code = CASE WHEN ${c0} <> '' AND code = ${c0} THEN ${c1} ELSE code END,
+      name = CASE WHEN ${n0} <> '' AND name = ${n0} THEN ${n1} ELSE name END,
+      print_name = CASE WHEN ${p0} <> '' AND print_name = ${p0} THEN ${p1} ELSE print_name END
+    WHERE sub_product_id = ${subProductId}::uuid
+      AND ((${c0} <> '' AND code = ${c0})
+        OR (${n0} <> '' AND name = ${n0})
+        OR (${p0} <> '' AND print_name = ${p0}))`;
+}
+
+/** Every code and name change of a product, newest first, for the Super Admin. */
+export async function renameHistory(tx: Tx | Db, productId: string) {
+  const rows = await tx.auditLog.findMany({
+    where: { entity: 'product', entityId: productId, action: 'product.rename' },
+    orderBy: { at: 'desc' },
+    take: 100,
+  });
+  const userIds = [...new Set(rows.map((r) => r.userId).filter((x): x is string => Boolean(x)))];
+  const users = await tx.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, fullName: true },
+  });
+  const names = new Map(users.map((u) => [u.id, u.fullName]));
+  return rows.map((r) => {
+    const b = (r.before ?? {}) as Record<string, string>;
+    const a = (r.after ?? {}) as Record<string, string>;
+    const fields = (['code', 'name', 'printName'] as const).filter((k) => k in a);
+    return {
+      at: r.at,
+      by: r.userId ? (names.get(r.userId) ?? 'Removed user') : 'System',
+      subProduct: a.subProduct ?? null,
+      changes: fields.map((k) => ({ field: k, from: b[k] ?? '', to: a[k] ?? '' })),
+      note: r.note,
+    };
+  });
 }

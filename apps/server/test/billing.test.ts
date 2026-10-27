@@ -411,6 +411,40 @@ describe('bill history', () => {
   });
 });
 
+describe('renaming a product', () => {
+  it('old bills show the new code and name, and the Super Admin sees what changed', async () => {
+    const sale = await shop.cashier.post('/api/sales', { lines: mockupLines(), cashGiven: '7000' });
+    expect(sale.status).toBe(200);
+    const p = (await shop.stock.get(`/api/products/${cat.thinner}`)).body.product;
+    const body = {
+      name: 'Thinner Extra 4L',
+      code: '30001',
+      unitId: p.unit.id,
+      packSize: p.packSize,
+      categoryId: p.category?.id,
+      brandId: p.brand?.id,
+      confirmCodeChange: true,
+    };
+    expect((await shop.stock.put(`/api/products/${cat.thinner}`, body)).status).toBe(200);
+    const bill = (await shop.cashier.get(`/api/sales/${sale.body.id}`)).body;
+    const line = bill.lines.find((l: { subProductId: string }) => l.subProductId === thinner);
+    expect(line).toMatchObject({ code: '30001-01', name: 'Thinner Extra 4L' });
+    // Totals never change.
+    expect(bill.netTotal).toBe('6325.00');
+
+    const history = await shop.sa.get(`/api/products/${cat.thinner}/renames`);
+    expect(history.status).toBe(200);
+    expect(history.body.items[0].changes).toEqual(
+      expect.arrayContaining([
+        { field: 'code', from: p.code, to: '30001' },
+        { field: 'name', from: p.name, to: 'Thinner Extra 4L' },
+      ]),
+    );
+    expect(history.body.items[0].note).toMatch(/1 line on old bills/);
+    expect((await shop.admin.get(`/api/products/${cat.thinner}/renames`)).status).toBe(403);
+  });
+});
+
 describe('returns', () => {
   it('refunds what was paid after the line discount and restocks the same batch', async () => {
     const sale = await shop.cashier.post('/api/sales', { lines: mockupLines(), cashGiven: '7000' });

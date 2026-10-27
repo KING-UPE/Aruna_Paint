@@ -30,6 +30,15 @@ export function perm(...perms: Permission[]) {
   };
 }
 
+/** preHandler: only a Super Admin (for things the plan keeps to the owner, like rename history). */
+export function superAdminOnly() {
+  return async (req: FastifyRequest) => {
+    if (!req.ctx.roleCodes.includes('SUPER_ADMIN')) {
+      throw new DomainError('FORBIDDEN', 'Only the Super Admin can see this.');
+    }
+  };
+}
+
 /** The shop server is the only writer; the cloud mirror is view-only. */
 export function shopOnly() {
   return async (req: FastifyRequest) => {

@@ -6,6 +6,7 @@ import {
   parseDiscountText,
 } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowRight } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -43,7 +44,7 @@ interface BinCard {
 
 export function ProductDetailPage() {
   const { id } = useParams();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   const [editing, setEditing] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [hi, setHi] = useState(0);
@@ -200,6 +201,7 @@ export function ProductDetailPage() {
           ↑↓ move · Enter opens the bin card · Space picks rows for a price change.
         </CardBody>
       </Card>
+      {me.roles.includes('SUPER_ADMIN') ? <RenameHistory productId={product.id} /> : null}
       <ProductForm open={editing} product={product} onClose={() => setEditing(false)} />
       <BinCardDialog sub={binFor} onClose={() => setBinFor(null)} />
       <PriceDialog
@@ -365,5 +367,58 @@ function PriceDialog({
         </div>
       </form>
     </Dialog>
+  );
+}
+
+interface RenameEntry {
+  at: string;
+  by: string;
+  subProduct: string | null;
+  changes: { field: 'code' | 'name' | 'printName'; from: string; to: string }[];
+  note: string;
+}
+
+const FIELD_LABELS = { code: 'Code', name: 'Name', printName: 'Receipt name' } as const;
+
+/** Super Admin only: every code and name change ("10001 was changed to 30001") and who made it. */
+function RenameHistory({ productId }: { productId: string }) {
+  const q = useQuery({
+    queryKey: ['product', productId, 'renames'],
+    queryFn: () => api.get<{ items: RenameEntry[] }>(`/api/products/${productId}/renames`),
+  });
+  const items = q.data?.items ?? [];
+  if (!items.length) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Name and code changes</CardTitle>
+        <span className="text-sm text-muted">Old bills show the new code and name.</span>
+      </CardHeader>
+      <ol className="divide-y divide-border">
+        {items.map((e, i) => (
+          <li key={i} className="flex flex-col gap-1.5 px-5 py-3 sm:flex-row sm:gap-6">
+            <div className="w-44 shrink-0 text-sm text-muted">
+              <div>{formatDateTime(e.at)}</div>
+              <div>by {e.by}</div>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              {e.changes.map((c) => (
+                <div key={c.field} className="flex flex-wrap items-center gap-2 text-[15px]">
+                  <span className="w-28 shrink-0 text-sm text-muted">
+                    {e.subProduct ? `${e.subProduct} name` : FIELD_LABELS[c.field]}
+                  </span>
+                  <span className="text-muted line-through decoration-muted/50">
+                    {c.from || '—'}
+                  </span>
+                  <ArrowRight size={14} className="text-muted" aria-label="changed to" />
+                  <span className="font-medium">{c.to || '—'}</span>
+                </div>
+              ))}
+              {e.note ? <p className="text-sm text-muted">{e.note}</p> : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </Card>
   );
 }

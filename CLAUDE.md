@@ -55,7 +55,7 @@ docs/             plan PDF and PROGRESS.md
 
 - IDs are UUIDv7. Prisma generates them for its own inserts; raw SQL must pass `uuidv7()` from `src/lib/ids.ts` and set `updated_at` itself.
 - Stock is a ledger: change stock only through `moveStock()` in `src/core/stock.ts`. It updates the cached `stock_balances` row and writes `stock_movements` in the caller's transaction. Out-moves are conditional row-locked UPDATEs, so two counters can't sell the last can. A CHECK keeps balances ≥ 0.
-- `audit_logs`, `stock_movements` and `supplier_ledger` are append-only (DB triggers). Records with history are deactivated, never deleted.
+- `audit_logs`, `stock_movements` and `supplier_ledger` are append-only (DB triggers). `audit_logs` has no foreign keys to `users` (migration `..._audit_logs_detach_fk`), but Prisma still wants to add them back. **Delete those `AddForeignKey` lines from every new migration** `migrate dev` writes. Records with history are deactivated, never deleted.
 - Migration `..._sync_outbox_and_constraints` adds `sync_capture()` triggers that copy every row change into `sync_outbox` inside the same transaction (`users.pin_hmac` is stripped; `sessions`, `recovery_codes`, `sync_*` are excluded). **Any migration that adds a table must end with `SELECT sync_attach_all();`.** Prisma ignores triggers and CHECK constraints, so `migrate dev` won't drop them.
 - Readable numbers (INV-, GRN-, SUP-…) come from `nextNumber()` in `src/core/numbering.ts`. It runs inside the caller's transaction, so a failed bill gives its number back and numbers stay gap-free. Formats use brace tokens (`INV-{NNNNNN}`, `GRN-{YYYY}-{NNNNN}`, `DE-{YYYY}{MM}{DD}-{COUNTER}`) so literal letters stay literal.
 - Dates follow the shop time zone `Asia/Colombo` (`shopDate()`); calendar columns are `@db.Date` (use `parseDateOnly`/`dateOnly` from `src/lib/json.ts`).
@@ -63,6 +63,16 @@ docs/             plan PDF and PROGRESS.md
 **Server request flow.** `src/auth/session.ts` loads the session on every `/api` request into `req.ctx` (user, combined permissions, counter, location). It enforces the idle lock (HTTP 423; background polls send `X-Passive: 1` so they don't count as activity) and forced password changes. Routes opt out with `config: { public | allowLocked | allowPasswordChange }`. Guard routes with `preHandler: perm('module.action')`. Writes also take `shopOnly()`, since the cloud mode is view-only. Services are `(tx, ctx/actor, input)` functions run in `db.$transaction(fn, TX_OPTIONS)`. Throw `DomainError(code, plainWordsMessage, field?)`. `field` paths like `lines.2.qty` let the screens put the message under that field. Warnings the user may override come back as 409 with `details.warning = true` (plus `details.confirm` naming the flag to resend). Write `audit()` in the same transaction.
 
 **Approvals (manager override).** `requireApproval(tx, ctx, kind, approval?.pin, pinSecret)` (`src/auth/approvals.ts`; kinds in shared `APPROVALS`) passes if the user holds the permission. Otherwise it needs another user's PIN; PINs are HMAC'd, unique, and identify the approver. The screens use `usePinPrompt()` and `/api/auth/verify-approval`.
+
+**Permissions.** `rolePermissions()` and `resolvePermissions()` in shared:
+- Built-in roles use the code defaults unless `roles.customized` is set; then they use the stored list.
+- Custom roles use their stored list. The Super Admin role always has everything.
+- Each user's `user_permissions` rows then add or take away single permissions, never Super Admin-only ones.
+- The server loads all of this in `auth/permissions.ts`. The editor screen is `admin/PermissionEditor.tsx`.
+
+**Months.** Sales months start on `closing.monthStartDay` (chosen on the HRM page). Use `monthPeriod` and `periodContaining` from `shared/domain/periods.ts` for any monthly figure.
+
+**Product renames** rewrite the code and name on old `sale_lines` (`renameOnOldBills` in `modules/products/service.ts`) and log `product.rename`. The Super Admin sees the history on the product page.
 
 **Cost privacy.** Each product's cost/actual/margin needs `cost.item` (Stock Manager, Super Admin). Totals need `cost.totals` (Super Admin only). Serializers drop those fields (`canSeeItemCost(req)`). Billing lookups never send cost; they send `maxDiscount = min(purchase discount, R-price − cost)`.
 
@@ -72,6 +82,7 @@ docs/             plan PDF and PROGRESS.md
 
 ## Gotchas learned the hard way
 
+- Use `Select` from `components/ui/input` (our dropdown), never a native `<select>`. Use `useConfirm()` and `useAsk()` from `components/AskDialog`, never `window.confirm` or `window.prompt`. A `Checkbox` takes `indeterminate`.
 - React's `autoFocus` does nothing on a `div`. Dialog lists need `initialFocus` on our `Dialog`, and its Close button is out of the tab order. Pass `restoreFocus={false}` when the caller moves focus on after closing.
 - Move focus with a `useLayoutEffect` after state changes, not `requestAnimationFrame`. Cashiers (and Playwright) type the next key immediately.
 - In the history dialog, P/R/C/V only work once Enter has moved focus from the search box to the list.

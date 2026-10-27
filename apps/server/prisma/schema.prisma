@@ -41,6 +41,8 @@ model User {
   roles     UserRole[]
   sessions  Session[]
   shortcuts UserShortcut[]
+  /// Per-user changes on top of the ticked roles.
+  permissionOverrides UserPermission[]
 
   auditEntries         AuditLog[]        @relation("AuditUser")
   auditApprovals       AuditLog[]        @relation("AuditApprover")
@@ -82,6 +84,8 @@ model Role {
   nameKey     String           @unique @map("name_key")
   description String           @default("")
   builtIn     Boolean          @default(false) @map("built_in")
+  /// A built-in role whose permissions the Super Admin changed; then role_permissions is used.
+  customized  Boolean          @default(false)
   sortOrder   Int              @default(0) @map("sort_order")
   createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -110,6 +114,17 @@ model RolePermission {
 
   @@id([roleId, permission])
   @@map("role_permissions")
+}
+
+/// One permission added to (granted) or taken from (not granted) a user, on top of their roles.
+model UserPermission {
+  userId     String  @map("user_id") @db.Uuid
+  permission String
+  granted    Boolean
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permission])
+  @@map("user_permissions")
 }
 
 model UserShortcut {

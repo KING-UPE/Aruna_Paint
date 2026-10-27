@@ -1,12 +1,13 @@
 import {
-  BUILT_IN_ROLE_PERMISSIONS,
   DomainError,
   assignablePermissions,
+  isPermission,
+  isSuperAdminOnly,
+  rolePermissions,
   nameKey,
   passwordSchema,
   percentSchema,
   pinSchema,
-  type BuiltInRole,
   type Permission,
 } from '@aruna/shared';
 import { z } from 'zod';
@@ -29,6 +30,9 @@ export const createUserSchema = z.object({
   roleIds: z.array(z.uuid()).min(1, { message: 'Tick at least one role.' }),
   commissionRate: percentSchema.optional().nullable(),
   mustChangePassword: z.boolean().default(true),
+  permissionOverrides: z
+    .array(z.object({ permission: z.string(), granted: z.boolean() }))
+    .default([]),
 });
 
 export const updateUserSchema = z.object({
@@ -36,6 +40,10 @@ export const updateUserSchema = z.object({
   active: z.boolean().optional(),
   roleIds: z.array(z.uuid()).min(1, { message: 'Tick at least one role.' }).optional(),
   commissionRate: percentSchema.optional().nullable(),
+  /** The full list of this user's changes on top of their roles; replaces the old list. */
+  permissionOverrides: z
+    .array(z.object({ permission: z.string(), granted: z.boolean() }))
+    .optional(),
 });
 
 export const roleSchema = z.object({
@@ -55,6 +63,7 @@ function publicUser(u: {
   lastLoginAt: Date | null;
   createdAt: Date;
   roles: { role: { id: string; code: string; name: string } }[];
+  permissionOverrides?: { permission: string; granted: boolean }[];
 }) {
   return {
     id: u.id,
@@ -67,12 +76,42 @@ function publicUser(u: {
     lastLoginAt: u.lastLoginAt,
     createdAt: u.createdAt,
     roles: u.roles.map((r) => ({ id: r.role.id, code: r.role.code, name: r.role.name })),
+    permissionOverrides: (u.permissionOverrides ?? [])
+      .map((o) => ({ permission: o.permission, granted: o.granted }))
+      .sort((a, b) => a.permission.localeCompare(b.permission)),
   };
+}
+
+const userInclude = { roles: { include: { role: true } }, permissionOverrides: true } as const;
+
+/** Only real, non-Super Admin-only permissions can be added or taken away per user. */
+function checkOverrides(list: { permission: string; granted: boolean }[]) {
+  const bad = list.filter((o) => !isPermission(o.permission) || isSuperAdminOnly(o.permission));
+  if (bad.length) {
+    throw new DomainError(
+      'VALIDATION',
+      `These can only belong to the Super Admin: ${bad.map((b) => b.permission).join(', ')}.`,
+      'permissionOverrides',
+    );
+  }
+  const seen = new Map<string, boolean>();
+  for (const o of list) seen.set(o.permission, o.granted);
+  return [...seen].map(([permission, granted]) => ({ permission, granted }));
+}
+
+async function saveOverrides(
+  tx: Tx,
+  userId: string,
+  list: { permission: string; granted: boolean }[],
+) {
+  await tx.userPermission.deleteMany({ where: { userId } });
+  if (list.length)
+    await tx.userPermission.createMany({ data: list.map((o) => ({ userId, ...o })) });
 }
 
 export async function listUsers(tx: Tx) {
   const users = await tx.user.findMany({
-    include: { roles: { include: { role: true } } },
+    include: userInclude,
     orderBy: [{ active: 'desc' }, { fullName: 'asc' }],
   });
   return users.map(publicUser);
@@ -115,6 +154,7 @@ export async function createUser(tx: Tx, actor: ActorRef, raw: unknown, pinSecre
   await assertRolesExist(tx, input.roleIds);
   const hmac = input.pin ? pinHmac(input.pin, pinSecret) : null;
   if (hmac) await assertPinFree(tx, hmac);
+  const overrides = checkOverrides(input.permissionOverrides);
   const user = await tx.user.create({
     data: {
       username: input.username,
@@ -125,8 +165,9 @@ export async function createUser(tx: Tx, actor: ActorRef, raw: unknown, pinSecre
       pinHmac: hmac,
       commissionRate: input.commissionRate ?? null,
       roles: { create: input.roleIds.map((roleId) => ({ roleId })) },
+      permissionOverrides: { create: overrides },
     },
-    include: { roles: { include: { role: true } } },
+    include: userInclude,
   });
   const out = publicUser(user);
   await audit(tx, actor, { action: 'user.create', entity: 'user', entityId: user.id, after: out });
@@ -135,12 +176,11 @@ export async function createUser(tx: Tx, actor: ActorRef, raw: unknown, pinSecre
 
 export async function updateUser(tx: Tx, actor: ActorRef, id: string, raw: unknown) {
   const input = updateUserSchema.parse(raw);
-  const before = await tx.user.findUnique({
-    where: { id },
-    include: { roles: { include: { role: true } } },
-  });
+  const before = await tx.user.findUnique({ where: { id }, include: userInclude });
   if (!before) throw new DomainError('NOT_FOUND', 'User not found.');
   if (input.roleIds) await assertRolesExist(tx, input.roleIds);
+  if (input.permissionOverrides)
+    await saveOverrides(tx, id, checkOverrides(input.permissionOverrides));
   await tx.user.update({
     where: { id },
     data: {
@@ -166,10 +206,7 @@ export async function updateUser(tx: Tx, actor: ActorRef, id: string, raw: unkno
     });
   }
   await assertSuperAdminRemains(tx);
-  const after = await tx.user.findUniqueOrThrow({
-    where: { id },
-    include: { roles: { include: { role: true } } },
-  });
+  const after = await tx.user.findUniqueOrThrow({ where: { id }, include: userInclude });
   await audit(tx, actor, {
     action: 'user.update',
     entity: 'user',
@@ -215,7 +252,7 @@ export async function resetPin(
 export async function deleteUser(tx: Tx, actor: ActorRef, id: string) {
   const user = await tx.user.findUnique({
     where: { id },
-    include: { roles: { include: { role: true } } },
+    include: userInclude,
   });
   if (!user) throw new DomainError('NOT_FOUND', 'User not found.');
 
@@ -275,26 +312,34 @@ export async function listRoles(tx: Tx) {
     include: { permissions: true, _count: { select: { users: true } } },
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
   });
-  return roles.map((r) => ({
-    id: r.id,
-    code: r.code,
-    name: r.name,
-    description: r.description,
-    builtIn: r.builtIn,
-    userCount: r._count.users,
-    permissions: r.builtIn
-      ? (BUILT_IN_ROLE_PERMISSIONS[r.code as BuiltInRole] ?? [])
-      : r.permissions.map((p) => p.permission),
-  }));
+  return roles.map((r) => {
+    const stored = r.permissions.map((p) => p.permission);
+    const defaults = r.builtIn ? rolePermissions({ code: r.code }) : null;
+    return {
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      description: r.description,
+      builtIn: r.builtIn,
+      /** A built-in role whose permissions the Super Admin changed. */
+      customized: r.builtIn && r.customized,
+      userCount: r._count.users,
+      permissions: rolePermissions({ code: r.code, customized: r.customized, permissions: stored }),
+      /** What a built-in role allows out of the box; null for roles the Super Admin made. */
+      defaultPermissions: defaults,
+    };
+  });
 }
 
-function checkPermissions(perms: string[]): Permission[] {
+/** Custom roles take any permission except Super Admin-only ones; built-in roles also keep their own defaults. */
+function checkPermissions(perms: string[], roleCode?: string): Permission[] {
   const allowed = new Set<string>(assignablePermissions());
+  if (roleCode) for (const p of rolePermissions({ code: roleCode })) allowed.add(p);
   const bad = perms.filter((p) => !allowed.has(p));
   if (bad.length)
     throw new DomainError(
       'VALIDATION',
-      `These can't be given to a custom role: ${bad.join(', ')}.`,
+      `These can only belong to the Super Admin: ${bad.join(', ')}.`,
       'permissions',
     );
   return [...new Set(perms)] as Permission[];
@@ -327,38 +372,76 @@ export async function createRole(tx: Tx, actor: ActorRef, raw: unknown) {
   return role;
 }
 
+/**
+ * Custom roles: name, description and permissions. Built-in roles keep their name, but the Super
+ * Admin may change which permissions they give (the Super Admin role itself always has everything).
+ */
 export async function updateRole(tx: Tx, actor: ActorRef, id: string, raw: unknown) {
   const input = roleSchema.partial().parse(raw);
   const role = await tx.role.findUnique({ where: { id }, include: { permissions: true } });
   if (!role) throw new DomainError('NOT_FOUND', 'Role not found.');
-  if (role.builtIn) throw new DomainError('INVALID_STATE', 'Built-in roles cannot be changed.');
-  if (
-    input.name &&
-    (await tx.role.findFirst({ where: { nameKey: nameKey(input.name), id: { not: id } } }))
-  ) {
-    throw new DomainError('DUPLICATE', 'A role with this name already exists.', 'name');
+  if (role.code === 'SUPER_ADMIN') {
+    throw new DomainError('INVALID_STATE', 'The Super Admin always has every permission.');
   }
-  await tx.role.update({
-    where: { id },
-    data: {
-      name: input.name,
-      nameKey: input.name ? nameKey(input.name) : undefined,
-      description: input.description,
-    },
-  });
+  const before = {
+    name: role.name,
+    permissions: rolePermissions({
+      code: role.code,
+      customized: role.customized,
+      permissions: role.permissions.map((p) => p.permission),
+    }),
+  };
+  if (!role.builtIn) {
+    if (
+      input.name &&
+      (await tx.role.findFirst({ where: { nameKey: nameKey(input.name), id: { not: id } } }))
+    ) {
+      throw new DomainError('DUPLICATE', 'A role with this name already exists.', 'name');
+    }
+    await tx.role.update({
+      where: { id },
+      data: {
+        name: input.name,
+        nameKey: input.name ? nameKey(input.name) : undefined,
+        description: input.description,
+      },
+    });
+  }
+  let perms: Permission[] | undefined;
   if (input.permissions) {
-    const perms = checkPermissions(input.permissions);
+    perms = checkPermissions(input.permissions, role.builtIn ? role.code : undefined);
     await tx.rolePermission.deleteMany({ where: { roleId: id } });
     await tx.rolePermission.createMany({
       data: perms.map((permission) => ({ roleId: id, permission })),
     });
+    if (role.builtIn) await tx.role.update({ where: { id }, data: { customized: true } });
   }
   await audit(tx, actor, {
     action: 'role.update',
     entity: 'role',
     entityId: id,
-    before: { name: role.name, permissions: role.permissions.map((p) => p.permission) },
-    after: input,
+    before,
+    after: role.builtIn
+      ? { name: role.name, permissions: perms }
+      : { ...input, permissions: perms },
+  });
+}
+
+/** Puts a built-in role back to the permissions it came with. */
+export async function resetRole(tx: Tx, actor: ActorRef, id: string) {
+  const role = await tx.role.findUnique({ where: { id }, include: { permissions: true } });
+  if (!role) throw new DomainError('NOT_FOUND', 'Role not found.');
+  if (!role.builtIn) {
+    throw new DomainError('INVALID_STATE', 'Only built-in roles have default permissions.');
+  }
+  await tx.rolePermission.deleteMany({ where: { roleId: id } });
+  await tx.role.update({ where: { id }, data: { customized: false } });
+  await audit(tx, actor, {
+    action: 'role.reset',
+    entity: 'role',
+    entityId: id,
+    before: { permissions: role.permissions.map((p) => p.permission) },
+    after: { permissions: rolePermissions({ code: role.code }) },
   });
 }
 

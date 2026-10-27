@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { useAuth } from '@/auth/AuthProvider';
+import { useConfirm } from '@/components/AskDialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
@@ -54,13 +55,18 @@ export function SupplierLedgerPage() {
     queryKey: ['suppliers', id, 'ledger', from, to, type],
     queryFn: () => api.get<Ledger>(`/api/suppliers/${id}/ledger${qs({ from, to, types: type })}`),
   });
+  const confirm = useConfirm();
   if (!supplier.data) return <Spinner />;
   const s = supplier.data;
 
   const onDelete = async () => {
-    if (!window.confirm(`Are you sure you want to delete supplier "${s.name}" (${s.code})?`)) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Delete supplier?',
+      message: `${s.name} (${s.code}) will be removed. This can't be undone.`,
+      confirmLabel: 'Delete supplier',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.delete(`/api/suppliers/${s.id}`);
       toast.success(`Supplier "${s.name}" deleted.`);

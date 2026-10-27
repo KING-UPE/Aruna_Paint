@@ -1,7 +1,7 @@
 import { dateSchema, idSchema, paginationSchema } from '@aruna/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { canSeeItemCost, perm, shopOnly } from '../../auth/guard';
+import { canSeeItemCost, perm, shopOnly, superAdminOnly } from '../../auth/guard';
 import { actorOf } from '../../core/context';
 import { TX_OPTIONS } from '../../db';
 import {
@@ -12,6 +12,7 @@ import {
   getProduct,
   listProducts,
   priceHistory,
+  renameHistory,
   searchForStock,
   updateProduct,
 } from './service';
@@ -69,6 +70,11 @@ export async function productRoutes(app: FastifyInstance) {
   app.get('/api/products/:id', { preHandler: perm('products.view', 'stock.view') }, async (req) =>
     getProduct(db, idParam(req.params), { canSeeCost: canSeeItemCost(req) }),
   );
+
+  /** "10001 was changed to 20001": every code and name change, for the Super Admin. */
+  app.get('/api/products/:id/renames', { preHandler: superAdminOnly() }, async (req) => ({
+    items: await renameHistory(db, idParam(req.params)),
+  }));
 
   app.post('/api/products', { preHandler: [shopOnly(), perm('products.create')] }, async (req) => {
     const out = await db.$transaction(

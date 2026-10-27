@@ -248,13 +248,75 @@ export class PermissionSet {
 }
 
 /** Combine every ticked role's permissions. */
+export interface RoleForPermissions {
+  code: string;
+  /** A built-in role the Super Admin changed; its stored permissions win over the defaults. */
+  customized?: boolean;
+  permissions?: string[];
+}
+
+export interface PermissionOverride {
+  permission: string;
+  /** true adds the permission to this user; false takes it away. */
+  granted: boolean;
+}
+
+/** What one role allows: code defaults for built-in roles unless the Super Admin changed them. */
+export function rolePermissions(r: RoleForPermissions): Permission[] {
+  if (r.code === 'SUPER_ADMIN') return ALL_PERMISSIONS;
+  const defaults = BUILT_IN_ROLE_PERMISSIONS[r.code as BuiltInRole] as Permission[] | undefined;
+  if (defaults && !r.customized) return defaults;
+  return (r.permissions ?? []).filter(isPermission);
+}
+
+/**
+ * Combine every ticked role, then apply the user's own changes: a permission ticked for this
+ * user is added, one unticked is taken away. A Super Admin always keeps everything, and
+ * Super Admin-only permissions can't be given to anyone else.
+ */
 export function resolvePermissions(
-  roles: { code: string; permissions?: string[] }[],
+  roles: RoleForPermissions[],
+  overrides: PermissionOverride[] = [],
 ): PermissionSet {
   const out = new Set<string>();
-  for (const r of roles) {
-    const builtIn = BUILT_IN_ROLE_PERMISSIONS[r.code as BuiltInRole] as Permission[] | undefined;
-    for (const p of builtIn ?? r.permissions ?? []) out.add(p);
+  for (const r of roles) for (const p of rolePermissions(r)) out.add(p);
+  if (!roles.some((r) => r.code === 'SUPER_ADMIN')) {
+    for (const o of overrides) {
+      if (!isPermission(o.permission) || isSuperAdminOnly(o.permission)) continue;
+      if (o.granted) out.add(o.permission);
+      else out.delete(o.permission);
+    }
   }
   return new PermissionSet(out);
+}
+
+export interface PermissionGroup {
+  section: Section;
+  modules: {
+    key: ModuleKey;
+    label: string;
+    permissions: { permission: Permission; action: string }[];
+  }[];
+}
+
+const SECTION_ORDER: Section[] = ['billing', 'stock', 'hrm', 'admin'];
+export const SECTION_LABELS: Record<Section, string> = {
+  billing: 'Billing',
+  stock: 'Stock',
+  hrm: 'HRM',
+  admin: 'Admin',
+};
+
+/** Every permission grouped by section and screen, for the permission editors. */
+export function permissionGroups(): PermissionGroup[] {
+  return SECTION_ORDER.map((section) => ({
+    section,
+    modules: (Object.entries(MODULES) as [ModuleKey, ModuleDef][])
+      .filter(([, d]) => d.section === section)
+      .map(([key, d]) => ({
+        key,
+        label: d.label,
+        permissions: d.actions.map((a) => ({ permission: `${key}.${a}` as Permission, action: a })),
+      })),
+  })).filter((g) => g.modules.length > 0);
 }

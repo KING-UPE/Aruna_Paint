@@ -278,3 +278,40 @@ describe('shortcuts', () => {
     ).toBeNull();
   });
 });
+
+describe('permission overrides', () => {
+  it('a user can lose one permission of a ticked role, or gain one from outside it', async () => {
+    const { resolvePermissions } = await import('../src');
+    const p = resolvePermissions(
+      [{ code: 'CASHIER' }],
+      [
+        { permission: 'returns.create', granted: false },
+        { permission: 'stock.view', granted: true },
+      ],
+    );
+    expect(p.has('returns.create')).toBe(false);
+    expect(p.has('stock.view')).toBe(true);
+    expect(p.has('billing.create')).toBe(true);
+  });
+  it('Super Admin-only permissions are never given by an override; a Super Admin keeps all', async () => {
+    const { resolvePermissions } = await import('../src');
+    expect(
+      resolvePermissions([{ code: 'ADMIN' }], [{ permission: 'users.edit', granted: true }]).has(
+        'users.edit',
+      ),
+    ).toBe(false);
+    expect(
+      resolvePermissions(
+        [{ code: 'SUPER_ADMIN' }],
+        [{ permission: 'billing.create', granted: false }],
+      ).has('billing.create'),
+    ).toBe(true);
+  });
+  it('a customized built-in role uses its stored permissions', async () => {
+    const { resolvePermissions } = await import('../src');
+    const p = resolvePermissions([
+      { code: 'ADMIN', customized: true, permissions: ['stock.view'] },
+    ]);
+    expect(p.toArray()).toEqual(['stock.view']);
+  });
+});

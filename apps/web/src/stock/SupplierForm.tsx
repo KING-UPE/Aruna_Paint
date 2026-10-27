@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/AskDialog';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
@@ -48,6 +49,7 @@ export function SupplierForm({
   onSaved?: (s: Supplier) => void;
 }) {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const nav = useNavigate();
   const [f, setF] = useState<Form>(blank);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -281,12 +283,13 @@ export function SupplierForm({
                 variant="ghost"
                 className="text-danger hover:bg-danger/10 hover:text-danger"
                 onClick={async () => {
-                  if (
-                    !window.confirm(
-                      `Are you sure you want to delete supplier "${supplier.name}" (${supplier.code})?`,
-                    )
-                  )
-                    return;
+                  const ok = await confirm({
+                    title: 'Delete supplier?',
+                    message: `${supplier.name} (${supplier.code}) will be removed. This can't be undone.`,
+                    confirmLabel: 'Delete supplier',
+                    danger: true,
+                  });
+                  if (!ok) return;
                   try {
                     await api.delete(`/api/suppliers/${supplier.id}`);
                     toast.success(`Supplier "${supplier.name}" deleted.`);

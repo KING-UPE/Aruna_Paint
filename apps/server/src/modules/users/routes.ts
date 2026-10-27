@@ -14,6 +14,7 @@ import {
   listUsers,
   resetPassword,
   resetPin,
+  resetRole,
   updateRole,
   updateUser,
 } from './service';
@@ -129,6 +130,18 @@ export async function userRoutes(app: FastifyInstance) {
     );
     return { ok: true };
   });
+
+  app.post(
+    '/api/roles/:id/reset',
+    { preHandler: [shopOnly(), perm('users.edit')] },
+    async (req) => {
+      await db.$transaction(
+        (tx) => resetRole(tx, actorOf(req.ctx), idParam(req.params)),
+        TX_OPTIONS,
+      );
+      return { ok: true };
+    },
+  );
 
   app.delete('/api/roles/:id', { preHandler: [shopOnly(), perm('users.edit')] }, async (req) => {
     await db.$transaction(

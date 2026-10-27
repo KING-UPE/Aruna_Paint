@@ -15,6 +15,7 @@ import { SetupPage } from '@/auth/SetupPage';
 import { BillingScreen } from '@/billing/BillingScreen';
 import { DayEndPage } from '@/billing/DayEndPage';
 import { HistoryPage } from '@/billing/HistoryPage';
+import { AskProvider } from '@/components/AskDialog';
 import { PinPromptProvider } from '@/components/PinPrompt';
 import { Spinner } from '@/components/ui/misc';
 import { CommandPalette } from '@/keyboard/CommandPalette';
@@ -52,8 +53,10 @@ export function App() {
     <AuthProvider me={me.data}>
       <KeymapProvider overrides={me.data.shortcuts}>
         <PinPromptProvider>
-          <Session />
-          {me.data.locked ? <LockScreen me={me.data} /> : null}
+          <AskProvider>
+            <Session />
+            {me.data.locked ? <LockScreen me={me.data} /> : null}
+          </AskProvider>
         </PinPromptProvider>
       </KeymapProvider>
     </AuthProvider>

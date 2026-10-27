@@ -1,4 +1,4 @@
-import { DomainError } from '@aruna/shared';
+import { DomainError, periodContaining } from '@aruna/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { perm, shopOnly } from '../../auth/guard';
@@ -6,23 +6,14 @@ import { actorOf } from '../../core/context';
 import { TX_OPTIONS } from '../../db';
 import {
   getHrmMonthlySummary,
+  setMonthStartDay,
   updateHrmMonth,
   updateHrmMonthSchema,
 } from './service';
 
 const querySchema = z.object({
-  year: z.coerce
-    .number()
-    .int()
-    .min(2020)
-    .max(2100)
-    .default(() => new Date().getFullYear()),
-  month: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(12)
-    .default(() => new Date().getMonth() + 1),
+  year: z.coerce.number().int().min(2020).max(2100).optional(),
+  month: z.coerce.number().int().min(1).max(12).optional(),
 });
 
 export async function hrmRoutes(app: FastifyInstance) {
@@ -33,8 +24,16 @@ export async function hrmRoutes(app: FastifyInstance) {
    * Accessible by both Super Admin and Admin (view-only for Admin).
    */
   app.get('/api/hrm/summary', { preHandler: perm('hrm.view') }, async (req) => {
-    const { year, month } = querySchema.parse(req.query);
-    const summary = await getHrmMonthlySummary(db, settings, year, month);
+    const q = querySchema.parse(req.query);
+    // Without a month, show the period that contains today.
+    const { monthStartDay } = await settings.get('closing');
+    const current = periodContaining(new Date(), monthStartDay);
+    const summary = await getHrmMonthlySummary(
+      db,
+      settings,
+      q.year ?? current.year,
+      q.month ?? current.month,
+    );
     const canEdit = req.ctx.permissions.has('hrm.edit');
 
     return {
@@ -43,29 +42,35 @@ export async function hrmRoutes(app: FastifyInstance) {
     };
   });
 
+  app.put('/api/hrm/month-start', { preHandler: [shopOnly(), perm('hrm.edit')] }, async (req) => {
+    const { day } = z.object({ day: z.number().int().min(1).max(28) }).parse(req.body);
+    const saved = await db.$transaction(
+      (tx) => setMonthStartDay(tx, settings, actorOf(req.ctx), day),
+      TX_OPTIONS,
+    );
+    events.publish({ type: 'settings' });
+    return { monthStartDay: saved };
+  });
+
   /**
    * Save expenses, salaries, and commission table members.
    * Strictly allowed ONLY for Super Admin (Owner).
    */
-  app.put(
-    '/api/hrm/month/:period',
-    { preHandler: [shopOnly(), perm('hrm.edit')] },
-    async (req) => {
-      const { period } = req.params as { period: string };
-      if (!/^\d{4}-\d{2}$/.test(period)) {
-        throw new DomainError('VALIDATION', 'Period must be in YYYY-MM format.');
-      }
+  app.put('/api/hrm/month/:period', { preHandler: [shopOnly(), perm('hrm.edit')] }, async (req) => {
+    const { period } = req.params as { period: string };
+    if (!/^\d{4}-\d{2}$/.test(period)) {
+      throw new DomainError('VALIDATION', 'Period must be in YYYY-MM format.');
+    }
 
-      const input = updateHrmMonthSchema.parse(req.body);
-      const actor = actorOf(req.ctx);
+    const input = updateHrmMonthSchema.parse(req.body);
+    const actor = actorOf(req.ctx);
 
-      const updated = await db.$transaction(
-        (tx) => updateHrmMonth(tx, settings, actor, period, input),
-        TX_OPTIONS,
-      );
+    const updated = await db.$transaction(
+      (tx) => updateHrmMonth(tx, settings, actor, period, input),
+      TX_OPTIONS,
+    );
 
-      events.publish({ type: 'settings' });
-      return { success: true, updated };
-    },
-  );
+    events.publish({ type: 'settings' });
+    return { success: true, updated };
+  });
 }

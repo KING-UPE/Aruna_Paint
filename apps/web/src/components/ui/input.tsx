@@ -1,7 +1,9 @@
 import {
   forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
   type InputHTMLAttributes,
-  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
 import { cn } from '@/lib/utils';
@@ -24,22 +26,20 @@ export const Textarea = forwardRef<
 ));
 Textarea.displayName = 'Textarea';
 
-export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
-  ({ className, ...props }, ref) => (
-    <select ref={ref} className={cn(base, 'h-10 pr-8', className)} {...props} />
-  ),
-);
-Select.displayName = 'Select';
+export { Select, type SelectProps, type SelectChangeEvent } from './select';
 
 export const Checkbox = forwardRef<
   HTMLInputElement,
-  Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>
->(({ className, ...props }, ref) => (
-  <input
-    ref={ref}
-    type="checkbox"
-    className={cn('h-4 w-4 accent-[var(--accent)]', className)}
-    {...props}
-  />
-));
+  Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+    /** Some but not all of what it stands for is ticked (shows a dash). */
+    indeterminate?: boolean;
+  }
+>(({ className, indeterminate = false, ...props }, ref) => {
+  const inner = useRef<HTMLInputElement>(null);
+  useImperativeHandle(ref, () => inner.current!);
+  useEffect(() => {
+    if (inner.current) inner.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return <input ref={inner} type="checkbox" className={cn('ui-checkbox', className)} {...props} />;
+});
 Checkbox.displayName = 'Checkbox';

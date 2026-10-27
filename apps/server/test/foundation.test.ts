@@ -233,6 +233,65 @@ describe('users and roles', () => {
     // A role still ticked for any user can't be deleted.
     expect((await shop.sa.delete(`/api/roles/${sup.id}`)).status).toBe(409);
   });
+
+  it('the Super Admin can change what a built-in role gives and put it back', async () => {
+    const roles = (await shop.sa.get('/api/roles')).body.items;
+    const cashierRole = roles.find((r: { code: string }) => r.code === 'CASHIER');
+    expect(cashierRole.customized).toBe(false);
+    expect(cashierRole.permissions).toEqual(cashierRole.defaultPermissions);
+    const fewer = cashierRole.permissions.filter((p: string) => p !== 'quotations.create');
+    expect(fewer.length).toBe(cashierRole.permissions.length - 1);
+    expect(
+      (
+        await shop.sa.patch(`/api/roles/${cashierRole.id}`, {
+          permissions: [...fewer, 'stock.view'],
+        })
+      ).status,
+    ).toBe(200);
+    let me = (await shop.cashier.get('/api/auth/me')).body;
+    expect(me.permissions).toContain('stock.view');
+    expect(me.permissions).not.toContain('quotations.create');
+    const after = (await shop.sa.get('/api/roles')).body.items.find(
+      (r: { code: string }) => r.code === 'CASHIER',
+    );
+    expect(after.customized).toBe(true);
+    // Super Admin-only powers stay with the Super Admin.
+    expect(
+      (await shop.sa.patch(`/api/roles/${cashierRole.id}`, { permissions: ['users.create'] }))
+        .status,
+    ).toBe(400);
+    const sa = roles.find((r: { code: string }) => r.code === 'SUPER_ADMIN');
+    expect((await shop.sa.patch(`/api/roles/${sa.id}`, { permissions: [] })).status).toBe(409);
+
+    expect((await shop.sa.post(`/api/roles/${cashierRole.id}/reset`)).status).toBe(200);
+    me = (await shop.cashier.get('/api/auth/me')).body;
+    expect(me.permissions).not.toContain('stock.view');
+    expect(me.permissions).toContain('quotations.create');
+  });
+
+  it('one user can get an extra permission or lose one from their roles', async () => {
+    const r = await shop.sa.patch(`/api/users/${shop.ids.cashier}`, {
+      permissionOverrides: [
+        { permission: 'stock.view', granted: true },
+        { permission: 'quotations.create', granted: false },
+      ],
+    });
+    expect(r.status).toBe(200);
+    const me = (await shop.cashier.get('/api/auth/me')).body;
+    expect(me.permissions).toContain('stock.view');
+    expect(me.permissions).not.toContain('quotations.create');
+    const users = (await shop.sa.get('/api/users')).body.items;
+    expect(
+      users.find((u: { id: string }) => u.id === shop.ids.cashier).permissionOverrides,
+    ).toEqual([
+      { permission: 'quotations.create', granted: false },
+      { permission: 'stock.view', granted: true },
+    ]);
+    const bad = await shop.sa.patch(`/api/users/${shop.ids.cashier}`, {
+      permissionOverrides: [{ permission: 'users.create', granted: true }],
+    });
+    expect(bad.status).toBe(400);
+  });
 });
 
 describe('value manager', () => {

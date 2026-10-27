@@ -123,3 +123,78 @@ body {
 kbd {
   font-family: var(--font-sans);
 }
+
+/* Light and dark native widgets (date pickers, scrollbars) follow the theme. */
+:root {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/*
+ * Checkboxes: rounded, accent-filled with a white tick. Applies to every checkbox, so screens
+ * using a plain <input type="checkbox"> look the same as <Checkbox>.
+ */
+input[type='checkbox'],
+.ui-checkbox {
+  appearance: none;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--surface);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 12px 12px;
+  cursor: pointer;
+  transition:
+    background-color 120ms,
+    border-color 120ms;
+  vertical-align: middle;
+}
+input[type='checkbox']:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+input[type='checkbox']:checked {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
+}
+input[type='checkbox']:indeterminate {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M4 8h8'/%3E%3C/svg%3E");
+}
+input[type='checkbox']:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+input[type='checkbox']:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Number boxes: no browser spin arrows; type the value. */
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Thin, rounded scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
