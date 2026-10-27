@@ -36,6 +36,8 @@ interface ComputedLine {
   piecesPerBox: number;
 }
 
+const PRICE_RULES = new Set(['DISCOUNT_ABOVE_LIMIT', 'PRICE_ABOVE_R_PRICE', 'BELOW_COST']);
+
 /** Recomputes every line on the server; prices typed on the screen are never trusted as-is. */
 async function computeLines(tx: Tx, input: PurchaseInputParsed): Promise<ComputedLine[]> {
   const products = await tx.product.findMany({
@@ -51,7 +53,11 @@ async function computeLines(tx: Tx, input: PurchaseInputParsed): Promise<Compute
         'Mix paint is filled from cans, not bought.',
         `lines.${i}.productId`,
       );
-    const result = computePurchaseLine({ ...l, piecesPerBox: p.piecesPerBox });
+    const lineInput = { ...l, piecesPerBox: p.piecesPerBox };
+    const result = computePurchaseLine(lineInput);
+    // "Sales discount cannot be more than the purchase discount": a draft can't hold it either.
+    const price = validatePurchaseLine(lineInput, result).find((x) => PRICE_RULES.has(x.code));
+    if (price) throw new DomainError(price.code, price.message, `lines.${i}.${price.field}`);
     return { input: l, result, piecesPerBox: p.piecesPerBox };
   });
 }

@@ -259,6 +259,33 @@ describe('purchases (GRN)', () => {
     expect(r.body.error.field).toBe('lines.0.salesDiscount');
   });
 
+  it('the sales discount can never be more than the purchase discount, not even on a draft', async () => {
+    // Purchase discount 10% of Rs 2,000 = Rs 200; a 12% sales discount is Rs 240.
+    const over = {
+      ...worked(cat.thinner),
+      salesDiscount: { type: 'PERCENT' as const, value: '12' },
+    };
+    for (const post of [true, undefined]) {
+      const r = await shop.stock.post('/api/purchases', {
+        supplierId: cat.supplierA,
+        date: TODAY(),
+        supplierInvoiceTotal: '18000',
+        lines: [over],
+        post,
+      });
+      expect(r.status).toBe(422);
+      expect(r.body.error.code).toBe('DISCOUNT_ABOVE_LIMIT');
+      expect(r.body.error.field).toBe('lines.0.salesDiscount');
+      expect(r.body.error.message).toContain('Rs 200.00');
+    }
+    await postGrn(shop, cat.supplierA, [worked(cat.thinner)]);
+    const later = await shop.admin.post(`/api/products/${cat.thinner}/prices`, {
+      salesDiscount: { type: 'AMOUNT', value: '201' },
+    });
+    expect(later.status).toBe(422);
+    expect(later.body.error.code).toBe('DISCOUNT_ABOVE_LIMIT');
+  });
+
   it('invoice discount and transport change the supplier balance, never item costs', async () => {
     await postGrn(shop, cat.supplierA, [worked(cat.thinner)], {
       invoiceDiscount: '500',

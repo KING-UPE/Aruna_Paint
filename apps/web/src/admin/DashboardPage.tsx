@@ -12,6 +12,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Ban,
+  CalendarClock,
   CheckCircle2,
   ClipboardX,
   FileX,
@@ -90,6 +91,7 @@ interface Dashboard {
     returns: { count: number; total: string };
     reprints: number;
     priceOverrides: number;
+    autoClosed: number;
     removedLines: { count: number; total: string };
   };
 }
@@ -959,6 +961,12 @@ function WatchCard({ w }: { w: Dashboard['watch'] }) {
       label: 'Receipts reprinted',
       icon: <Printer size={16} />,
       count: w.reprints,
+    },
+    {
+      key: 'autoClosed',
+      label: 'Days closed automatically (no day end done)',
+      icon: <CalendarClock size={16} />,
+      count: w.autoClosed,
     },
     {
       key: 'prices',

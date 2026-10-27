@@ -65,6 +65,7 @@ docs/             plan PDF and PROGRESS.md
 **Approvals (manager override).** `requireApproval(tx, ctx, kind, approval?.pin, pinSecret)` (`src/auth/approvals.ts`; kinds in shared `APPROVALS`) passes if the user holds the permission. Otherwise it needs another user's PIN; PINs are HMAC'd, unique, and identify the approver. The screens use `usePinPrompt()` and `/api/auth/verify-approval`.
 
 **Permissions.** `rolePermissions()` and `resolvePermissions()` in shared:
+
 - Built-in roles use the code defaults unless `roles.customized` is set; then they use the stored list.
 - Custom roles use their stored list. The Super Admin role always has everything.
 - Each user's `user_permissions` rows then add or take away single permissions, never Super Admin-only ones.

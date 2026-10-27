@@ -23,6 +23,7 @@ import { actorOf } from '../../core/context';
 import { nextNumber } from '../../core/numbering';
 import { moveStock } from '../../core/stock';
 import { requireApproval } from '../../auth/approvals';
+import { autoCloseShift } from '../shifts/service';
 import { dateOnly, parseDateOnly } from '../../lib/json';
 import { priceLines, type PricedLine, type QuotedPrice } from './pricing';
 
@@ -38,7 +39,10 @@ export function requireCounter(ctx: RequestContext) {
   return ctx.counter;
 }
 
-/** Bills attach to today's open day for the counter (auto-opened if not already started). */
+/**
+ * Bills attach to today's open day for the counter. The day opens by itself with the first bill,
+ * and a day still open from an earlier date closes by itself first (no day end to remember).
+ */
 export async function openShiftFor(
   tx: Tx,
   counterId: string,
@@ -49,6 +53,10 @@ export async function openShiftFor(
     where: { counterId, status: 'OPEN' },
     orderBy: { openedAt: 'desc' },
   });
+  if (shift && dateOnly(shift.businessDate) !== shopDate() && openedById) {
+    await autoCloseShift(tx, shift.id, openedById);
+    shift = null;
+  }
   if (!shift) {
     if (!required) return null;
     const today = shopDate();

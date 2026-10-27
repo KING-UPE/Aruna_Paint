@@ -8,22 +8,22 @@ async function main() {
   const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'owner', password: 'password123' })
+    body: JSON.stringify({ username: 'owner', password: 'password123' }),
   });
   if (!loginRes.ok) {
     throw new Error(`Login failed: ${await loginRes.text()}`);
   }
   const sc = loginRes.headers.getSetCookie?.() || [];
-  const cookie = (sc.length > 0 ? sc[0] : (loginRes.headers.get('set-cookie') || '')).split(';')[0];
+  const cookie = (sc.length > 0 ? sc[0] : loginRes.headers.get('set-cookie') || '').split(';')[0];
   const headers = {
     'Content-Type': 'application/json',
-    'Cookie': cookie
+    Cookie: cookie,
   };
 
   async function api(path, options = {}) {
     const res = await fetch(`${BASE_URL}${path}`, {
       ...options,
-      headers: { ...headers, ...(options.headers || {}) }
+      headers: { ...headers, ...(options.headers || {}) },
     });
     const text = await res.text();
     let json;
@@ -34,7 +34,9 @@ async function main() {
     }
     if (!res.ok) {
       console.error(`API Error ${options.method || 'GET'} ${path}:`, json);
-      throw new Error(`API failed: ${res.status} - ${typeof json === 'object' ? JSON.stringify(json) : json}`);
+      throw new Error(
+        `API failed: ${res.status} - ${typeof json === 'object' ? JSON.stringify(json) : json}`,
+      );
     }
     return json;
   }
@@ -75,11 +77,11 @@ async function main() {
         lines: [
           { kind: 'BATCH', subProductId: pApex4.id, qty: '1' },
           { kind: 'BATCH', subProductId: pBrush3.id, qty: '2' },
-          ...(pTape1 ? [{ kind: 'BATCH', subProductId: pTape1.id, qty: '2' }] : [])
+          ...(pTape1 ? [{ kind: 'BATCH', subProductId: pTape1.id, qty: '2' }] : []),
         ],
         cashGiven: '12000',
-        print: false
-      })
+        print: false,
+      }),
     });
     console.log(`✓ Invoice 1 created: ${inv1.no} · Kamal Perera · Rs. ${inv1.netTotal}`);
   }
@@ -100,11 +102,11 @@ async function main() {
         lines: [
           { kind: 'BATCH', subProductId: pApex10.id, qty: '2' },
           { kind: 'BATCH', subProductId: pSealer.id, qty: '3' },
-          ...(pRoller ? [{ kind: 'BATCH', subProductId: pRoller.id, qty: '2' }] : [])
+          ...(pRoller ? [{ kind: 'BATCH', subProductId: pRoller.id, qty: '2' }] : []),
         ],
         cashGiven: '55000',
-        print: false
-      })
+        print: false,
+      }),
     });
     console.log(`✓ Invoice 2 created: ${inv2.no} · Nimal Silva (Wholesale) · Rs. ${inv2.netTotal}`);
   }
@@ -125,11 +127,11 @@ async function main() {
         lines: [
           { kind: 'BATCH', subProductId: pRoyale4.id, qty: '2' },
           ...(pDuluxVT ? [{ kind: 'BATCH', subProductId: pDuluxVT.id, qty: '1' }] : []),
-          ...(pSandpaper ? [{ kind: 'BATCH', subProductId: pSandpaper.id, qty: '5' }] : [])
+          ...(pSandpaper ? [{ kind: 'BATCH', subProductId: pSandpaper.id, qty: '5' }] : []),
         ],
         cashGiven: '25000',
-        print: false
-      })
+        print: false,
+      }),
     });
     console.log(`✓ Invoice 3 created: ${inv3.no} · Suneth Enterprises · Rs. ${inv3.netTotal}`);
   }
@@ -151,10 +153,10 @@ async function main() {
         lines: [
           { kind: 'BATCH', subProductId: pDuluxWS.id, qty: '4' },
           { kind: 'BATCH', subProductId: pVarnish.id, qty: '3' },
-          ...(pBrush15 ? [{ kind: 'BATCH', subProductId: pBrush15.id, qty: '4' }] : [])
+          ...(pBrush15 ? [{ kind: 'BATCH', subProductId: pBrush15.id, qty: '4' }] : []),
         ],
-        print: false
-      })
+        print: false,
+      }),
     });
     console.log(`✓ Quotation 1 created: ${qt1.no} · Green Garden Hotel · Rs. ${qt1.netTotal}`);
   }
@@ -162,7 +164,7 @@ async function main() {
   // 3. Add Cash Movements for Today's Shift
   console.log('\n--- Adding Cash Movements ---');
   const reasonsRes = await api('/api/values/reasons');
-  const reasonMap = new Map(reasonsRes.items.map(r => [r.name.toLowerCase(), r.id]));
+  const reasonMap = new Map(reasonsRes.items.map((r) => [r.name.toLowerCase(), r.id]));
 
   const rTopup = reasonMap.get('float top-up');
   const rPetty = reasonMap.get('petty expense');
@@ -174,8 +176,8 @@ async function main() {
         kind: 'IN',
         amount: '5000',
         reasonId: rTopup,
-        note: 'Added morning float and small change'
-      })
+        note: 'Added morning float and small change',
+      }),
     });
     console.log('✓ Cash IN: Rs. 5,000 (Float top-up)');
   }
@@ -187,8 +189,8 @@ async function main() {
         kind: 'OUT',
         amount: '850',
         reasonId: rPetty,
-        note: 'Tea, snacks and drinking water for staff'
-      })
+        note: 'Tea, snacks and drinking water for staff',
+      }),
     });
     console.log('✓ Cash OUT: Rs. 850 (Petty expense)');
   }
@@ -206,7 +208,7 @@ async function main() {
   console.log('=============================================\n');
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('Error adding dummy data:', err);
   process.exit(1);
 });

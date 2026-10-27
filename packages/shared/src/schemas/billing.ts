@@ -183,4 +183,6 @@ export const closeShiftSchema = z.object({
     .partialRecord(z.enum(DENOMINATIONS), z.number().int().min(0).max(100000))
     .default({}),
   note: optionalText(300),
+  /** The day-end report prints only when asked; it can be printed any time later. */
+  print: z.boolean().default(false),
 });

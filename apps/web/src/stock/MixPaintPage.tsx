@@ -79,7 +79,9 @@ export function MixPaintPage() {
   );
   const selectedSub = inStockBatches[0];
 
-  const packSize = Number(selectedProduct?.packSize ?? selectedProduct?.unit?.name === 'can' ? '4' : '1');
+  const packSize = Number(
+    (selectedProduct?.packSize ?? selectedProduct?.unit?.name === 'can') ? '4' : '1',
+  );
   const canLiters = D(packSize > 0 ? packSize : 1);
   const cansNum = Math.max(1, parseInt(cansCount || '1', 10) || 1);
   const totalLiters = canLiters.times(cansNum);
@@ -156,7 +158,10 @@ export function MixPaintPage() {
             <form onSubmit={submitTransfer} className="flex flex-col gap-4">
               {/* Paint Product Search */}
               <div className="relative">
-                <Field label="Search paint to mix" hint="Type paint name or code to select from stock">
+                <Field
+                  label="Search paint to mix"
+                  hint="Type paint name or code to select from stock"
+                >
                   <div className="flex gap-2">
                     <Input
                       autoFocus
@@ -177,7 +182,9 @@ export function MixPaintPage() {
                 </Field>
 
                 {/* Search Suggestions Dropdown */}
-                {searchResults.data?.items && searchResults.data.items.length > 0 && !selectedProduct ? (
+                {searchResults.data?.items &&
+                searchResults.data.items.length > 0 &&
+                !selectedProduct ? (
                   <ul className="absolute left-0 right-0 top-[70px] z-30 max-h-60 overflow-y-auto rounded-lg border border-border bg-surface shadow-xl">
                     {searchResults.data.items.map((p) => (
                       <li
@@ -230,7 +237,10 @@ export function MixPaintPage() {
                     />
                   </Field>
 
-                  <Field label="Admin can price (Rs)" hint="Total price set by admin for the whole can">
+                  <Field
+                    label="Admin can price (Rs)"
+                    hint="Total price set by admin for the whole can"
+                  >
                     <Input
                       type="number"
                       step="0.01"
@@ -254,7 +264,8 @@ export function MixPaintPage() {
                       <span className="num font-bold text-ok">
                         Rs {formatMoney(calculatedPricePerLiter)} / L
                         <span className="ml-1 text-xs text-muted">
-                          ({adminCanPrice || selectedSub?.salesPrice || '0'} ÷ {canLiters.toString()})
+                          ({adminCanPrice || selectedSub?.salesPrice || '0'} ÷{' '}
+                          {canLiters.toString()})
                         </span>
                       </span>
                     </div>
@@ -302,9 +313,7 @@ export function MixPaintPage() {
                         <div className="text-xs text-muted">{m.name}</div>
                       </td>
                       <td className="px-3 py-2 text-muted">{m.brand?.name ?? '—'}</td>
-                      <td className="num px-3 py-2 font-bold text-ok">
-                        {formatQty(m.stock)} L
-                      </td>
+                      <td className="num px-3 py-2 font-bold text-ok">{formatQty(m.stock)} L</td>
                       <td className="px-3 py-2">
                         {m.outOfStock ? (
                           <Badge tone="danger">Out of stock</Badge>
@@ -352,8 +361,12 @@ export function MixPaintPage() {
                 {(transfers.data?.items ?? []).slice(0, 25).map((t) => (
                   <tr key={t.id} className="border-t border-border hover:bg-surface-2">
                     <td className="px-4 py-2 font-semibold">{t.no}</td>
-                    <td className="px-4 py-2">{t.source.code} · {t.source.name}</td>
-                    <td className="px-4 py-2 text-primary font-medium">{t.mix.code} · {t.mix.name}</td>
+                    <td className="px-4 py-2">
+                      {t.source.code} · {t.source.name}
+                    </td>
+                    <td className="px-4 py-2 text-primary font-medium">
+                      {t.mix.code} · {t.mix.name}
+                    </td>
                     <td className="num px-4 py-2">{t.cans} can</td>
                     <td className="num px-4 py-2 font-bold text-ok">{formatQty(t.liters)} L</td>
                     <td className="num px-4 py-2">Rs {formatMoney(t.newPricePerLiter)}</td>

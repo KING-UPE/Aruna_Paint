@@ -22,16 +22,24 @@ function pair(client, worker) {
   worker.pipe(client);
 
   client.on('error', (err) => {
-    try { worker.destroy(); } catch {}
+    try {
+      worker.destroy();
+    } catch {}
   });
   worker.on('error', (err) => {
-    try { client.destroy(); } catch {}
+    try {
+      client.destroy();
+    } catch {}
   });
   client.on('close', () => {
-    try { worker.destroy(); } catch {}
+    try {
+      worker.destroy();
+    } catch {}
   });
   worker.on('close', () => {
-    try { client.destroy(); } catch {}
+    try {
+      client.destroy();
+    } catch {}
   });
 }
 
@@ -89,7 +97,7 @@ process.on('uncaughtException', (err) => {
 // 3. Auto-spawn worker in WSL
 const workerPyPath = path.posix.join(
   __dirname.replace(/^[a-zA-Z]:/, (m) => `/mnt/${m[0].toLowerCase()}`).replace(/\\/g, '/'),
-  'worker.py'
+  'worker.py',
 );
 
 const workerProc = spawn('wsl', ['python3', workerPyPath], {

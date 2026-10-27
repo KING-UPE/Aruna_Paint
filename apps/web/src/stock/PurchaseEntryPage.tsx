@@ -119,6 +119,22 @@ function compute(l: GrnLine) {
   }
 }
 
+const COLS = [
+  'item',
+  'value',
+  'qty',
+  'free',
+  'discount',
+  'rPrice',
+  'wPrice',
+  'salesDiscount',
+  'salesPrice',
+  'expiryDate',
+] as const;
+
+// Prices a line can't be saved with, not even as a draft (the server checks the same).
+const PRICE_RULES = new Set(['DISCOUNT_ABOVE_LIMIT', 'PRICE_ABOVE_R_PRICE', 'BELOW_COST']);
+
 /** The GRN screen. Enter moves across the line; Enter on the last column starts a new line. */
 export function PurchaseEntryPage() {
   const { id } = useParams();
@@ -314,9 +330,19 @@ export function PurchaseEntryPage() {
     toast.error(errorMessage(err));
   };
 
+  const priceIssue = (row: number, field: string) =>
+    computed[row]?.issues.find((x) => x.field === field && PRICE_RULES.has(x.code)) ?? null;
+
   const save = async (post: boolean, confirm: Record<string, boolean> = {}) => {
     if (!header.supplier) return toast.error('Pick the supplier first.');
     if (!filled.length) return toast.error('Add at least one line.');
+    for (const [row, c] of computed.entries()) {
+      const bad = lines[row]!.product ? c.issues.find((x) => PRICE_RULES.has(x.code)) : undefined;
+      if (!bad) continue;
+      setCellError({ row, field: bad.field, message: bad.message });
+      focusCell(row, COLS.indexOf(bad.field as (typeof COLS)[number]));
+      return toast.error(`Line ${row + 1}: ${bad.message}`);
+    }
     setBusy(true);
     setCellError(null);
     try {
@@ -367,18 +393,6 @@ export function PurchaseEntryPage() {
   if (!isNew && existing.data && existing.data.status !== 'DRAFT')
     return <PostedPurchase p={existing.data} askPin={askPin} />;
 
-  const COLS = [
-    'item',
-    'value',
-    'qty',
-    'free',
-    'discount',
-    'rPrice',
-    'wPrice',
-    'salesDiscount',
-    'salesPrice',
-    'expiryDate',
-  ] as const;
   const last = COLS.length - 1;
   const errFor = (row: number, field: string) =>
     cellError && cellError.row === row && cellError.field === field ? cellError.message : null;
@@ -515,6 +529,7 @@ export function PurchaseEntryPage() {
                   onChange: (v: string) => void,
                   extra?: string,
                   onBlur?: () => void,
+                  placeholder?: string,
                 ) => (
                   <td className="px-1 py-1">
                     <Input
@@ -523,15 +538,34 @@ export function PurchaseEntryPage() {
                       value={value}
                       onChange={(e) => onChange(e.target.value)}
                       onBlur={onBlur}
-                      onKeyDown={onCellKey(i, col, last)}
+                      onKeyDown={(e) => {
+                        // A price that breaks a rule stays put until it is fixed.
+                        if (
+                          e.key === 'Enter' &&
+                          !e.shiftKey &&
+                          !e.ctrlKey &&
+                          priceIssue(i, field)
+                        ) {
+                          e.preventDefault();
+                          return;
+                        }
+                        onCellKey(i, col, last)(e);
+                      }}
                       aria-invalid={Boolean(issue(field))}
                       title={issue(field) ?? undefined}
+                      placeholder={placeholder}
                       className={cn('num h-8 w-24 px-2', extra)}
                     />
                   </td>
                 );
-                const rowIssue =
-                  issues[0]?.message ?? (cellError?.row === i ? cellError.message : null);
+                const rowIssues = [
+                  ...new Set(
+                    [
+                      cellError?.row === i ? cellError.message : null,
+                      ...issues.map((x) => x.message),
+                    ].filter((m): m is string => Boolean(m)),
+                  ),
+                ];
                 return (
                   <tr key={l.key} className="border-t border-border align-top">
                     <td className="px-2 py-2 text-muted">{i + 1}</td>
@@ -570,9 +604,11 @@ export function PurchaseEntryPage() {
                         onNew={() => setNewItemFor(i)}
                         onEnterEmpty={() => (i > 0 ? void save(true) : undefined)}
                       />
-                      {rowIssue ? (
-                        <div className="mt-1 max-w-56 text-xs text-danger">{rowIssue}</div>
-                      ) : null}
+                      {rowIssues.map((m) => (
+                        <div key={m} className="mt-1 max-w-56 text-xs text-danger">
+                          {m}
+                        </div>
+                      ))}
                     </td>
                     {cell(1, 'value', l.value, (v) => update(i, { value: v }))}
                     {cell(2, 'qty', l.qty, (v) => update(i, { qty: v }), 'w-20')}
@@ -627,6 +663,7 @@ export function PurchaseEntryPage() {
                           update(i, { salesDiscount: `${trimmed}%`, salesPrice: null });
                         }
                       },
+                      r && l.value ? `max ${r.purchaseDiscount.toFixed(2)}` : undefined,
                     )}
                     {cell(
                       8,

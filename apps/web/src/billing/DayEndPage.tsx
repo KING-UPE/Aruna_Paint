@@ -2,7 +2,9 @@ import { D, formatDate, formatMoney, formatTime } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { Printer } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
+import { IconButton } from '@/components/ui/icon-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,10 +12,13 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { EmptyState, Money, PageHeader } from '@/components/ui/misc';
 import { api, errorMessage } from '@/lib/api';
+import { arrowNav } from '@/lib/arrowNav';
 import type { ShiftSummary } from '@/lib/types';
 
 /**
- * Day End: calculates day-end sales, completed bills, and net totals.
+ * Day End: the day's sales, completed bills and net totals. Finishing is optional: a day left
+ * open closes by itself when the counter starts the next day. The report prints only when asked,
+ * and any recent day end can be printed again.
  */
 export function DayEndPage() {
   const { me, can } = useAuth();
@@ -24,10 +29,21 @@ export function DayEndPage() {
     enabled: Boolean(me.counter),
   });
   const today = useQuery({
-    queryKey: ['shifts-today'],
-    queryFn: () => api.get<{ items: ShiftSummary[] }>('/api/shifts'),
+    queryKey: ['shifts-today', 'recent'],
+    queryFn: () => api.get<{ items: ShiftSummary[] }>('/api/shifts?recent=1'),
     enabled: can('day_end.view'),
   });
+  const printReport = async (s: ShiftSummary) => {
+    try {
+      const r = await api.post<{ print: { printed: boolean; error?: string } }>(
+        `/api/shifts/${s.id}/print`,
+      );
+      if (r.print.printed) toast.success(`Day end ${s.no} sent to the printer.`);
+      else toast.warning(`Not printed: ${r.print.error ?? 'no printer is set for this counter'}.`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const shift = current.data?.shift ?? null;
@@ -38,14 +54,16 @@ export function DayEndPage() {
     void qc.invalidateQueries({ queryKey: ['billing-status'] });
   };
 
-  const close = async () => {
+  const close = async (print: boolean) => {
     setBusy(true);
     try {
       const r = await api.post<{
         summary: ShiftSummary;
         heldBills: number;
-        print: { printed: boolean };
-      }>('/api/shifts/current/close', { note });
+        print: { printed: boolean; error?: string; skipped?: boolean };
+      }>('/api/shifts/current/close', { note, print });
+      if (print && !r.print.printed)
+        toast.warning(`Not printed: ${r.print.error ?? 'no printer is set for this counter'}.`);
       toast.success(
         `Day end ${r.summary.no} finished. Total sales: Rs ${formatMoney(r.summary.cashSales)}.`,
       );
@@ -61,7 +79,10 @@ export function DayEndPage() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <PageHeader title="Day End Sales Calculation" description={formatDate(new Date())} />
+      <PageHeader
+        title="Day End Sales Calculation"
+        description={`${formatDate(new Date())} · a day not finished here closes by itself when the counter starts the next day`}
+      />
 
       {!current.isLoading && !shift ? (
         <Card>
@@ -134,15 +155,25 @@ export function DayEndPage() {
               />
             </Field>
 
-            <Button
-              variant="primary"
-              size="lg"
-              className="w-full text-base font-semibold"
-              onClick={() => void close()}
-              disabled={busy || !can('day_end.create')}
-            >
-              {busy ? 'Finishing Day End...' : 'Finish Day & Print Report'}
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row" onKeyDown={arrowNav}>
+              <Button
+                variant="primary"
+                size="lg"
+                className="flex-1 text-base font-semibold"
+                onClick={() => void close(false)}
+                disabled={busy || !can('day_end.create')}
+              >
+                {busy ? 'Finishing…' : 'Finish day'}
+              </Button>
+              <Button
+                size="lg"
+                icon={<Printer size={18} />}
+                onClick={() => void close(true)}
+                disabled={busy || !can('day_end.create')}
+              >
+                Finish &amp; print report
+              </Button>
+            </div>
           </CardBody>
         </Card>
       ) : null}
@@ -150,26 +181,31 @@ export function DayEndPage() {
       {can('day_end.view') ? (
         <Card>
           <CardHeader>
-            <CardTitle>Recent Day Ends</CardTitle>
+            <CardTitle>Recent day ends</CardTitle>
           </CardHeader>
           <CardBody className="p-0">
             {(today.data?.items ?? []).length === 0 ? (
-              <EmptyState title="No day end records found today." />
+              <EmptyState title="No day ends yet." />
             ) : (
               <table className="w-full text-sm">
                 <thead className="bg-surface-2 text-left text-muted">
                   <tr>
                     <th className="px-4 py-2 font-medium">Ref No</th>
+                    <th className="px-4 py-2 font-medium">Date</th>
                     <th className="px-4 py-2 font-medium">Status</th>
                     <th className="num px-4 py-2 font-medium">Bills</th>
                     <th className="num px-4 py-2 font-medium">Total Sales</th>
                     <th className="px-4 py-2 font-medium">Closed By</th>
+                    <th className="px-2 py-2">
+                      <span className="sr-only">Print</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {today.data!.items.map((s) => (
                     <tr key={s.id} className="border-t border-border">
                       <td className="px-4 py-2 font-mono font-medium">{s.no}</td>
+                      <td className="px-4 py-2 text-muted">{formatDate(s.businessDate)}</td>
                       <td className="px-4 py-2">
                         {s.status === 'OPEN' ? (
                           <Badge tone="ok">Open</Badge>
@@ -182,6 +218,13 @@ export function DayEndPage() {
                         <Money value={s.cashSales} />
                       </td>
                       <td className="px-4 py-2 text-muted">{s.closedBy || '—'}</td>
+                      <td className="px-2 py-1 text-right">
+                        <IconButton
+                          label={`Print day end ${s.no}`}
+                          icon={<Printer size={16} />}
+                          onClick={() => void printReport(s)}
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>

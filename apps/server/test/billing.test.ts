@@ -160,6 +160,45 @@ describe('a sale, start to finish', () => {
     expect(r.body.error.message).toBe('The day end for today is already done on this counter.');
   });
 
+  it('a day left open closes by itself the next day; the report prints only when asked', async () => {
+    const first = await shop.cashier.post('/api/sales', {
+      lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
+    });
+    expect(first.status).toBe(200);
+    // Pretend the open day was yesterday (nobody did the day end).
+    const open = await app.deps.db.shift.findFirstOrThrow({
+      where: { status: 'OPEN', counter: { code: 'C1' } },
+    });
+    const yesterday = new Date(
+      Date.parse(`${open.businessDate.toISOString().slice(0, 10)}T00:00:00Z`) - 86_400_000,
+    );
+    // (Day-end numbers carry the date, so yesterday's had a different one.)
+    await app.deps.db.shift.update({
+      where: { id: open.id },
+      data: { businessDate: yesterday, no: `${open.no}-Y` },
+    });
+    // Today's first bill closes yesterday and opens today, with no message to the cashier.
+    const next = await shop.cashier.post('/api/sales', {
+      lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
+    });
+    expect(next.status).toBe(200);
+    const old = await app.deps.db.shift.findUniqueOrThrow({ where: { id: open.id } });
+    expect(old.status).toBe('CLOSED');
+    expect(old.note).toMatch(/automatically/);
+    const log = (await shop.sa.get(`/api/audit-log?action=shift.auto_close&entityId=${open.id}`))
+      .body;
+    expect(log.total).toBe(1);
+    expect((await shop.sa.get('/api/dashboard?range=today')).body.watch.autoClosed).toBe(1);
+
+    // Closing today does not print unless asked; the report can be printed later.
+    const closed = await shop.cashier.post('/api/shifts/current/close', {});
+    expect(closed.status).toBe(200);
+    expect(closed.body.print).toMatchObject({ printed: false, skipped: true });
+    const recent = (await shop.cashier.get('/api/shifts?recent=1')).body.items;
+    expect(recent.map((x: { id: string }) => x.id)).toContain(open.id);
+    expect((await shop.cashier.post(`/api/shifts/${open.id}/print`)).status).toBe(200);
+  });
+
   it('a PC logged in without a counter code bills on the first counter', async () => {
     const me = (await shop.admin.get('/api/auth/me')).body;
     expect(me.counter?.code).toBe('C1');

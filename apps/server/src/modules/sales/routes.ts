@@ -1,5 +1,6 @@
 import {
   D,
+  DomainError,
   billHistoryQuerySchema,
   convertQuotationSchema,
   idSchema,
@@ -25,6 +26,7 @@ import {
   discardHeld,
   holdSale,
   listHeld,
+  openShiftFor,
   recordReprint,
   voidSale,
 } from './service';
@@ -92,29 +94,18 @@ export async function salesRoutes(app: FastifyInstance) {
       const counter = req.ctx.counter;
       const today = shopDate();
       const todayRange = dayRange(today, today)!;
+      // Opening billing starts today's day; one left open from an earlier date closes first.
       let shift = counter
-        ? await db.shift.findFirst({ where: { counterId: counter.id, status: 'OPEN' } })
+        ? await db.$transaction(
+            (tx) =>
+              openShiftFor(tx, counter.id, true, req.ctx.user.id).catch((err: unknown) => {
+                // Today's day end is already done on this counter: no open day.
+                if (err instanceof DomainError) return null;
+                throw err;
+              }),
+            TX_OPTIONS,
+          )
         : null;
-      if (counter && !shift) {
-        const existingToday = await db.shift.findUnique({
-          where: {
-            counterId_businessDate: { counterId: counter.id, businessDate: parseDateOnly(today) },
-          },
-        });
-        if (!existingToday) {
-          const no = await nextNumber(db, 'DAY_END', { counterCode: counter.code });
-          shift = await db.shift.create({
-            data: {
-              no,
-              counterId: counter.id,
-              locationId: counter.locationId,
-              businessDate: parseDateOnly(today),
-              openingFloat: D(0),
-              openedById: req.ctx.user.id,
-            },
-          });
-        }
-      }
       const [agg, pending, nextInvoice, nextQuotation, cloud] = await Promise.all([
         counter
           ? db.sale.aggregate({

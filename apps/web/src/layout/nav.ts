@@ -54,5 +54,7 @@ export function firstAllowed(
   section: NavItem['section'],
   can: (...p: Permission[]) => boolean,
 ): string | null {
-  return navItems.find((n) => n.section === section && (!n.perms.length || can(...n.perms)))?.to ?? null;
+  return (
+    navItems.find((n) => n.section === section && (!n.perms.length || can(...n.perms)))?.to ?? null
+  );
 }

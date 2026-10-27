@@ -53,11 +53,14 @@ export async function supplierRoutes(app: FastifyInstance) {
     ),
   );
 
-  app.delete('/api/suppliers/:id', { preHandler: [shopOnly(), perm('suppliers.edit')] }, async (req) =>
-    db.$transaction(
-      (tx) => deleteSupplier(tx, actorOf(req.ctx), idParam(req.params)),
-      TX_OPTIONS,
-    ),
+  app.delete(
+    '/api/suppliers/:id',
+    { preHandler: [shopOnly(), perm('suppliers.edit')] },
+    async (req) =>
+      db.$transaction(
+        (tx) => deleteSupplier(tx, actorOf(req.ctx), idParam(req.params)),
+        TX_OPTIONS,
+      ),
   );
 
   app.get('/api/suppliers/:id/ledger', { preHandler: perm('suppliers.view') }, async (req) => {

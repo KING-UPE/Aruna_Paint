@@ -1,4 +1,6 @@
 import {
+  D,
+  Decimal,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -294,6 +296,9 @@ function PriceDialog({
   });
   const [error, setError] = useState('');
   const target = subIds.length ? subs.filter((s) => subIds.includes(s.id)) : subs;
+  // "Sales discount cannot be more than the purchase discount": the smallest one among the targets.
+  const limits = target.flatMap((s) => (s.purchaseDiscount != null ? [D(s.purchaseDiscount)] : []));
+  const maxDiscount = limits.length ? Decimal.min(...limits) : null;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
@@ -341,7 +346,10 @@ function PriceDialog({
             onChange={(e) => setForm({ ...form, wPrice: e.target.value })}
           />
         </Field>
-        <Field label="Sales discount" hint="50 or 5%">
+        <Field
+          label="Sales discount"
+          hint={maxDiscount ? `50 or 5%, up to Rs ${maxDiscount.toFixed(2)}` : '50 or 5%'}
+        >
           <Input
             className="num"
             value={form.salesDiscount}

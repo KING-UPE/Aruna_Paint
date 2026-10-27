@@ -10,7 +10,7 @@ import {
 import type { Prisma } from '@prisma/client';
 import type { Tx } from '../../db';
 import { audit } from '../../core/audit';
-import { actorOf, type RequestContext } from '../../core/context';
+import { actorOf, type ActorRef, type RequestContext } from '../../core/context';
 import { nextNumber } from '../../core/numbering';
 import { dateOnly, parseDateOnly } from '../../lib/json';
 import { requireCounter } from '../sales/service';
@@ -188,6 +188,32 @@ export async function closeShift(tx: Tx, ctx: RequestContext, raw: unknown) {
   const shift = await tx.shift.findFirst({ where: { counterId: counter.id, status: 'OPEN' } });
   if (!shift) throw new DomainError('INVALID_STATE', 'There is no open day on this counter.');
   const held = await tx.sale.count({ where: { counterId: counter.id, status: 'HELD' } });
+  await finishShift(tx, actorOf(ctx), shift.id, input, false);
+  return { summary: await shiftSummary(tx, shift.id), heldBills: held };
+}
+
+/**
+ * A day left open closes by itself when its counter starts the next day: nobody has to remember
+ * the day end, and nothing prints (the report can be printed later from Day end).
+ */
+export async function autoCloseShift(tx: Tx, shiftId: string, userId: string) {
+  await finishShift(
+    tx,
+    { userId },
+    shiftId,
+    { denominations: {}, note: 'Closed automatically when the next day started.' },
+    true,
+  );
+}
+
+async function finishShift(
+  tx: Tx,
+  actor: ActorRef,
+  shiftId: string,
+  input: { denominations: Record<string, number | undefined>; note: string },
+  auto: boolean,
+) {
+  const shift = await tx.shift.findUniqueOrThrow({ where: { id: shiftId } });
   const summary = await shiftSummary(tx, shift.id);
   const hasDenominations = input.denominations && Object.keys(input.denominations).length > 0;
   const counted = hasDenominations
@@ -198,9 +224,7 @@ export async function closeShift(tx: Tx, ctx: RequestContext, raw: unknown) {
         ),
       )
     : D(summary.expectedCash);
-  const difference = hasDenominations
-    ? money(counted.minus(D(summary.expectedCash)))
-    : D(0);
+  const difference = hasDenominations ? money(counted.minus(D(summary.expectedCash))) : D(0);
   await tx.shift.update({
     where: { id: shift.id },
     data: {
@@ -213,13 +237,13 @@ export async function closeShift(tx: Tx, ctx: RequestContext, raw: unknown) {
       countedCash: counted.toFixed(2),
       difference: difference.toFixed(2),
       denominations: input.denominations as Prisma.InputJsonValue,
-      closedById: ctx.user.id,
+      closedById: actor.userId,
       closedAt: new Date(),
       note: input.note,
     },
   });
-  await audit(tx, actorOf(ctx), {
-    action: 'shift.close',
+  await audit(tx, actor, {
+    action: auto ? 'shift.auto_close' : 'shift.close',
     entity: 'shift',
     entityId: shift.id,
     after: {
@@ -229,5 +253,4 @@ export async function closeShift(tx: Tx, ctx: RequestContext, raw: unknown) {
       difference: difference.toFixed(2),
     },
   });
-  return { summary: await shiftSummary(tx, shift.id), heldBills: held };
 }

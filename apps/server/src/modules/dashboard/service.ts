@@ -205,6 +205,9 @@ export async function dashboard(
   const sum = (v: { toString(): string } | null | undefined) =>
     money(v?.toString() ?? 0).toFixed(2);
   // Lines taken off bills before payment, as the screens reported them.
+  const autoClosed = await tx.auditLog.count({
+    where: { action: 'shift.auto_close', at: { gte: from, lt: to } },
+  });
   const removed = await tx.auditLog.findMany({
     where: { action: 'bill.lines_removed', at: { gte: from, lt: to } },
     select: { before: true },
@@ -222,6 +225,7 @@ export async function dashboard(
     returns: { count: returnsCount._count, total: sum(returnsCount._sum.refundTotal) },
     reprints,
     priceOverrides,
+    autoClosed,
     removedLines: {
       count: removedLines.length,
       total: money(removedLines.reduce((t, l) => t.plus(D(l.amount || 0)), D(0))).toFixed(2),
