@@ -63,6 +63,7 @@ model User {
   reorderLists         ReorderList[]
   salesAsCashier       Sale[]            @relation("SaleCashier")
   salesVoided          Sale[]            @relation("SaleVoidedBy")
+  salesDeleted         Sale[]            @relation("SaleDeletedBy")
   salesVoidApproved    Sale[]            @relation("SaleVoidApprover")
   saleLinePriceApprove SaleLine[]
   saleReturns          SaleReturn[]      @relation("SaleReturnCashier")
@@ -1009,6 +1010,9 @@ enum SaleStatus {
   COMPLETED
   /// Same-day void with a reason and an Admin PIN; stays visible stamped VOID.
   VOID
+  /// A held bill or a quotation taken away with a reason. Kept, never erased, so nothing
+  /// rung up can disappear without a trace.
+  DELETED
 }
 
 model Sale {
@@ -1045,6 +1049,9 @@ model Sale {
   voidApproverId     String?    @map("void_approver_id") @db.Uuid
   voidReasonId       String?    @map("void_reason_id") @db.Uuid
   voidNote           String     @default("") @map("void_note")
+  deletedAt          DateTime?  @map("deleted_at") @db.Timestamptz(3)
+  deletedById        String?    @map("deleted_by_id") @db.Uuid
+  deleteReason       String     @default("") @map("delete_reason")
   completedAt        DateTime?  @map("completed_at") @db.Timestamptz(3)
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -1056,6 +1063,7 @@ model Sale {
   voidedBy      User?        @relation("SaleVoidedBy", fields: [voidedById], references: [id])
   voidApprover  User?        @relation("SaleVoidApprover", fields: [voidApproverId], references: [id])
   voidReason    Reason?      @relation(fields: [voidReasonId], references: [id])
+  deletedBy     User?        @relation("SaleDeletedBy", fields: [deletedById], references: [id])
   convertedFrom Sale?        @relation("QuotationConversion", fields: [convertedFromId], references: [id])
   convertedTo   Sale?        @relation("QuotationConversion")
   lines         SaleLine[]

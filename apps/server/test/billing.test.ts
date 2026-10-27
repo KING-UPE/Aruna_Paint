@@ -364,6 +364,111 @@ describe('hold and recall', () => {
   });
 });
 
+describe('nothing rung up disappears', () => {
+  const brushLine = () => [{ kind: 'BATCH', subProductId: brush, qty: '2' }];
+  const logOf = async (action: string, entityId: string) =>
+    (await shop.sa.get(`/api/audit-log?action=${action}&entityId=${entityId}`)).body.items;
+
+  it('a held bill is deleted only with a reason, and stays in history stamped DELETED', async () => {
+    const held = await shop.cashier.post('/api/sales/hold', {
+      lines: brushLine(),
+      customerName: 'Kamal',
+    });
+    expect(await logOf('sale.hold', held.body.id)).toHaveLength(1);
+    const noReason = await shop.cashier.post(`/api/sales/held/${held.body.id}/delete`, {
+      reason: ' ',
+    });
+    expect(noReason.status).toBe(400);
+    expect(noReason.body.error.field).toBe('reason');
+    const r = await shop.cashier.post(`/api/sales/held/${held.body.id}/delete`, {
+      reason: 'Customer left',
+    });
+    expect(r.status).toBe(200);
+    expect((await shop.cashier.get('/api/sales/held')).body.items).toEqual([]);
+    // Not in the normal history, but in the Deleted view with who, when and why.
+    expect((await shop.cashier.get('/api/sales')).body.items).toEqual([]);
+    const deleted = (await shop.cashier.get('/api/sales?status=DELETED')).body.items;
+    expect(deleted).toEqual([
+      expect.objectContaining({
+        id: held.body.id,
+        netTotal: '900.00',
+        customerName: 'Kamal',
+        deleted: expect.objectContaining({ by: 'Cashier', reason: 'Customer left' }),
+      }),
+    ]);
+    const detail = (await shop.cashier.get(`/api/sales/${held.body.id}`)).body;
+    expect(detail.lines).toHaveLength(1);
+    expect((await logOf('sale.delete_held', held.body.id))[0].before.lines).toEqual([
+      expect.objectContaining({ name: 'Brush 2 inch', qty: '2.000', amount: '900.00' }),
+    ]);
+  });
+
+  it('lines taken off a bill before payment are logged and counted for the owner', async () => {
+    const bad = await shop.cashier.post('/api/sales/removed-lines', { why: 'removed', lines: [] });
+    expect(bad.status).toBe(400);
+    const r = await shop.cashier.post('/api/sales/removed-lines', {
+      why: 'removed',
+      lines: [{ code: '10005-01', name: 'Brush 2 inch', qty: '3.000', amount: '1350.00' }],
+    });
+    expect(r.status).toBe(200);
+    const log = (await shop.sa.get('/api/audit-log?action=bill.lines_removed')).body.items;
+    expect(log[0]).toMatchObject({ note: 'Line removed before payment' });
+    const watch = (await shop.sa.get('/api/dashboard?range=today')).body.watch;
+    expect(watch.removedLines).toEqual({ count: 1, total: '1350.00' });
+  });
+
+  it('holding again and paying a recalled bill keep what it had in the log', async () => {
+    const first = await shop.cashier.post('/api/sales/hold', { lines: mockupLines() });
+    // Recalled, a line taken off, held again: the log keeps the three original lines.
+    const again = await shop.cashier.post('/api/sales/hold', {
+      lines: mockupLines().slice(0, 2),
+      heldSaleId: first.body.id,
+    });
+    const log = await logOf('sale.hold_again', again.body.id);
+    expect(log[0].before.lines).toHaveLength(3);
+    expect(log[0].after.lines).toHaveLength(2);
+    // Paid with one line: the bill's log still shows the two it was held with.
+    const paid = await shop.cashier.post('/api/sales', {
+      lines: mockupLines().slice(0, 1),
+      heldSaleId: again.body.id,
+    });
+    expect(paid.status).toBe(200);
+    expect((await logOf('sale.complete', paid.body.id))[0].before.held.lines).toHaveLength(2);
+  });
+
+  it('a quotation is deleted with a reason, keeps its number, and can no longer be converted', async () => {
+    const q = await shop.cashier.post('/api/sales', { kind: 'QUOTATION', lines: brushLine() });
+    expect(q.status).toBe(200);
+    expect((await shop.cashier.post(`/api/sales/${q.body.id}/delete-quotation`, {})).status).toBe(
+      400,
+    );
+    const r = await shop.cashier.post(`/api/sales/${q.body.id}/delete-quotation`, {
+      reason: 'Wrong prices quoted',
+    });
+    expect(r.status).toBe(200);
+    expect((await shop.cashier.get('/api/sales?kind=QUOTATION')).body.items).toEqual([]);
+    const deleted = (await shop.cashier.get('/api/sales?status=DELETED')).body.items;
+    expect(deleted[0]).toMatchObject({ no: q.body.no, deleted: { reason: 'Wrong prices quoted' } });
+    const conv = await shop.cashier.post(`/api/sales/${q.body.id}/convert`, {});
+    expect(conv.status).not.toBe(200);
+    // Nor reprinted to hand out again.
+    expect((await shop.cashier.post(`/api/sales/${q.body.id}/reprint`)).status).toBe(409);
+    // A quotation that already became an invoice stays.
+    const q2 = await shop.cashier.post('/api/sales', { kind: 'QUOTATION', lines: brushLine() });
+    expect((await shop.cashier.post(`/api/sales/${q2.body.id}/convert`, {})).status).toBe(200);
+    expect(
+      (await shop.cashier.post(`/api/sales/${q2.body.id}/delete-quotation`, { reason: 'Oops' }))
+        .status,
+    ).toBe(409);
+    // The owner sees all of it on the dashboard.
+    const held = await shop.cashier.post('/api/sales/hold', { lines: brushLine() });
+    await shop.cashier.post(`/api/sales/held/${held.body.id}/delete`, { reason: 'Mistake' });
+    const watch = (await shop.sa.get('/api/dashboard?range=today')).body.watch;
+    expect(watch.deletedQuotations).toEqual({ count: 1, total: '900.00' });
+    expect(watch.deletedHeld).toEqual({ count: 1, total: '900.00' });
+  });
+});
+
 describe('void and reprint', () => {
   it('void needs a reason and an Admin PIN, stays visible stamped VOID and returns the stock', async () => {
     const sale = await shop.cashier.post('/api/sales', { lines: mockupLines() });

@@ -1,9 +1,10 @@
 import { D, formatDate, formatDateTime, formatMoney, formatQty, formatRs } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, Receipt } from 'lucide-react';
+import { FileText, Receipt, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/auth/AuthProvider';
+import { useAsk } from '@/components/AskDialog';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Kbd } from '@/components/ui/kbd';
@@ -19,7 +20,8 @@ import { VoidDialog } from './VoidDialog';
 
 /**
  * Bill history: search by invoice or quotation no (letters or digits, any part), date range,
- * customer name or amount. Keys on a selected bill: P reprint, R return, C convert, V void.
+ * customer name or amount. Keys on a selected bill: P reprint, R return, C convert, V void,
+ * D delete a quotation. Deleted held bills and quotations are kept and listed under Deleted.
  */
 export function HistoryPanel({
   inDialog = false,
@@ -30,7 +32,8 @@ export function HistoryPanel({
 }) {
   const { can, me } = useAuth();
   const qc = useQueryClient();
-  const [type, setType] = useState<'INVOICE' | 'QUOTATION' | 'ALL'>('INVOICE');
+  const ask = useAsk();
+  const [type, setType] = useState<'INVOICE' | 'QUOTATION' | 'ALL' | 'DELETED'>('INVOICE');
   const [q, setQ] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -48,7 +51,8 @@ export function HistoryPanel({
     queryFn: () =>
       api.get<Page<SaleListItem>>(
         `/api/sales${qs({
-          kind: type === 'ALL' ? undefined : type,
+          kind: type === 'ALL' || type === 'DELETED' ? undefined : type,
+          status: type === 'DELETED' ? 'DELETED' : undefined,
           q: isAmount ? undefined : /\d/.test(term) ? term : undefined,
           customer: /\d/.test(term) ? undefined : term,
           amount: isAmount ? term : undefined,
@@ -85,7 +89,8 @@ export function HistoryPanel({
   const actOn = () => (detail.data && detail.data.id === detailId ? detail.data : null);
   const reprint = async () => {
     const s = actOn();
-    if (!s) return;
+    // A deleted quotation is kept for the record, not handed out again.
+    if (!s || !s.no || s.status === 'DELETED') return;
     try {
       const r = await api.post<{ copyNo: number; print: { printed: boolean; error?: string } }>(
         `/api/sales/${s.id}/reprint`,
@@ -112,11 +117,45 @@ export function HistoryPanel({
   };
   const voidIt = () => {
     const s = actOn();
-    if (s?.kind === 'INVOICE' && s.status === 'COMPLETED') setVoidFor({ id: s.id, no: s.no });
+    if (s?.kind === 'INVOICE' && s.status === 'COMPLETED' && s.no)
+      setVoidFor({ id: s.id, no: s.no });
+  };
+  const canDeleteQuotation = (s: SaleDetail | null) =>
+    s?.kind === 'QUOTATION' &&
+    s.status === 'COMPLETED' &&
+    !s.convertedTo &&
+    can('quotations.create');
+  // A quotation is never erased: it keeps its number and moves to Deleted with the reason.
+  const deleteQuotation = async () => {
+    const s = actOn();
+    if (!s || !canDeleteQuotation(s)) return;
+    const reason = await ask({
+      title: `Delete quotation ${s.no}?`,
+      message: 'It stays in bill history under Deleted, with your name and the reason.',
+      label: 'Why is it being deleted?',
+      confirmLabel: 'Delete quotation',
+      check: (v) => (v.length < 3 ? 'Say why, in a few words.' : null),
+      danger: true,
+      returnFocus: () => listRef.current,
+    });
+    if (!reason) return;
+    try {
+      await api.post(`/api/sales/${s.id}/delete-quotation`, { reason });
+      toast.success(`Quotation ${s.no} deleted. It is listed under Deleted.`);
+      refresh();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
   };
   useHotkeys(
     'bill_history',
-    { reprint: () => void reprint(), return: ret, convert: conv, void: voidIt },
+    {
+      reprint: () => void reprint(),
+      return: ret,
+      convert: conv,
+      void: voidIt,
+      deleteQuotation: () => void deleteQuotation(),
+    },
     { inDialog },
   );
   const keys = {
@@ -124,6 +163,7 @@ export function HistoryPanel({
     ret: useKeyLabel('bill_history', 'return'),
     convert: useKeyLabel('bill_history', 'convert'),
     void: useKeyLabel('bill_history', 'void'),
+    del: useKeyLabel('bill_history', 'deleteQuotation'),
   };
 
   return (
@@ -175,6 +215,22 @@ export function HistoryPanel({
             )}
           >
             All Bills
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setType('DELETED');
+              setHi(0);
+            }}
+            className={cn(
+              'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-center text-xs font-semibold transition',
+              type === 'DELETED'
+                ? 'bg-surface text-danger shadow-sm'
+                : 'text-muted hover:text-text',
+            )}
+          >
+            <Trash2 size={14} />
+            <span>Deleted</span>
           </button>
         </div>
 
@@ -250,7 +306,9 @@ export function HistoryPanel({
                   ? 'No quotation bills found.'
                   : type === 'INVOICE'
                     ? 'No sales bills found.'
-                    : 'No bills found.'
+                    : type === 'DELETED'
+                      ? 'Nothing has been deleted.'
+                      : 'No bills found.'
               }
             />
           ) : (
@@ -283,8 +341,9 @@ export function HistoryPanel({
                     )}
                   >
                     <td className="px-3 py-2 font-medium">
-                      <span className="font-mono">{s.no}</span>{' '}
+                      <span className="font-mono">{s.no ?? 'Held bill'}</span>{' '}
                       {s.status === 'VOID' ? <Badge tone="danger">VOID</Badge> : null}
+                      {s.status === 'DELETED' ? <Badge tone="danger">Deleted</Badge> : null}
                       {s.kind === 'QUOTATION' ? (
                         <Badge tone="accent">
                           {s.convertedTo ? `Converted → ${s.convertedTo}` : 'Quotation'}
@@ -295,7 +354,10 @@ export function HistoryPanel({
                       {Number(s.refundedTotal) > 0 ? <Badge tone="warn">Returned</Badge> : null}
                       {s.wholesale ? <Badge>Wholesale</Badge> : null}
                     </td>
-                    <td className="px-3 py-2 text-muted">{formatDateTime(s.completedAt)}</td>
+                    <td className="px-3 py-2 text-muted">
+                      {formatDateTime(s.deleted?.at ?? s.completedAt ?? s.createdAt)}
+                      {s.deleted ? <div className="text-xs">by {s.deleted.by}</div> : null}
+                    </td>
                     <td className="px-3 py-2">{s.customerName}</td>
                     <td className="num px-3 py-2">
                       <Money value={s.netTotal} />
@@ -317,15 +379,28 @@ export function HistoryPanel({
               sale={detail.data}
               actions={
                 <div className="flex flex-wrap gap-2 text-sm">
-                  <ActionHint k={keys.reprint} label="Reprint" />
+                  {detail.data.no && detail.data.status !== 'DELETED' ? (
+                    <ActionHint k={keys.reprint} label="Reprint" onClick={() => void reprint()} />
+                  ) : null}
                   {detail.data.kind === 'INVOICE' && detail.data.status === 'COMPLETED' ? (
                     <>
-                      <ActionHint k={keys.ret} label="Return" />
-                      <ActionHint k={keys.void} label="Void" />
+                      <ActionHint k={keys.ret} label="Return" onClick={ret} />
+                      <ActionHint k={keys.void} label="Void" onClick={voidIt} />
                     </>
                   ) : null}
-                  {detail.data.kind === 'QUOTATION' && !detail.data.convertedTo ? (
-                    <ActionHint k={keys.convert} label="Convert to invoice" />
+                  {detail.data.kind === 'QUOTATION' &&
+                  detail.data.status === 'COMPLETED' &&
+                  !detail.data.convertedTo ? (
+                    <ActionHint k={keys.convert} label="Convert to invoice" onClick={conv} />
+                  ) : null}
+                  {canDeleteQuotation(detail.data) ? (
+                    <ActionHint
+                      k={keys.del}
+                      label="Delete quotation"
+                      danger
+                      icon={<Trash2 size={14} />}
+                      onClick={() => void deleteQuotation()}
+                    />
                   ) : null}
                 </div>
               }
@@ -340,8 +415,10 @@ export function HistoryPanel({
             type === 'INVOICE'
               ? 'border-accent/40 bg-accent/5'
               : type === 'QUOTATION'
-                ? 'border-amber-500/40 bg-amber-500/5'
-                : 'border-border bg-surface-2/70',
+                ? 'border-warn/40 bg-warn-soft/40'
+                : type === 'DELETED'
+                  ? 'border-danger/30 bg-danger-soft/40'
+                  : 'border-border bg-surface-2/70',
           )}
         >
           <div className="flex items-center gap-2.5">
@@ -351,14 +428,18 @@ export function HistoryPanel({
                 type === 'INVOICE'
                   ? 'bg-accent/15 text-accent-strong'
                   : type === 'QUOTATION'
-                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                    : 'bg-muted/15 text-text',
+                    ? 'bg-warn-soft text-warn'
+                    : type === 'DELETED'
+                      ? 'bg-danger-soft text-danger'
+                      : 'bg-muted/15 text-text',
               )}
             >
               {type === 'INVOICE' ? (
                 <Receipt size={18} />
               ) : type === 'QUOTATION' ? (
                 <FileText size={18} />
+              ) : type === 'DELETED' ? (
+                <Trash2 size={18} />
               ) : (
                 <Receipt size={18} />
               )}
@@ -369,7 +450,9 @@ export function HistoryPanel({
                   ? 'Sales Bills Total'
                   : type === 'QUOTATION'
                     ? 'Quotation Bills Total'
-                    : 'All Bills Total'}
+                    : type === 'DELETED'
+                      ? 'Deleted (not counted as sales)'
+                      : 'All Bills Total'}
               </div>
               <div className="text-xs text-muted">
                 {billCount}{' '}
@@ -390,8 +473,10 @@ export function HistoryPanel({
                 type === 'INVOICE'
                   ? 'text-accent-strong'
                   : type === 'QUOTATION'
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-text',
+                    ? 'text-warn'
+                    : type === 'DELETED'
+                      ? 'text-danger'
+                      : 'text-text',
               )}
             >
               {formatRs(totalSum)}
@@ -447,11 +532,34 @@ export function HistoryPanel({
   );
 }
 
-function ActionHint({ k, label }: { k: string; label: string }) {
+/** An action on the selected bill: its key, and a button for the mouse. */
+function ActionHint({
+  k,
+  label,
+  onClick,
+  danger,
+  icon,
+}: {
+  k: string;
+  label: string;
+  onClick?: () => void;
+  danger?: boolean;
+  icon?: React.ReactNode;
+}) {
   return (
-    <span className="flex items-center gap-1.5 rounded-[8px] border border-border px-2 py-1">
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 rounded-[8px] border px-2 py-1 transition-colors',
+        danger
+          ? 'border-danger/40 text-danger hover:bg-danger-soft'
+          : 'border-border hover:bg-surface-2',
+      )}
+    >
+      {icon}
       <Kbd>{k}</Kbd> {label}
-    </span>
+    </button>
   );
 }
 
@@ -461,12 +569,18 @@ export function BillDetail({ sale, actions }: { sale: SaleDetail; actions?: Reac
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="text-lg font-semibold">
-            {sale.kind === 'QUOTATION' ? 'Quotation' : 'Invoice'} {sale.no}{' '}
+            {sale.no
+              ? `${sale.kind === 'QUOTATION' ? 'Quotation' : 'Invoice'} ${sale.no}`
+              : `Held ${sale.kind === 'QUOTATION' ? 'quotation' : 'bill'}`}{' '}
             {sale.status === 'VOID' ? <Badge tone="danger">VOID</Badge> : null}
+            {sale.status === 'DELETED' ? <Badge tone="danger">Deleted</Badge> : null}
             {sale.wholesale ? <Badge>Wholesale</Badge> : null}
           </div>
           <div className="text-sm text-muted">
-            {formatDateTime(sale.completedAt)} · {sale.cashier}
+            {sale.completedAt
+              ? formatDateTime(sale.completedAt)
+              : `Held ${formatDateTime(sale.createdAt)}`}{' '}
+            · {sale.cashier}
             {sale.customerName ? ` · ${sale.customerName}` : ''}
             {sale.validUntil ? ` · valid until ${formatDate(sale.validUntil)}` : ''}
           </div>
@@ -481,6 +595,11 @@ export function BillDetail({ sale, actions }: { sale: SaleDetail; actions?: Reac
         </div>
       </div>
       {actions}
+      {sale.deleted ? (
+        <p className="rounded-[8px] bg-danger-soft px-3 py-2 text-sm text-danger">
+          Deleted by {sale.deleted.by} · {formatDateTime(sale.deleted.at)} · {sale.deleted.reason}
+        </p>
+      ) : null}
       {sale.void ? (
         <p className="rounded-[8px] bg-danger-soft px-3 py-2 text-sm text-danger">
           Voided by {sale.void.by}

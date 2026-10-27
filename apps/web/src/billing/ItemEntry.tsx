@@ -495,7 +495,9 @@ export const ItemEntry = forwardRef<ItemEntryHandle, Props>(function ItemEntry(p
                 e.preventDefault();
                 choose(it);
               }}
-              onMouseEnter={() => setHi(i)}
+              // Only a moving mouse picks a row; a list opening under a resting pointer must
+              // not change what Enter takes (the cashier is typing, not pointing).
+              onMouseMove={() => setHi(i)}
               className={cn(
                 'flex cursor-pointer items-center justify-between gap-4 px-3 py-2',
                 i === hi && 'bg-selected',

@@ -8,7 +8,7 @@ export function HistoryPage() {
     <div className="flex h-full flex-col">
       <PageHeader
         title="Bill history"
-        description="P reprint · R return · C convert a quotation · V void (same day, Admin PIN)."
+        description="P reprint · R return · C convert a quotation · V void (same day, Admin PIN) · D delete a quotation."
       />
       <div className="min-h-0 flex-1">
         <HistoryPanel initialOpenId={params.get('open')} />

@@ -1,8 +1,17 @@
-import { D, billHistoryQuerySchema, convertQuotationSchema, idSchema, shopDate } from '@aruna/shared';
+import {
+  D,
+  billHistoryQuerySchema,
+  convertQuotationSchema,
+  idSchema,
+  removedLinesSchema,
+  shopDate,
+} from '@aruna/shared';
 import type { Prisma } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { canSeeItemCost, perm, shopOnly } from '../../auth/guard';
+import { audit } from '../../core/audit';
+import { actorOf } from '../../core/context';
 import { TX_OPTIONS } from '../../db';
 import { nextNumber, peekNumber } from '../../core/numbering';
 import { dateOnly, parseDateOnly } from '../../lib/json';
@@ -12,6 +21,7 @@ import { createReturn } from './returns';
 import {
   completeSale,
   convertQuotation,
+  deleteQuotation,
   discardHeld,
   holdSale,
   listHeld,
@@ -182,11 +192,51 @@ export async function salesRoutes(app: FastifyInstance) {
     }),
   );
 
-  app.delete(
-    '/api/sales/held/:id',
+  /** Lines taken off a bill before payment, reported by the screen, for the audit log. */
+  app.post(
+    '/api/sales/removed-lines',
     { preHandler: [shopOnly(), perm('billing.create', 'quotations.create')] },
     async (req) => {
-      await db.$transaction((tx) => discardHeld(tx, req.ctx, idParam(req.params)), TX_OPTIONS);
+      const input = removedLinesSchema.parse(req.body);
+      await db.$transaction(
+        (tx) =>
+          audit(tx, actorOf(req.ctx), {
+            action: 'bill.lines_removed',
+            entity: 'bill',
+            before: { lines: input.lines },
+            note:
+              input.why === 'removed'
+                ? 'Line removed before payment'
+                : 'Qty lowered before payment',
+          }),
+        TX_OPTIONS,
+      );
+      return { ok: true };
+    },
+  );
+
+  /** Take away a held bill: it is kept as DELETED with who, when and why. */
+  app.post(
+    '/api/sales/held/:id/delete',
+    { preHandler: [shopOnly(), perm('billing.create', 'quotations.create')] },
+    async (req) => {
+      await db.$transaction(
+        (tx) => discardHeld(tx, req.ctx, idParam(req.params), req.body),
+        TX_OPTIONS,
+      );
+      return { ok: true };
+    },
+  );
+
+  /** Take away an issued quotation; it keeps its number and stays in history stamped DELETED. */
+  app.post(
+    '/api/sales/:id/delete-quotation',
+    { preHandler: [shopOnly(), perm('quotations.create')] },
+    async (req) => {
+      await db.$transaction(
+        (tx) => deleteQuotation(tx, req.ctx, idParam(req.params), req.body),
+        TX_OPTIONS,
+      );
       return { ok: true };
     },
   );
@@ -194,19 +244,25 @@ export async function salesRoutes(app: FastifyInstance) {
   /** Bill history: invoice or quotation no (any part, letters or digits), dates, customer, cashier or amount. */
   app.get('/api/sales', { preHandler: perm('bill_history.view') }, async (req) => {
     const q = billHistoryQuerySchema.parse(req.query);
+    // Deleted held bills and quotations have their own view, ordered by when they were deleted.
+    const deletedView = q.status === 'DELETED';
     const where: Prisma.SaleWhereInput = {
-      status: q.status ? q.status : { not: 'HELD' },
+      status: q.status ? q.status : { notIn: ['HELD', 'DELETED'] },
       ...(q.kind ? { kind: q.kind } : {}),
       ...(q.q ? { no: { contains: q.q.trim(), mode: 'insensitive' } } : {}),
       ...(q.customer ? { customerName: { contains: q.customer.trim(), mode: 'insensitive' } } : {}),
       ...(q.cashierId ? { cashierId: q.cashierId } : {}),
       ...(q.counterId ? { counterId: q.counterId } : {}),
       ...(q.amount ? { netTotal: q.amount } : {}),
-      ...(dayRange(q.from, q.to) ? { completedAt: dayRange(q.from, q.to) } : {}),
+      ...(dayRange(q.from, q.to)
+        ? deletedView
+          ? { deletedAt: dayRange(q.from, q.to) }
+          : { completedAt: dayRange(q.from, q.to) }
+        : {}),
     };
     const sumWhere: Prisma.SaleWhereInput = q.status
       ? where
-      : { ...where, status: { notIn: ['HELD', 'VOID'] } };
+      : { ...where, status: { notIn: ['HELD', 'VOID', 'DELETED'] } };
     const [items, total, aggregate] = await Promise.all([
       db.sale.findMany({
         where,
@@ -215,8 +271,9 @@ export async function salesRoutes(app: FastifyInstance) {
           counter: { select: { code: true } },
           convertedTo: { select: { no: true } },
           convertedFrom: { select: { no: true } },
+          deletedBy: { select: { fullName: true } },
         },
-        orderBy: { completedAt: 'desc' },
+        orderBy: deletedView ? { deletedAt: 'desc' } : { completedAt: 'desc' },
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
       }),
@@ -244,6 +301,10 @@ export async function salesRoutes(app: FastifyInstance) {
         convertedTo: s.convertedTo?.no ?? null,
         convertedFrom: s.convertedFrom?.no ?? null,
         printCount: s.printCount,
+        deleted: s.deletedAt
+          ? { at: s.deletedAt, by: s.deletedBy?.fullName ?? '', reason: s.deleteReason }
+          : null,
+        createdAt: s.createdAt,
       })),
       total,
       totalAmount: D(aggregate._sum.netTotal?.toString() ?? '0').toFixed(2),
@@ -266,6 +327,7 @@ export async function salesRoutes(app: FastifyInstance) {
         voidedBy: { select: { fullName: true } },
         voidApprover: { select: { fullName: true } },
         voidReason: { select: { name: true } },
+        deletedBy: { select: { fullName: true } },
         returns: {
           include: { lines: true, cashier: { select: { fullName: true } } },
           orderBy: { createdAt: 'asc' },
@@ -305,6 +367,11 @@ export async function salesRoutes(app: FastifyInstance) {
             note: s.voidNote,
           }
         : null,
+      deleted: s.deletedAt
+        ? { at: s.deletedAt, by: s.deletedBy?.fullName ?? '', reason: s.deleteReason }
+        : null,
+      /** Held bills have no completion time; deleted ones show when they were held. */
+      createdAt: s.createdAt,
       convertedTo: s.convertedTo,
       convertedFrom: s.convertedFrom,
       lines: s.lines.map((l) => ({

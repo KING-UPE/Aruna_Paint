@@ -92,10 +92,14 @@ export interface BillingStatus {
 
 export interface SaleListItem {
   id: string;
-  no: string;
+  /** Null for a held bill (it never got a number). */
+  no: string | null;
   kind: 'INVOICE' | 'QUOTATION';
-  status: 'HELD' | 'COMPLETED' | 'VOID';
-  completedAt: string;
+  status: 'HELD' | 'COMPLETED' | 'VOID' | 'DELETED';
+  /** A held bill or quotation taken away: kept, with who, when and why. */
+  deleted: { at: string; by: string; reason: string } | null;
+  createdAt: string;
+  completedAt: string | null;
   cashier: string;
   counter: string;
   wholesale: boolean;
@@ -111,13 +115,17 @@ export interface SaleListItem {
 
 export interface SaleDetail {
   id: string;
-  no: string;
+  /** Null for a held bill (it never got a number). */
+  no: string | null;
   kind: 'INVOICE' | 'QUOTATION';
-  status: 'HELD' | 'COMPLETED' | 'VOID';
+  status: 'HELD' | 'COMPLETED' | 'VOID' | 'DELETED';
+  /** A held bill or quotation taken away: kept, with who, when and why. */
+  deleted: { at: string; by: string; reason: string } | null;
+  createdAt: string;
   wholesale: boolean;
   customerName: string;
   validUntil: string | null;
-  completedAt: string;
+  completedAt: string | null;
   cashier: string;
   counter: string;
   itemCount: number;

@@ -32,6 +32,10 @@ export interface AskOptions {
   inputMode?: 'text' | 'numeric';
   /** Plain-words reason the value can't be used yet, or null when it is fine. */
   check?: (value: string) => string | null;
+  /** Red button for deletes. */
+  danger?: boolean;
+  /** Where focus goes after the answer. */
+  returnFocus?: () => HTMLElement | null | undefined;
 }
 
 interface Api {
@@ -68,7 +72,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
   const lastReturn = useRef<ConfirmOptions['returnFocus']>(undefined);
   const okRef = useRef<HTMLButtonElement>(null);
   const close = (v: unknown) => {
-    lastReturn.current = state?.kind === 'confirm' ? state.o.returnFocus : undefined;
+    lastReturn.current = state?.o.returnFocus;
     resolver.current?.(v);
     resolver.current = null;
     setState(null);
@@ -121,11 +125,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
             <Button type="button" variant="ghost" onClick={cancel}>
               Cancel
             </Button>
-            <Button
-              ref={okRef}
-              type="submit"
-              variant={state?.kind === 'confirm' && state.o.danger ? 'danger' : 'primary'}
-            >
+            <Button ref={okRef} type="submit" variant={state?.o.danger ? 'danger' : 'primary'}>
               {o?.confirmLabel ?? 'OK'}
             </Button>
           </div>

@@ -11,8 +11,15 @@ import {
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
+  Ban,
   CheckCircle2,
+  ClipboardX,
+  FileX,
+  ListX,
   Minus,
+  Printer,
+  Tags,
+  Undo2,
   XCircle,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -76,6 +83,15 @@ interface Dashboard {
   cashiers: { name: string; sales: string; bills: number }[];
   stock: { ok: number; low: number; out: number };
   supplierDues: { total: string; top: { id: string; name: string; balance: string }[] } | null;
+  watch: {
+    voids: { count: number; total: string };
+    deletedHeld: { count: number; total: string };
+    deletedQuotations: { count: number; total: string };
+    returns: { count: number; total: string };
+    reprints: number;
+    priceOverrides: number;
+    removedLines: { count: number; total: string };
+  };
 }
 
 interface SystemStatus {
@@ -420,6 +436,7 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
+        {d ? <WatchCard w={d.watch} /> : null}
         <ChartCard
           title="Stock health"
           subtitle="Active products"
@@ -892,5 +909,91 @@ function SalesCard({
         }))}
       />
     </ChartCard>
+  );
+}
+
+/**
+ * What an owner checks for mistakes or cheating in the range: bills voided, held bills and
+ * quotations deleted, returns, reprints and mix paint prices changed at the counter. Deleted
+ * ones are kept in bill history under Deleted, with who and why.
+ */
+function WatchCard({ w }: { w: Dashboard['watch'] }) {
+  const rows = [
+    {
+      key: 'voids',
+      label: 'Bills voided',
+      icon: <Ban size={16} />,
+      count: w.voids.count,
+      total: w.voids.total,
+    },
+    {
+      key: 'held',
+      label: 'Held bills deleted',
+      icon: <ClipboardX size={16} />,
+      count: w.deletedHeld.count,
+      total: w.deletedHeld.total,
+    },
+    {
+      key: 'quotes',
+      label: 'Quotations deleted',
+      icon: <FileX size={16} />,
+      count: w.deletedQuotations.count,
+      total: w.deletedQuotations.total,
+    },
+    {
+      key: 'returns',
+      label: 'Returns',
+      icon: <Undo2 size={16} />,
+      count: w.returns.count,
+      total: w.returns.total,
+    },
+    {
+      key: 'removed',
+      label: 'Lines taken off bills before payment',
+      icon: <ListX size={16} />,
+      count: w.removedLines.count,
+      total: w.removedLines.total,
+    },
+    {
+      key: 'reprints',
+      label: 'Receipts reprinted',
+      icon: <Printer size={16} />,
+      count: w.reprints,
+    },
+    {
+      key: 'prices',
+      label: 'Mix paint prices changed at the counter',
+      icon: <Tags size={16} />,
+      count: w.priceOverrides,
+    },
+  ];
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Things to check</CardTitle>
+          <p className="mt-0.5 text-sm text-muted">Each one is in bill history or the audit log</p>
+        </div>
+      </CardHeader>
+      <ul className="divide-y divide-border">
+        {rows.map((r) => (
+          <li key={r.key} className="flex items-center gap-3 px-5 py-2.5 text-sm">
+            <span className={cn('shrink-0', r.count ? 'text-warn' : 'text-muted')}>{r.icon}</span>
+            <span className={cn('min-w-0 flex-1', !r.count && 'text-muted')}>{r.label}</span>
+            {r.total !== undefined && r.count ? (
+              <span className="text-muted">{rs(r.total)}</span>
+            ) : null}
+            <span
+              className={cn(
+                'min-w-7 rounded-full px-2 text-center text-xs font-semibold',
+                r.count ? 'bg-warn-soft text-warn' : 'bg-surface-2 text-muted',
+              )}
+            >
+              {r.count}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }

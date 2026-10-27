@@ -194,7 +194,7 @@ test('the same item at the same discount joins its line; arrows move between Yes
   await expect(page.getByText(/INV-\d{6} · change Rs 0.00/)).toBeVisible();
 });
 
-test('a held bill can be deleted with its bin button or the Delete key, after asking', async ({
+test('a held bill is deleted with a reason and stays in history under Deleted', async ({
   page,
 }) => {
   await loginAtCounter(page, 'cashier');
@@ -213,17 +213,86 @@ test('a held bill can be deleted with its bin button or the Delete key, after as
   const rows = held.getByRole('option');
   await expect(rows).toHaveCount(1);
 
-  // The bin button asks first; Cancel keeps the bill.
+  // The bin button asks why; Cancel keeps the bill.
   await held.getByRole('button', { name: 'Delete held bill' }).click();
   const ask = page.getByRole('dialog', { name: 'Delete this held bill?' });
   await expect(ask).toBeVisible();
   await ask.getByRole('button', { name: 'Cancel' }).click();
   await expect(rows).toHaveCount(1);
 
-  // The Delete key asks too; Enter confirms.
+  // The Delete key asks too; a reason and Enter delete it.
   await page.keyboard.press('Delete');
   await expect(ask).toBeVisible();
+  await page.keyboard.type('Customer left');
   await page.keyboard.press('Enter');
   await expect(page.getByText('Held bill deleted.')).toBeVisible();
   await expect(held.getByText('No held bills.')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // Bill history keeps it, with who and why.
+  await page.keyboard.press('F9');
+  const history = page.getByRole('dialog', { name: 'Bill history' });
+  await history.getByRole('button', { name: 'Deleted' }).click();
+  await expect(history).toContainText('Held bill');
+  await expect(history).toContainText('Customer left');
+});
+
+test('a quotation is deleted from bill history with D and a reason', async ({ page }) => {
+  await loginAtCounter(page, 'cashier');
+  await page.keyboard.press('F4');
+  await expect(page.getByRole('button', { name: /QUOTATION/ })).toBeVisible();
+  await page.keyboard.press('F2');
+  await expect(page.getByRole('textbox', { name: 'Item code' })).toBeFocused();
+  // (Earlier tests sold every brush; putty is still in stock.)
+  await page.keyboard.type('putty');
+  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('Wall Putty');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('F10');
+  await page.keyboard.press('n');
+  const issued = page.getByText(/^QT-\d+ issued$/);
+  await expect(issued).toBeVisible();
+  const quoteNo = (await issued.textContent())!.replace(' issued', '');
+
+  await page.keyboard.press('F9');
+  const history = page.getByRole('dialog', { name: 'Bill history' });
+  await history.getByRole('button', { name: 'Quotation Bills' }).click();
+  await expect(history).toContainText(quoteNo);
+  await history.getByLabel('Bills', { exact: true }).focus();
+  await page.keyboard.press('d');
+  const ask = page.getByRole('dialog', { name: `Delete quotation ${quoteNo}?` });
+  await expect(ask).toBeVisible();
+  await page.keyboard.type('Wrong prices');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText(`Quotation ${quoteNo} deleted.`)).toBeVisible();
+
+  await history.getByRole('button', { name: 'Deleted' }).click();
+  await expect(history).toContainText(quoteNo);
+  await expect(history).toContainText('Wrong prices');
+});
+
+test('a resting mouse never changes which suggestion Enter takes', async ({ page }) => {
+  await loginAtCounter(page, 'cashier');
+  const lines = page.getByRole('table', { name: 'Bill lines' });
+  await page.keyboard.press('F2');
+  await page.keyboard.type('10003');
+  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('10003');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await expect(lines).toContainText('Gloss Enamel Black 1L');
+  // Remove it with the mouse; the pointer now rests where the suggestion list will open.
+  await lines.getByRole('button', { name: /Remove Gloss Enamel/ }).click();
+  await expect(lines).not.toContainText('Gloss Enamel');
+  await page.keyboard.press('F2');
+  await page.keyboard.type('10004');
+  await expect(
+    page.getByRole('listbox', { name: 'Suggestions' }).getByRole('option').first(),
+  ).toContainText('10004');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await expect(lines).toContainText('Wall Putty 5kg');
+  await expect(lines).not.toContainText('Gloss Enamel');
 });

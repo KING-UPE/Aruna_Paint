@@ -319,7 +319,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
                   role="option"
                   aria-selected={o.value === current}
                   aria-disabled={o.disabled || undefined}
-                  onPointerEnter={() => !o.disabled && setHi(i)}
+                  onPointerMove={() => !o.disabled && setHi(i)}
                   onPointerDown={(e) => e.preventDefault()}
                   onClick={() => choose(o)}
                   className={cn(

@@ -43,6 +43,7 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutScreen, Record<string, ShortcutAc
     return: { label: 'Return', keys: 'R' },
     convert: { label: 'Convert a quotation', keys: 'C' },
     void: { label: 'Void', keys: 'V' },
+    deleteQuotation: { label: 'Delete a quotation', keys: 'D' },
   },
   purchases: {
     newLine: { label: 'New line', keys: 'Ctrl+Shift+N' },

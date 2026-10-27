@@ -85,6 +85,8 @@ docs/             plan PDF and PROGRESS.md
 - Colours come only from the theme tokens in `index.css` (`bg-accent`, `text-muted`, `border-border`…). Never use Tailwind palette colours (`bg-teal-600`) or hex codes in screens: the Super Admin's colour theme (`lib/theme.ts`, `shared/domain/themes.ts`) rewrites the tokens.
 - Row actions in tables (edit, reset, delete…) use `IconButton` (`components/ui/icon-button`) with a `label`, not word buttons. Other buttons take an `icon` prop beside their words.
 - Charts: use `components/charts/charts.tsx` (`TrendChart`, `ColumnChart`, `BarList`, `ChartCard` with a table view), not a chart library. Dialogs get arrow-key movement between buttons from `Dialog` (`lib/arrowNav.ts`); add `onKeyDown={arrowNav}` to other button rows.
+- Nothing a cashier rang up may vanish: never hard-delete a sale. Held bills and quotations become `DELETED` with a reason (`deleteBillSchema`). New ways to take something off a bill must log it (see `bill.lines_removed`).
+- List rows follow the mouse with `onMouseMove`/`onPointerMove`, never `onMouseEnter`. A list opening under a resting pointer would otherwise change what Enter picks.
 - Use `Select` from `components/ui/input` (our dropdown), never a native `<select>`. Use `useConfirm()` and `useAsk()` from `components/AskDialog`, never `window.confirm` or `window.prompt`. A `Checkbox` takes `indeterminate`.
 - React's `autoFocus` does nothing on a `div`. Dialog lists need `initialFocus` on our `Dialog`, and its Close button is out of the tab order. Pass `restoreFocus={false}` when the caller moves focus on after closing.
 - Move focus with a `useLayoutEffect` after state changes, not `requestAnimationFrame`. Cashiers (and Playwright) type the next key immediately.

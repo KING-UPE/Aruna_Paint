@@ -97,10 +97,42 @@ export const saleReturnSchema = z
   });
 export type SaleReturnInput = z.input<typeof saleReturnSchema>;
 
+/**
+ * Lines taken off a bill (or quantities lowered) before it is paid or held. The bill only lives
+ * on the screen until then, so the screen reports them and they go into the audit log.
+ */
+export const removedLinesSchema = z.object({
+  why: z.enum(['removed', 'qty_lowered']),
+  lines: z
+    .array(
+      z.object({
+        code: z.string().max(40),
+        name: z.string().max(200),
+        qty: z.string().max(20),
+        amount: z.string().max(20),
+      }),
+    )
+    .min(1)
+    .max(100),
+});
+
+/** Taking away a held bill or a quotation: it is kept as DELETED, with why. */
+export const deleteBillSchema = z.object({
+  reason: z
+    .string()
+    .transform((v) => v.trim())
+    .pipe(
+      z
+        .string()
+        .min(3, { message: 'Say why, in a few words.' })
+        .max(200, { message: 'At most 200 characters.' }),
+    ),
+});
+
 export const billHistoryQuerySchema = paginationSchema.extend({
   q: z.string().optional(),
   kind: z.enum(['INVOICE', 'QUOTATION']).optional(),
-  status: z.enum(['HELD', 'COMPLETED', 'VOID']).optional(),
+  status: z.enum(['HELD', 'COMPLETED', 'VOID', 'DELETED']).optional(),
   from: dateSchema.optional(),
   to: dateSchema.optional(),
   cashierId: idSchema.optional(),

@@ -163,6 +163,71 @@ export async function dashboard(
   const otherCats = categories.slice(6).reduce((s, c) => s.plus(D(c.sales)), D(0));
   if (otherCats.greaterThan(0)) topCats.push({ name: 'Other', sales: money(otherCats).toFixed(2) });
 
+  // Things an owner checks for mistakes or cheating: voids, held bills and quotations taken
+  // away, returns, reprints and mix paint prices changed at the counter.
+  const from = at(current.start);
+  const to = at(current.nextStart);
+  const [voids, deletedHeld, deletedQuotations, returnsCount, reprints, priceOverrides] =
+    await Promise.all([
+      tx.sale.aggregate({
+        where: { status: 'VOID', voidedAt: { gte: from, lt: to } },
+        _count: true,
+        _sum: { netTotal: true },
+      }),
+      tx.sale.aggregate({
+        where: { status: 'DELETED', no: null, deletedAt: { gte: from, lt: to } },
+        _count: true,
+        _sum: { netTotal: true },
+      }),
+      tx.sale.aggregate({
+        where: {
+          status: 'DELETED',
+          kind: 'QUOTATION',
+          no: { not: null },
+          deletedAt: { gte: from, lt: to },
+        },
+        _count: true,
+        _sum: { netTotal: true },
+      }),
+      tx.saleReturn.aggregate({
+        where: { createdAt: { gte: from, lt: to } },
+        _count: true,
+        _sum: { refundTotal: true },
+      }),
+      tx.reprint.count({ where: { at: { gte: from, lt: to } } }),
+      tx.saleLine.count({
+        where: {
+          priceApproverId: { not: null },
+          sale: { completedAt: { gte: from, lt: to }, status: 'COMPLETED' },
+        },
+      }),
+    ]);
+  const sum = (v: { toString(): string } | null | undefined) =>
+    money(v?.toString() ?? 0).toFixed(2);
+  // Lines taken off bills before payment, as the screens reported them.
+  const removed = await tx.auditLog.findMany({
+    where: { action: 'bill.lines_removed', at: { gte: from, lt: to } },
+    select: { before: true },
+  });
+  const removedLines = removed.flatMap(
+    (r) => (r.before as { lines?: { amount: string }[] } | null)?.lines ?? [],
+  );
+  const watch = {
+    voids: { count: voids._count, total: sum(voids._sum.netTotal) },
+    deletedHeld: { count: deletedHeld._count, total: sum(deletedHeld._sum.netTotal) },
+    deletedQuotations: {
+      count: deletedQuotations._count,
+      total: sum(deletedQuotations._sum.netTotal),
+    },
+    returns: { count: returnsCount._count, total: sum(returnsCount._sum.refundTotal) },
+    reprints,
+    priceOverrides,
+    removedLines: {
+      count: removedLines.length,
+      total: money(removedLines.reduce((t, l) => t.plus(D(l.amount || 0)), D(0))).toFixed(2),
+    },
+  };
+
   const [stock] = await tx.$queryRaw<{ out: number; low: number; ok: number }[]>`
     WITH st AS (
       SELECT p.id, p.reorder_level,
@@ -239,6 +304,7 @@ export async function dashboard(
     counters: counters.map((c) => ({ ...c, sales: money(c.sales).toFixed(2) })),
     cashiers: cashiers.map((c) => ({ ...c, sales: money(c.sales).toFixed(2) })),
     stock: stock ?? { out: 0, low: 0, ok: 0 },
+    watch,
     supplierDues,
   };
 }

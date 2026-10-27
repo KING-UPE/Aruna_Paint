@@ -117,7 +117,7 @@ export function CommandPalette() {
                     <PaletteItem
                       key={b.id}
                       onSelect={() => go(`/billing/history?open=${b.id}`)}
-                      label={b.no}
+                      label={b.no ?? 'Held bill'}
                       meta={`Rs ${b.netTotal}`}
                     />
                   ))}

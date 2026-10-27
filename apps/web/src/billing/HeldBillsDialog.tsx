@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { useConfirm } from '@/components/AskDialog';
+import { useAsk } from '@/components/AskDialog';
 import { Dialog } from '@/components/ui/dialog';
 import { IconButton } from '@/components/ui/icon-button';
 import { EmptyState } from '@/components/ui/misc';
@@ -33,7 +33,10 @@ export interface HeldBill {
   )[];
 }
 
-/** F8 lists held bills to resume; the bin button or the Delete key discards one, after asking. */
+/**
+ * F8 lists held bills to resume. The bin button or the Delete key deletes one with a reason;
+ * it stays in bill history under Deleted, so nothing rung up disappears.
+ */
 export function HeldBillsDialog({
   open,
   onClose,
@@ -52,19 +55,21 @@ export function HeldBillsDialog({
     enabled: open,
   });
   const items = held.data?.items ?? [];
-  const confirm = useConfirm();
+  const ask = useAsk();
 
   const discard = async (b: HeldBill) => {
-    const ok = await confirm({
+    const reason = await ask({
       title: 'Delete this held bill?',
-      message: `Held at ${formatTime(b.heldAt)} by ${b.cashier}${b.customerName ? ` for ${b.customerName}` : ''}: ${b.itemCount} items, Rs ${formatMoney(b.netTotal)}. It can't be brought back.`,
+      message: `Held at ${formatTime(b.heldAt)} by ${b.cashier}${b.customerName ? ` for ${b.customerName}` : ''}: ${b.itemCount} items, Rs ${formatMoney(b.netTotal)}. It stays in bill history under Deleted, with your name and the reason.`,
+      label: 'Why is it being deleted?',
       confirmLabel: 'Delete held bill',
+      check: (v) => (v.length < 3 ? 'Say why, in a few words.' : null),
       danger: true,
       returnFocus: () => box.current,
     });
-    if (!ok) return;
+    if (!reason) return;
     try {
-      await api.delete(`/api/sales/held/${b.id}`);
+      await api.post(`/api/sales/held/${b.id}/delete`, { reason });
       await qc.invalidateQueries({ queryKey: ['held'] });
       setHi((h) => Math.max(0, Math.min(h, items.length - 2)));
       toast.success('Held bill deleted.');
@@ -111,7 +116,7 @@ export function HeldBillsDialog({
                 role="option"
                 aria-selected={i === hi}
                 onClick={() => onRecall(b)}
-                onPointerEnter={() => setHi(i)}
+                onPointerMove={() => setHi(i)}
                 className={cn(
                   'flex cursor-pointer items-center justify-between gap-3 rounded-[10px] py-1.5 pl-3 pr-1.5',
                   i === hi && 'bg-selected',

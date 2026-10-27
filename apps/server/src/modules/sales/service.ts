@@ -4,6 +4,7 @@ import {
   DomainError,
   allocateFifo,
   computeChange,
+  deleteBillSchema,
   holdInputSchema,
   money,
   saleInputSchema,
@@ -258,6 +259,9 @@ export async function completeSale(
   });
   if (isInvoice) await takeStock(tx, ctx, sale);
 
+  // A recalled held bill becomes this bill. What it held is kept in the log, so lines taken
+  // off between holding and paying can be seen.
+  const fromHeld = input.heldSaleId ? await heldSnapshot(tx, input.heldSaleId) : null;
   if (input.heldSaleId) {
     await tx.sale.deleteMany({ where: { id: input.heldSaleId, status: 'HELD' } });
   }
@@ -266,6 +270,7 @@ export async function completeSale(
     entity: 'sale',
     entityId: sale.id,
     approverId: priceApproverId && priceApproverId !== ctx.user.id ? priceApproverId : null,
+    before: fromHeld ? { held: fromHeld } : undefined,
     after: {
       no,
       netTotal: sale.netTotal,
@@ -296,6 +301,7 @@ export async function holdSale(tx: Tx, ctx: RequestContext, settings: Settings, 
   const counter = requireCounter(ctx);
   const priced = await priceLines(tx, input.lines as SaleLineInput[], input.wholesale);
   const build = buildTotals(priced, settings);
+  const before = input.heldSaleId ? await heldSnapshot(tx, input.heldSaleId) : null;
   if (input.heldSaleId)
     await tx.sale.deleteMany({ where: { id: input.heldSaleId, status: 'HELD' } });
   const sale = await tx.sale.create({
@@ -319,7 +325,34 @@ export async function holdSale(tx: Tx, ctx: RequestContext, settings: Settings, 
       },
     },
   });
+  // Every hold is logged; holding a recalled bill again logs what it had before.
+  await audit(tx, actorOf(ctx), {
+    action: before ? 'sale.hold_again' : 'sale.hold',
+    entity: 'sale',
+    entityId: sale.id,
+    before: before ?? undefined,
+    after: await heldSnapshot(tx, sale.id),
+  });
   return { id: sale.id };
+}
+
+/** What a bill held: its total and every line, for the audit log. */
+async function heldSnapshot(tx: Tx, id: string) {
+  const s = await tx.sale.findUnique({
+    where: { id },
+    include: { lines: { orderBy: { lineNo: 'asc' } } },
+  });
+  if (!s) return null;
+  return {
+    netTotal: s.netTotal.toFixed(2),
+    customerName: s.customerName,
+    lines: s.lines.map((l) => ({
+      code: l.code,
+      name: l.name,
+      qty: l.qty.toFixed(3),
+      amount: l.amount.toFixed(2),
+    })),
+  };
 }
 
 /** F8 lists held bills to resume, newest first. */
@@ -366,15 +399,65 @@ export async function listHeld(tx: Tx, locationId: string) {
   }));
 }
 
-export async function discardHeld(tx: Tx, ctx: RequestContext, id: string) {
+/**
+ * Taking away a held bill keeps it, stamped DELETED with who, when and why, and logs its lines:
+ * a bill that was rung up can never vanish without a trace.
+ */
+export async function discardHeld(tx: Tx, ctx: RequestContext, id: string, raw: unknown) {
+  const { reason } = deleteBillSchema.parse(raw);
   const held = await tx.sale.findUnique({ where: { id } });
   if (!held || held.status !== 'HELD') throw new DomainError('NOT_FOUND', 'Held bill not found.');
-  await tx.sale.delete({ where: { id } });
+  const snapshot = await heldSnapshot(tx, id);
+  await tx.sale.update({
+    where: { id },
+    data: {
+      status: 'DELETED',
+      deletedAt: new Date(),
+      deletedById: ctx.user.id,
+      deleteReason: reason,
+    },
+  });
   await audit(tx, actorOf(ctx), {
-    action: 'sale.discard_held',
+    action: 'sale.delete_held',
     entity: 'sale',
     entityId: id,
-    before: { netTotal: held.netTotal },
+    before: snapshot,
+    note: reason,
+  });
+}
+
+/**
+ * A quotation can be taken away (not one already turned into an invoice). It keeps its number
+ * and stays in bill history stamped DELETED, so quotation numbers have no gaps.
+ */
+export async function deleteQuotation(tx: Tx, ctx: RequestContext, id: string, raw: unknown) {
+  const { reason } = deleteBillSchema.parse(raw);
+  const q = await tx.sale.findUnique({ where: { id }, include: { convertedTo: true } });
+  if (!q || q.kind !== 'QUOTATION') throw new DomainError('NOT_FOUND', 'Quotation not found.');
+  if (q.status !== 'COMPLETED') {
+    throw new DomainError('INVALID_STATE', 'Only an issued quotation can be deleted.');
+  }
+  if (q.convertedTo) {
+    throw new DomainError(
+      'INVALID_STATE',
+      `This quotation became invoice ${q.convertedTo.no}; it can't be deleted.`,
+    );
+  }
+  await tx.sale.update({
+    where: { id },
+    data: {
+      status: 'DELETED',
+      deletedAt: new Date(),
+      deletedById: ctx.user.id,
+      deleteReason: reason,
+    },
+  });
+  await audit(tx, actorOf(ctx), {
+    action: 'quotation.delete',
+    entity: 'sale',
+    entityId: id,
+    before: { no: q.no, ...(await heldSnapshot(tx, id)) },
+    note: reason,
   });
 }
 
@@ -452,6 +535,10 @@ export async function voidSale(
 export async function recordReprint(tx: Tx, ctx: RequestContext, id: string) {
   const sale = await tx.sale.findUnique({ where: { id } });
   if (!sale || sale.status === 'HELD') throw new DomainError('NOT_FOUND', 'Bill not found.');
+  // A deleted quotation or held bill is kept for the record, never handed out again.
+  if (sale.status === 'DELETED') {
+    throw new DomainError('INVALID_STATE', 'This bill was deleted; it is kept only as a record.');
+  }
   const copies = await tx.reprint.count({ where: { saleId: id } });
   const reprint = await tx.reprint.create({
     data: { saleId: id, copyNo: copies + 2, userId: ctx.user.id },

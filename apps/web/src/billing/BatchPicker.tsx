@@ -69,7 +69,7 @@ export function BatchPicker({
               key={b.id}
               role="option"
               aria-selected={i === hi}
-              onMouseEnter={() => setHi(i)}
+              onMouseMove={() => setHi(i)}
               onMouseDown={(e) => {
                 e.preventDefault();
                 onPick(b.id);

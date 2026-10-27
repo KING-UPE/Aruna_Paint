@@ -125,7 +125,68 @@ export function BillingScreen() {
     removeLineAtIndex(selected);
   };
 
+  /**
+   * A bill lives only on this screen until it is paid or held, so lines taken off (or lowered)
+   * are reported for the audit log: nothing rung up disappears without a trace.
+   */
+  const reportRemoved = (line: BillLine, qty: string, why: 'removed' | 'qty_lowered') => {
+    const p = priceBillLine({ ...line, qty }, wholesale, noDiscount);
+    void api
+      .post('/api/sales/removed-lines', {
+        why,
+        lines: [
+          {
+            code: line.batch?.code ?? line.item.mix?.code ?? line.item.code,
+            name: p.description,
+            qty,
+            amount: p.amount,
+          },
+        ],
+      })
+      .catch(() => undefined);
+  };
+
+  // Leaving the screen or closing the browser with an unpaid, unheld bill reports its lines too.
+  const unsaved = useRef<{
+    lines: BillLine[];
+    wholesale: boolean;
+    noDiscount: boolean;
+    held: boolean;
+  }>({ lines: [], wholesale: false, noDiscount: false, held: false });
+  // A recalled bill is still in the held list, so its lines aren't lost.
+  unsaved.current = { lines, wholesale, noDiscount, held: Boolean(heldSaleId) };
+  useEffect(() => {
+    const send = () => {
+      const u = unsaved.current;
+      if (!u.lines.length || u.held) return;
+      const body = JSON.stringify({
+        why: 'removed',
+        lines: u.lines.map((l) => {
+          const p = priceBillLine(l, u.wholesale, u.noDiscount);
+          return {
+            code: l.batch?.code ?? l.item.mix?.code ?? l.item.code,
+            name: `${p.description} (bill left unpaid)`,
+            qty: l.qty,
+            amount: p.amount,
+          };
+        }),
+      });
+      navigator.sendBeacon?.(
+        '/api/sales/removed-lines',
+        new Blob([body], { type: 'application/json' }),
+      );
+      unsaved.current = { ...u, lines: [] };
+    };
+    window.addEventListener('pagehide', send);
+    return () => {
+      window.removeEventListener('pagehide', send);
+      send();
+    };
+  }, []);
+
   const removeLineAtIndex = (idx: number) => {
+    const gone = lines[idx];
+    if (gone) reportRemoved(gone, gone.qty, 'removed');
     setLines((ls) => ls.filter((_, i) => i !== idx));
     setSelected((s) => Math.min(s, lines.length - 2));
     focusEntry();
@@ -141,6 +202,7 @@ export function BillingScreen() {
     const step = line.kind === 'LOOSE' ? D('0.5') : D(1);
     const next = D(line.qty).plus(step.times(dir));
     if (!next.greaterThan(0)) return;
+    if (dir < 0) reportRemoved(line, step.toFixed(3), 'qty_lowered');
     if (line.kind === 'BATCH' && line.batch) {
       const onOther = lines
         .filter((l, i) => i !== index && l.batch?.id === line.batch!.id)
@@ -188,6 +250,8 @@ export function BillingScreen() {
         return false;
       }
     }
+    if (val.lessThan(D(line.qty)))
+      reportRemoved(line, D(line.qty).minus(val).toFixed(3), 'qty_lowered');
     setLines((ls) =>
       ls.map((l, i) =>
         i === index
