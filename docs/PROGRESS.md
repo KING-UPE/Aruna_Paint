@@ -7,7 +7,7 @@ This file is for whoever continues the work: a person or a new Claude session. T
 
 Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Phase 2 (reports, closing, reorder, cloud) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status on 27 Oct 2026: `pnpm typecheck` is clean; 86 shared unit tests, 86 server integration tests and 4 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
+Test status on 27 Oct 2026: `pnpm typecheck` is clean; 86 shared unit tests, 86 server integration tests and 5 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -49,7 +49,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Multi-price pop-up (inline picker), FIFO split across batches, typing a sub code skips the pop-up.
 - ✅ Loose sales (`1.5L` or `0.375`), open a can with a Stock Manager or Admin PIN, price per liter changed with an Admin PIN.
 - ✅ Discount rules (at most the purchase discount, never below cost, never above the R-price, wholesale takes the W-price), cash payment with change, the "Print receipt?" prompt, drawer kick.
-- ✅ Hold (F7) and recall (F8); bill history (F9) with P reprint, R return, C convert, V void.
+- ✅ Hold (F7) and recall (F8); bill history (F9) with P reprint, R return, C convert, V void. A held bill is deleted with its bin button or the Delete key in the F8 list, after a confirmation (Enter confirms, Esc keeps it).
 - ✅ **Same item, same line:** adding the same batch at the same discount (or the same loose paint at the same price per liter) adds to that line's qty (`mergeLines` in `billing/bill.ts`). A different batch, discount or price stays a separate line. Changing a line's discount to match another line of the same batch merges them. Lines are compared on their own discounts, never on "No discount".
 - ✅ **Arrow keys between buttons** (`lib/arrowNav.ts`): in every dialog (Yes/No on "Print receipt?", confirm boxes, PIN prompt…), the billing header and toolbar, and the main menu. ←↑ go to the previous button and →↓ to the next. Text boxes, lists, dropdowns and radio groups keep their own arrow keys.
 - ✅ **No discount (Alt+N)**, a toggle next to Wholesale. While it is on, every line sells at the R-price with no discount, lines added later included, and item entry skips the discount box. Turning it off gives each line its own discount back. It is sent as a 0% discount per line, so the server prices it the same way. It can't be used on wholesale bills, which already have no extra discount.

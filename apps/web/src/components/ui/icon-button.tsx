@@ -34,7 +34,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
         {icon}
       </button>
       <span
-        role="presentation"
+        aria-hidden
         className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-[6px] bg-text px-2 py-1 text-xs font-medium text-surface opacity-0 shadow-md transition-opacity delay-150 group-hover/icon:opacity-100 group-has-[:focus-visible]/icon:opacity-100"
       >
         {label}

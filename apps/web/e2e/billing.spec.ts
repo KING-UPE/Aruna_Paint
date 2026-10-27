@@ -193,3 +193,37 @@ test('the same item at the same discount joins its line; arrows move between Yes
   await page.keyboard.press('Enter');
   await expect(page.getByText(/INV-\d{6} · change Rs 0.00/)).toBeVisible();
 });
+
+test('a held bill can be deleted with its bin button or the Delete key, after asking', async ({
+  page,
+}) => {
+  await loginAtCounter(page, 'cashier');
+  await page.keyboard.press('F2');
+  await expect(page.getByRole('textbox', { name: 'Item code' })).toBeFocused();
+  await page.keyboard.type('putty');
+  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('Wall Putty');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('F7');
+  await expect(page.getByText('Bill held.')).toBeVisible();
+
+  await page.keyboard.press('F8');
+  const held = page.getByRole('dialog', { name: 'Held bills' });
+  const rows = held.getByRole('option');
+  await expect(rows).toHaveCount(1);
+
+  // The bin button asks first; Cancel keeps the bill.
+  await held.getByRole('button', { name: 'Delete held bill' }).click();
+  const ask = page.getByRole('dialog', { name: 'Delete this held bill?' });
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(rows).toHaveCount(1);
+
+  // The Delete key asks too; Enter confirms.
+  await page.keyboard.press('Delete');
+  await expect(ask).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Held bill deleted.')).toBeVisible();
+  await expect(held.getByText('No held bills.')).toBeVisible();
+});

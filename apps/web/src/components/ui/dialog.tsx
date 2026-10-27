@@ -16,6 +16,8 @@ export interface DialogProps {
   initialFocus?: () => HTMLElement | null | undefined;
   /** Put focus back where it was when the dialog closes (off when the caller moves it on). */
   restoreFocus?: boolean;
+  /** Where focus goes when the dialog closes, instead of where it was before it opened. */
+  returnFocus?: () => HTMLElement | null | undefined;
 }
 
 export function Dialog({
@@ -28,6 +30,7 @@ export function Dialog({
   className,
   initialFocus,
   restoreFocus = true,
+  returnFocus,
 }: DialogProps) {
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
@@ -47,6 +50,12 @@ export function Dialog({
             if (document.querySelector('[data-select-open]')) e.preventDefault();
           }}
           onCloseAutoFocus={(e) => {
+            const el = returnFocus?.();
+            if (el) {
+              e.preventDefault();
+              el.focus();
+              return;
+            }
             if (!restoreFocus) e.preventDefault();
           }}
           className={cn(

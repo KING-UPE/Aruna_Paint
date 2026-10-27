@@ -18,6 +18,8 @@ export interface ConfirmOptions {
   confirmLabel?: string;
   /** Red button for deletes and other things that can't be undone. */
   danger?: boolean;
+  /** Where focus goes after the answer (e.g. back to the list the question came from). */
+  returnFocus?: () => HTMLElement | null | undefined;
 }
 
 export interface AskOptions {
@@ -62,7 +64,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
     ask: (o) => open({ kind: 'ask', o }) as Promise<string | null>,
   });
 
+  // Kept past the close, for the dialog's focus return.
+  const lastReturn = useRef<ConfirmOptions['returnFocus']>(undefined);
+  const okRef = useRef<HTMLButtonElement>(null);
   const close = (v: unknown) => {
+    lastReturn.current = state?.kind === 'confirm' ? state.o.returnFocus : undefined;
     resolver.current?.(v);
     resolver.current = null;
     setState(null);
@@ -85,9 +91,12 @@ export function AskProvider({ children }: { children: ReactNode }) {
       {children}
       <Dialog
         open={state !== null}
+        returnFocus={() => lastReturn.current?.()}
         onOpenChange={(v) => (!v ? cancel() : undefined)}
         title={o?.title ?? ''}
         className="max-w-md"
+        // A yes/no question starts on the answer button, so Enter confirms.
+        initialFocus={() => (state?.kind === 'confirm' ? okRef.current : undefined)}
       >
         <form onSubmit={submit} className="flex flex-col gap-4">
           {o?.message ? <div className="text-[15px] text-muted">{o.message}</div> : null}
@@ -113,8 +122,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
               Cancel
             </Button>
             <Button
+              ref={okRef}
               type="submit"
-              autoFocus={state?.kind === 'confirm'}
               variant={state?.kind === 'confirm' && state.o.danger ? 'danger' : 'primary'}
             >
               {o?.confirmLabel ?? 'OK'}

@@ -1,8 +1,11 @@
 import { formatMoney, formatTime } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/AskDialog';
 import { Dialog } from '@/components/ui/dialog';
+import { IconButton } from '@/components/ui/icon-button';
 import { EmptyState } from '@/components/ui/misc';
 import { api, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -30,7 +33,7 @@ export interface HeldBill {
   )[];
 }
 
-/** F8 lists held bills to resume; Delete discards one. */
+/** F8 lists held bills to resume; the bin button or the Delete key discards one, after asking. */
 export function HeldBillsDialog({
   open,
   onClose,
@@ -49,12 +52,33 @@ export function HeldBillsDialog({
     enabled: open,
   });
   const items = held.data?.items ?? [];
+  const confirm = useConfirm();
+
+  const discard = async (b: HeldBill) => {
+    const ok = await confirm({
+      title: 'Delete this held bill?',
+      message: `Held at ${formatTime(b.heldAt)} by ${b.cashier}${b.customerName ? ` for ${b.customerName}` : ''}: ${b.itemCount} items, Rs ${formatMoney(b.netTotal)}. It can't be brought back.`,
+      confirmLabel: 'Delete held bill',
+      danger: true,
+      returnFocus: () => box.current,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/api/sales/held/${b.id}`);
+      await qc.invalidateQueries({ queryKey: ['held'] });
+      setHi((h) => Math.max(0, Math.min(h, items.length - 2)));
+      toast.success('Held bill deleted.');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => (!o ? onClose() : undefined)}
       title="Held bills"
-      description="↑↓ to pick, Enter to resume, Delete to discard."
+      description="↑↓ to pick, Enter to resume, Delete to delete."
       initialFocus={() => box.current}
     >
       <div
@@ -73,14 +97,7 @@ export function HeldBillsDialog({
             onRecall(items[hi]);
           } else if (e.key === 'Delete' && items[hi]) {
             e.preventDefault();
-            try {
-              await api.delete(`/api/sales/held/${items[hi].id}`);
-              await qc.invalidateQueries({ queryKey: ['held'] });
-              setHi(0);
-              toast.success('Held bill discarded.');
-            } catch (err) {
-              toast.error(errorMessage(err));
-            }
+            await discard(items[hi]);
           }
         }}
       >
@@ -94,8 +111,9 @@ export function HeldBillsDialog({
                 role="option"
                 aria-selected={i === hi}
                 onClick={() => onRecall(b)}
+                onPointerEnter={() => setHi(i)}
                 className={cn(
-                  'flex cursor-pointer items-center justify-between rounded-[8px] px-3 py-2',
+                  'flex cursor-pointer items-center justify-between gap-3 rounded-[10px] py-1.5 pl-3 pr-1.5',
                   i === hi && 'bg-selected',
                 )}
               >
@@ -105,8 +123,20 @@ export function HeldBillsDialog({
                   {b.customerName ? ` · ${b.customerName}` : ''}
                   {b.kind === 'QUOTATION' ? ' · quotation' : ''}
                 </span>
-                <span className="num">
-                  {b.itemCount} items · Rs {formatMoney(b.netTotal)}
+                <span className="flex items-center gap-2">
+                  <span className="num">
+                    {b.itemCount} items · Rs {formatMoney(b.netTotal)}
+                  </span>
+                  <IconButton
+                    label="Delete held bill"
+                    tone="danger"
+                    tabIndex={-1}
+                    icon={<Trash2 size={17} />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void discard(b);
+                    }}
+                  />
                 </span>
               </li>
             ))}
