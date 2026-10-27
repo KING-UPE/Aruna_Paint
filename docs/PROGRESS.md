@@ -7,7 +7,7 @@ This file is for whoever continues the work: a person or a new Claude session. T
 
 Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Phase 2 (reports, closing, reorder, cloud) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status on 27 Oct 2026: `pnpm typecheck` is clean; 69 shared unit tests, 83 server integration tests and 2 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
+Test status on 27 Oct 2026: `pnpm typecheck` is clean; 80 shared unit tests, 84 server integration tests and 2 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -64,6 +64,11 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
   - styled checkboxes, with a dash for "some ticked";
   - number inputs without spinners;
   - rounded, theme-coloured scrollbars (pill thumb that darkens on hover; Firefox gets a thin bar in the same colours).
+- ✅ **Colour themes** (Settings → Colour theme, Super Admin only):
+  - five ready-made themes: Teal (the original), Ocean blue, Royal purple, Berry and Graphite;
+  - a custom colour (picker or colour code);
+  - light, dark, or "Same as the PC".
+  The choice is stored in the `appearance` setting and applies to every screen and counter, including the login screen (`/api/setup/status` is public and carries it). Each PC remembers the last theme so it doesn't flash the old colours at start. `shared/domain/themes.ts` works out all colours from one accent and keeps text readable (tests check 4.5:1 contrast). Green, amber and red never change. Screens must use the colour tokens (`bg-accent`, `text-muted`…), never Tailwind palette colours, or they won't follow the theme.
 - ✅ The app's own confirm and one-line question dialogs (`components/AskDialog.tsx`, `useConfirm()` and `useAsk()`) replace `window.confirm` and `window.prompt`.
 
 ### Owner's changes the tests now follow

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HEX_COLOR, THEME_IDS, THEME_MODES } from './domain/themes';
 
 /** Shop-wide settings the Super Admin edits; stored as one JSON row per key group. */
 export const shopSettingsSchema = z.object({
@@ -98,6 +99,18 @@ export const hrmSettingsSchema = hrmMonthConfigSchema.extend({
 });
 export type HrmSettings = z.infer<typeof hrmSettingsSchema>;
 
+/** The shop's colour theme and light/dark mode; only the Super Admin changes it. */
+export const appearanceSettingsSchema = z.object({
+  theme: z.enum(THEME_IDS).default('teal'),
+  /** The accent colour of the custom theme, as #RRGGBB. */
+  customAccent: z
+    .string()
+    .regex(HEX_COLOR, { message: 'Pick a colour like #1d4ed8.' })
+    .default('#0f766e'),
+  mode: z.enum(THEME_MODES).default('system'),
+});
+export type AppearanceSettings = z.infer<typeof appearanceSettingsSchema>;
+
 export const SETTINGS_SCHEMAS = {
   shop: shopSettingsSchema,
   receipt: receiptSettingsSchema,
@@ -107,6 +120,7 @@ export const SETTINGS_SCHEMAS = {
   backup: backupSettingsSchema,
   cloud: cloudSettingsSchema,
   hrm: hrmSettingsSchema,
+  appearance: appearanceSettingsSchema,
 } as const;
 
 export type SettingsKey = keyof typeof SETTINGS_SCHEMAS;
@@ -121,4 +135,5 @@ export const DEFAULT_SETTINGS: Settings = {
   backup: backupSettingsSchema.parse({}),
   cloud: cloudSettingsSchema.parse({}),
   hrm: hrmSettingsSchema.parse({}),
+  appearance: appearanceSettingsSchema.parse({}),
 };

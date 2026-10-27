@@ -296,7 +296,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   async function me(app: FastifyInstance, req: FastifyRequest) {
     const ctx = req.ctx;
-    const [shortcuts, billing, shop, session] = await Promise.all([
+    const [shortcuts, billing, shop, session, appearance] = await Promise.all([
       db.userShortcut.findMany({
         where: { userId: ctx.user.id },
         select: { screen: true, action: true, keys: true },
@@ -304,6 +304,7 @@ export async function authRoutes(app: FastifyInstance) {
       settings.get('billing'),
       settings.get('shop'),
       db.session.findUniqueOrThrow({ where: { id: ctx.sessionId } }),
+      settings.get('appearance'),
     ]);
     const location = await db.location.findUnique({ where: { id: ctx.locationId } });
     return {
@@ -320,6 +321,7 @@ export async function authRoutes(app: FastifyInstance) {
         timeFormat: billing.timeFormat,
         quotationValidityDays: billing.quotationValidityDays,
       },
+      appearance,
       mode: app.deps.config.mode,
     };
   }

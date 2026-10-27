@@ -1,3 +1,4 @@
+import type { AppearanceSettings } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router';
@@ -26,6 +27,7 @@ import { MenuPage } from '@/layout/MenuPage';
 import { firstAllowed } from '@/layout/nav';
 import { api } from '@/lib/api';
 import { connectLive } from '@/lib/live';
+import { applyAppearance } from '@/lib/theme';
 import { StockRoutes } from '@/stock/routes';
 import { AdminRoutes } from '@/admin/routes';
 import { ProfilePage } from '@/admin/ProfilePage';
@@ -35,10 +37,17 @@ export function App() {
   useSessionErrors();
   const setup = useQuery({
     queryKey: ['setup-status'],
-    queryFn: () => api.get<{ needsSetup: boolean }>('/api/setup/status'),
+    queryFn: () =>
+      api.get<{ needsSetup: boolean; appearance?: AppearanceSettings }>('/api/setup/status'),
     staleTime: Infinity,
   });
   const me = useMeQuery();
+  // The shop's colour theme, from the signed-in answer or (on the login screen) the public one.
+  const appearance = me.data?.appearance ?? setup.data?.appearance;
+  const appearanceKey = appearance ? JSON.stringify(appearance) : '';
+  useEffect(() => {
+    if (appearanceKey) applyAppearance(JSON.parse(appearanceKey) as AppearanceSettings);
+  }, [appearanceKey]);
   if (setup.isLoading || me.isLoading) {
     return (
       <div className="flex h-full items-center justify-center">

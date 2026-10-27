@@ -1,3 +1,4 @@
+import type { AppearanceSettings } from '@aruna/shared';
 /** Shapes the shop server returns. Money and quantities are strings ("1250.00", "1.500"). */
 
 export interface Me {
@@ -14,6 +15,7 @@ export interface Me {
     timeFormat: '12h' | '24h';
     quotationValidityDays: number;
   };
+  appearance: AppearanceSettings;
   mode: 'shop' | 'cloud';
 }
 

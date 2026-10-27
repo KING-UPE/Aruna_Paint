@@ -344,6 +344,18 @@ describe('settings and numbering', () => {
     shop = await setupShop(app);
   });
 
+  it('only the Super Admin picks the colour theme; everyone, even the login screen, gets it', async () => {
+    const theme = { theme: 'custom', customAccent: '#b45309', mode: 'dark' };
+    expect((await shop.admin.put('/api/settings/appearance', theme)).status).toBe(403);
+    expect(
+      (await shop.sa.put('/api/settings/appearance', { ...theme, customAccent: 'orange' })).status,
+    ).toBe(400);
+    expect((await shop.sa.put('/api/settings/appearance', theme)).status).toBe(200);
+    expect((await shop.cashier.get('/api/auth/me')).body.appearance).toEqual(theme);
+    const loggedOut = new Client(app);
+    expect((await loggedOut.get('/api/setup/status')).body.appearance).toEqual(theme);
+  });
+
   it('the Super Admin changes number formats; bad formats are refused', async () => {
     expect((await shop.sa.put('/api/number-formats/INVOICE', { format: 'INV-NNNN' })).status).toBe(
       400,

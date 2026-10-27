@@ -1,3 +1,4 @@
+import type { AppearanceSettings } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -8,10 +9,11 @@ import { Input, Select, Textarea } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/misc';
 import { useValues } from '@/components/values';
 import { api, errorMessage } from '@/lib/api';
+import { AppearanceCard } from './AppearanceCard';
 
 type Settings = Record<string, Record<string, unknown>>;
 
-/** Shop details, receipt header and footer, billing rules, month start, alerts, backups, cloud link. */
+/** Colour theme, shop details, receipt header and footer, billing rules, month start, alerts, backups, cloud link. */
 export function SettingsPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/api/settings') });
@@ -63,6 +65,9 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Settings" />
+      {draft.appearance && q.data?.appearance ? (
+        <AppearanceCard saved={q.data.appearance as unknown as AppearanceSettings} />
+      ) : null}
       {section('shop', 'Shop', [
         text('shop', 'shopName', 'Shop name'),
         text('shop', 'address', 'Address'),

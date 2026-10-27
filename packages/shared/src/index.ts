@@ -17,3 +17,4 @@ export * from './schemas/common';
 export * from './schemas/stock';
 export * from './schemas/billing';
 export * from './domain/periods';
+export * from './domain/themes';

@@ -7,8 +7,10 @@ import { App } from './App';
 import './index.css';
 import { rememberCounterFromUrl } from './lib/counter';
 import { queryClient } from './lib/queryClient';
+import { restoreAppearance } from './lib/theme';
 
 rememberCounterFromUrl();
+restoreAppearance();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
