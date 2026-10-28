@@ -156,7 +156,7 @@ These were my calls; confirm them with the owner if any matters:
 - ESLint is not set up; Prettier and `tsc` are the checks.
 - `e2e/start-server.sh` lost its executable bit in a commit made on Windows. It was restored in this session with `git update-index --chmod=+x`.
 - No desktop shell yet (Tauri or Electron full-screen wrapper that starts with Windows and blocks browser keys).
-- Test mode needs the database role to have CREATEDB, and `pg_dump`/`pg_restore` on the server (the same tools as backups). The copy (`<db>_testmode`) stays on disk until the next time test mode is turned on. When the cloud sync agent is built, it must read only the real database (`testMode.production`), never the copy.
+- Test mode needs the database role to have CREATEDB, and `pg_dump`/`pg_restore` on the server (the same tools as backups). `core/pgtools.ts` finds them in `PG_BIN_DIR`, then PATH, then PostgreSQL's usual install folders (`C:\Program Files\PostgreSQL\<version>\bin` on Windows, which the installer doesn't add to PATH); when they're missing, test mode and backups say which folder to set. The copy (`<db>_testmode`) stays on disk until the next time test mode is turned on. When the cloud sync agent is built, it must read only the real database (`testMode.production`), never the copy.
 
 ## Suggested next steps (in order)
 

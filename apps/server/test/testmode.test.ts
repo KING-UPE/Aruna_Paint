@@ -1,6 +1,7 @@
 import { readFile, rm } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { findPgTool } from '../src/core/pgtools';
 import { createTestApp, PASSWORD, setupShop, type Shop } from './helpers';
 import { createCatalog, postGrn, subProducts, type Catalog } from './fixtures';
 
@@ -102,5 +103,34 @@ describe('test mode', () => {
     expect(app.deps.testMode.isOn()).toBe(false);
     const [row] = await app.deps.db.$queryRaw<{ db: string }[]>`SELECT current_database() AS db`;
     expect(row!.db).not.toMatch(/_testmode$/);
+  }, 60_000);
+
+  it('finds pg_dump in the usual install folder, and says plainly what to set when it is missing', async () => {
+    // A Windows install doesn't put PostgreSQL on PATH; the install folder is searched too.
+    const path = process.env.PATH;
+    process.env.PATH = '';
+    try {
+      expect(findPgTool('pg_dump', '')).toMatch(/postgresql\/\d+\/bin\/pg_dump$/);
+    } finally {
+      process.env.PATH = path;
+    }
+    expect(findPgTool('pg_dump', '/no/such/folder')).toBeNull();
+
+    const broken = await createTestApp({ pgBinDir: '/no/such/folder' });
+    try {
+      const r = await broken.inject({
+        method: 'POST',
+        url: '/api/test-mode/on',
+        payload: { password: PASSWORD },
+        headers: { cookie: shop.sa.cookie },
+      });
+      expect(r.statusCode).toBe(409);
+      expect(r.json().error.message).toBe(
+        "PostgreSQL's pg_dump is not in PG_BIN_DIR (/no/such/folder). Check that folder in apps/server/.env and restart the server.",
+      );
+      expect(broken.deps.testMode.isOn()).toBe(false);
+    } finally {
+      await broken.close();
+    }
   }, 60_000);
 });

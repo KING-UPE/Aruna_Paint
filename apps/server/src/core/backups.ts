@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { shopDate, shopDateParts } from '@aruna/shared';
 import type { AppConfig } from '../config';
 import type { Db } from '../db';
+import { pgTool } from './pgtools';
 import type { SettingsService } from './settings';
 
 export type BackupKind = 'DAY_END' | 'NIGHTLY' | 'MANUAL' | 'PRE_UPDATE';
@@ -88,8 +89,13 @@ export class BackupService {
   }
 
   private pgDump(path: string): Promise<void> {
-    const bin = this.config.pgBinDir ? join(this.config.pgBinDir, 'pg_dump') : 'pg_dump';
     return new Promise((resolve, reject) => {
+      let bin: string;
+      try {
+        bin = pgTool('pg_dump', this.config.pgBinDir);
+      } catch (err) {
+        return reject(err as Error);
+      }
       execFile(
         bin,
         [

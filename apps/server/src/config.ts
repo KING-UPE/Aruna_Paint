@@ -11,7 +11,7 @@ export interface AppConfig {
   /** HMAC key for PINs. */
   pinSecret: string;
   dataDir: string;
-  /** Folder with PostgreSQL binaries (pg_dump) for backups; empty uses PATH. */
+  /** Folder with PostgreSQL's pg_dump and pg_restore; empty looks in PATH, then the usual install folders. */
   pgBinDir: string;
   /** Built web app to serve; empty in development (Vite serves it). */
   webDistDir: string;

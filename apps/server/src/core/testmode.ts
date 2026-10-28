@@ -6,6 +6,7 @@ import type { AppConfig } from '../config';
 import { createPrisma, type Db } from '../db';
 import { audit } from './audit';
 import { libpqUrl } from './backups';
+import { findPgTool, pgTool, pgToolMissing, type PgTool } from './pgtools';
 
 export interface TestModeStatus {
   on: boolean;
@@ -120,8 +121,8 @@ export class TestModeService {
     await writeFile(this.file, JSON.stringify(this.status, null, 2));
   }
 
-  private bin(name: string) {
-    return this.config.pgBinDir ? join(this.config.pgBinDir, name) : name;
+  private bin(tool: PgTool) {
+    return pgTool(tool, this.config.pgBinDir);
   }
 
   /** A fresh copy of the real data: pg_dump, a new database, pg_restore. */
@@ -167,6 +168,11 @@ export class TestModeService {
   async turnOn(actor: { userId: string; name: string }) {
     if (this.status.on) throw new DomainError('INVALID_STATE', 'Test mode is already on.');
     if (this.busy) throw new DomainError('INVALID_STATE', 'Test mode is switching; try again.');
+    // Say plainly what to fix when PostgreSQL's tools can't be found.
+    for (const tool of ['pg_dump', 'pg_restore'] as const) {
+      if (!findPgTool(tool, this.config.pgBinDir))
+        throw new DomainError('INVALID_STATE', pgToolMissing(tool, this.config.pgBinDir));
+    }
     this.busy = true;
     try {
       let copy: Db;
