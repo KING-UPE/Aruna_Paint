@@ -18,6 +18,7 @@ import { DayEndPage } from '@/billing/DayEndPage';
 import { HistoryPage } from '@/billing/HistoryPage';
 import { AskProvider } from '@/components/AskDialog';
 import { PinPromptProvider } from '@/components/PinPrompt';
+import { TestModeBanner } from '@/components/TestModeBanner';
 import { Spinner } from '@/components/ui/misc';
 import { CommandPalette } from '@/keyboard/CommandPalette';
 import { KeymapProvider } from '@/keyboard/keymap';
@@ -48,14 +49,35 @@ export function App() {
   useEffect(() => {
     if (appearanceKey) applyAppearance(JSON.parse(appearanceKey) as AppearanceSettings);
   }, [appearanceKey]);
-  if (setup.isLoading || me.isLoading) {
+  return (
+    <>
+      <TestModeBanner />
+      <Screens
+        setupLoading={setup.isLoading}
+        needsSetup={Boolean(setup.data?.needsSetup)}
+        me={me}
+      />
+    </>
+  );
+}
+
+function Screens({
+  setupLoading,
+  needsSetup,
+  me,
+}: {
+  setupLoading: boolean;
+  needsSetup: boolean;
+  me: ReturnType<typeof useMeQuery>;
+}) {
+  if (setupLoading || me.isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner />
       </div>
     );
   }
-  if (setup.data?.needsSetup) return <SetupPage />;
+  if (needsSetup) return <SetupPage />;
   if (!me.data) return <LoginPage />;
   if (me.data.user.mustChangePassword) return <ChangePasswordPage />;
   return (

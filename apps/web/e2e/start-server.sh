@@ -12,6 +12,8 @@ export LOG_LEVEL=warn
 DB_NAME="$(node -e 'console.log(new URL(process.env.DATABASE_URL).pathname.slice(1))')"
 ADMIN_URL="$(node -e 'const u=new URL(process.env.DATABASE_URL);u.pathname="/postgres";u.search="";console.log(u.toString())')"
 psql "$ADMIN_URL" -qc "DROP DATABASE IF EXISTS \"$DB_NAME\" WITH (FORCE)" -c "CREATE DATABASE \"$DB_NAME\""
+# A test mode left on by an earlier run would point the server at its old copy.
+rm -f "$DATA_DIR/test-mode.json"
 npx prisma migrate deploy > /dev/null
 npx tsx src/scripts/seed.ts > /dev/null
 exec npx tsx src/index.ts

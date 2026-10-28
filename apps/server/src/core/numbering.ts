@@ -7,6 +7,12 @@ import {
 } from '@aruna/shared';
 import type { Tx } from '../db';
 import { uuidv7 } from '../lib/ids';
+import { testNumberPrefix } from './testmode';
+
+/** In test mode documents read TEST-INV-000124, so a test slip can't pass for a real one. */
+function marked(docType: DocType, no: string): string {
+  return docType === 'SUPPLIER' ? no : `${testNumberPrefix()}${no}`;
+}
 
 export interface NumberingContext {
   date?: Date;
@@ -36,7 +42,7 @@ export async function nextNumber(
     counter: ctx.counterCode,
     location: ctx.locationCode,
   };
-  if (!formatHasSequence(format)) return renderNumber(format, nctx);
+  if (!formatHasSequence(format)) return marked(docType, renderNumber(format, nctx));
   const scope = sequenceScope(format, nctx);
   for (let attempt = 0; attempt < 1000; attempt++) {
     const rows = await tx.$queryRaw<{ last_value: number }[]>`
@@ -46,7 +52,7 @@ export async function nextNumber(
       DO UPDATE SET last_value = number_sequences.last_value + 1, updated_at = now()
       RETURNING last_value`;
     const seq = rows[0]!.last_value;
-    const no = renderNumber(format, { ...nctx, seq });
+    const no = marked(docType, renderNumber(format, { ...nctx, seq }));
     if (!exists || !(await exists(no))) return no;
   }
   throw new Error(`Could not find a free ${docType} number`);
@@ -64,10 +70,10 @@ export async function peekNumber(
     counter: ctx.counterCode,
     location: ctx.locationCode,
   };
-  if (!formatHasSequence(format)) return renderNumber(format, nctx);
+  if (!formatHasSequence(format)) return marked(docType, renderNumber(format, nctx));
   const scope = sequenceScope(format, nctx);
   const row = await tx.numberSequence.findUnique({
     where: { docType_scopeKey: { docType, scopeKey: scope } },
   });
-  return renderNumber(format, { ...nctx, seq: (row?.lastValue ?? 0) + 1 });
+  return marked(docType, renderNumber(format, { ...nctx, seq: (row?.lastValue ?? 0) + 1 }));
 }

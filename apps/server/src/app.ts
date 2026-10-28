@@ -9,9 +9,10 @@ import type { Deps } from './deps';
 import { BackupService } from './core/backups';
 import { EventBus } from './core/events';
 import { SettingsService } from './core/settings';
+import { switchableDb, TestModeService } from './core/testmode';
 import { errorHandler } from './lib/errors';
 import { PrintService } from './printing/service';
-import { registerSessionHook } from './auth/session';
+import { registerSessionHook, resetLocationCache } from './auth/session';
 import { authRoutes } from './auth/routes';
 import { setupRoutes } from './modules/setup/routes';
 import { valueRoutes } from './modules/values/routes';
@@ -35,16 +36,28 @@ export async function buildApp(
     bodyLimit: 2 * 1024 * 1024,
   });
 
-  const db = overrides.db ?? createPrisma(config.databaseUrl);
+  const production = overrides.db ?? createPrisma(config.databaseUrl);
+  // Routes keep this one client; it follows test mode to the test copy and back.
+  const sw = switchableDb(production);
+  const db = sw.db;
   const settings = overrides.settings ?? new SettingsService(db);
+  const events = overrides.events ?? new EventBus();
+  const testMode = new TestModeService(production, sw, config, (on) => {
+    settings.invalidate();
+    resetLocationCache();
+    events.publish({ type: 'testmode', on });
+  });
+  const isTest = () => testMode.isOn();
   const deps: Deps = {
     db,
     config,
     settings,
-    events: overrides.events ?? new EventBus(),
-    printer: overrides.printer ?? new PrintService(db, config),
-    backups: overrides.backups ?? new BackupService(db, config, settings),
+    events,
+    printer: overrides.printer ?? new PrintService(db, config, isTest),
+    backups: overrides.backups ?? new BackupService(db, config, settings, isTest),
+    testMode,
   };
+  await testMode.start(!config.disableSchedulers);
   app.decorate('deps', deps);
   app.setErrorHandler(errorHandler);
 
@@ -82,7 +95,8 @@ export async function buildApp(
 
   app.addHook('onClose', async () => {
     await deps.backups.close();
-    await db.$disconnect();
+    await testMode.close();
+    await production.$disconnect();
   });
 
   return app;

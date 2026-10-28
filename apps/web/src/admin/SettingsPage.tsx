@@ -10,12 +10,15 @@ import { Input, Select, Textarea } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/misc';
 import { useValues } from '@/components/values';
 import { api, errorMessage } from '@/lib/api';
+import { useAuth } from '@/auth/AuthProvider';
 import { AppearanceCard } from './AppearanceCard';
+import { TestModeCard } from './TestModeCard';
 
 type Settings = Record<string, Record<string, unknown>>;
 
 /** Colour theme, shop details, receipt header and footer, billing rules, month start, alerts, backups, cloud link. */
 export function SettingsPage() {
+  const { me } = useAuth();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/api/settings') });
   const [draft, setDraft] = useState<Settings | null>(null);
@@ -69,6 +72,7 @@ export function SettingsPage() {
       {draft.appearance && q.data?.appearance ? (
         <AppearanceCard saved={q.data.appearance as unknown as AppearanceSettings} />
       ) : null}
+      {me.roles.includes('SUPER_ADMIN') && me.mode === 'shop' ? <TestModeCard /> : null}
       {section('shop', 'Shop', [
         text('shop', 'shopName', 'Shop name'),
         text('shop', 'address', 'Address'),

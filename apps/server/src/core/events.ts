@@ -6,7 +6,9 @@ export type LiveEvent =
   | { type: 'stock'; subProductIds: string[] }
   | { type: 'products' }
   | { type: 'sale'; counterId: string }
-  | { type: 'settings' };
+  | { type: 'settings' }
+  /** Every screen reloads everything: the data underneath changed. */
+  | { type: 'testmode'; on: boolean };
 
 type Listener = (event: LiveEvent) => void;
 

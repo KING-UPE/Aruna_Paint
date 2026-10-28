@@ -77,6 +77,8 @@ docs/             plan PDF and PROGRESS.md
 
 **Cost privacy.** Each product's cost/actual/margin needs `cost.item` (Stock Manager, Super Admin). Totals need `cost.totals` (Super Admin only). Serializers drop those fields (`canSeeItemCost(req)`). Billing lookups never send cost; they send `maxDiscount = min(purchase discount, R-price − cost)`.
 
+**Test mode** (`src/core/testmode.ts`). `app.deps.db` is a proxy (`switchableDb`) over the real database or, while the Super Admin's test mode is on, a `pg_dump` copy (`<db>_testmode`). Routes keep using `db` as usual. Anything cached in memory from the database must be reset in the `onSwitch` callback in `app.ts` (settings and the location cache already are). Records that must survive test mode go to `testMode.production`. While it is on, `nextNumber()` adds `TEST-`, `PrintService` stamps every slip and drops the drawer kick, and backups pause.
+
 **Side effects after commit.** Receipts (ESC/POS in `src/printing/`) print after the transaction commits; a printer error never undoes a sale. Live updates go through `EventBus` → `/api/live` WebSocket → the web app invalidates queries. Day-end backups (`src/core/backups.ts`, `pg_dump`) run in the background.
 
 **Web app.** `src/keyboard/keymap.tsx` is the single keyboard listener. Screens register actions with `useHotkeys(screen, handlers, { enabled, inDialog, whileTyping })`, and the user's remapped keys (from `/api/auth/me`) decide which key fires. Single-letter keys don't fire while typing in an input. The billing screen (`src/billing/`) is full screen; `ItemEntry.tsx` runs the item → (batch picker) → qty → discount or price-per-liter flow, and `bill.ts` prices lines with the shared rules. Other screens sit inside `layout/AppLayout.tsx` with a permission-filtered sidebar.
@@ -88,6 +90,7 @@ docs/             plan PDF and PROGRESS.md
 - Charts: use `components/charts/charts.tsx` (`TrendChart`, `ColumnChart`, `BarList`, `ChartCard` with a table view), not a chart library. Dialogs get arrow-key movement between buttons from `Dialog` (`lib/arrowNav.ts`); add `onKeyDown={arrowNav}` to other button rows.
 - Nothing a cashier rang up may vanish: never hard-delete a sale. Held bills and quotations become `DELETED` with a reason (`deleteBillSchema`). New ways to take something off a bill must log it (see `bill.lines_removed`).
 - List rows follow the mouse with `onMouseMove`/`onPointerMove`, never `onMouseEnter`. A list opening under a resting pointer would otherwise change what Enter picks.
+- "Type to find" boxes use `Combobox` (`components/ui/combobox.tsx`; value lists use `ValueSelect`), never a hand-made suggestion list. It clears unpicked text on leaving and offers "+ Add" through `onAdd`.
 - Use `Select` from `components/ui/input` (our dropdown), never a native `<select>`. Use `useConfirm()` and `useAsk()` from `components/AskDialog`, never `window.confirm` or `window.prompt`. A `Checkbox` takes `indeterminate`.
 - React's `autoFocus` does nothing on a `div`. Dialog lists need `initialFocus` on our `Dialog`, and its Close button is out of the tab order. Pass `restoreFocus={false}` when the caller moves focus on after closing.
 - Move focus with a `useLayoutEffect` after state changes, not `requestAnimationFrame`. Cashiers (and Playwright) type the next key immediately.

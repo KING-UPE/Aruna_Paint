@@ -30,9 +30,12 @@ export class BackupService {
     private readonly db: Db,
     private readonly config: AppConfig,
     private readonly settings: SettingsService,
+    /** Backups pause in test mode: the real data isn't changing and the copy is thrown away. */
+    private readonly paused: () => boolean = () => false,
   ) {}
 
   run(kind: BackupKind) {
+    if (this.paused()) return Promise.resolve(null);
     const job = this.doRun(kind).finally(() => this.running.delete(job));
     this.running.add(job);
     return job;

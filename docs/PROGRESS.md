@@ -1,13 +1,13 @@
 # Build progress and handoff
 
-Last updated: 27 Oct 2026, after the UI and permissions session (branch `claude/affectionate-hopper-q0hr5p`).
+Last updated: 28 Oct 2026, after the day end, pickers and test mode session (working on `main`).
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
 
 Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Phase 2 (reports, closing, reorder, cloud) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status on 27 Oct 2026: `pnpm typecheck` is clean; 86 shared unit tests, 90 server integration tests and 7 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
+Test status on 28 Oct 2026: `pnpm typecheck` is clean; 86 shared unit tests, 95 server integration tests and 10 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -22,7 +22,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
   - The rule lives in `shared/domain/permissions.ts` (`rolePermissions`, `resolvePermissions`), and the screen is `admin/PermissionEditor.tsx`.
 - ✅ Manager override by PIN, with both names in the audit log (void, mix price change, open can, write-off, old-system return, reverse purchase).
 - ✅ Per-user shortcut keys: remap in My profile, validation against reserved and already-used keys, reset to default, F1 help, Ctrl+K command palette.
-- ✅ Value manager: categories, brands, units (with an allows-decimal flag), locations (Super Admin only), reasons (with "applies to"), cutoff types. Unique names ignoring case and spaces, merge with history, deactivate when in use, ordering, "+ Add" inside dropdowns.
+- ✅ Value manager: categories, brands, units (with an allows-decimal flag), locations (Super Admin only), reasons (with "applies to"), cutoff types. Unique names ignoring case and spaces, merge with history, deactivate when in use, ordering. Missing values are added from the picker itself (see "Pickers" under Look and feel).
 - ✅ Audit log: written in the same transaction as each change; append-only at the database level; viewer with filters and before/after values.
 - ✅ Sync outbox written from day one by DB triggers in the same transaction. The sync agent that pushes it to the cloud does not exist yet (Phase 2).
 - 🟡 Backups: `pg_dump` at day end and nightly (`backup.nightlyAt`), keeping 30 daily and 12 monthly copies, optional second folder, failure alerts, manual backup API, backup list. **Missing:** a cloud copy, the restore wizard, the monthly test-restore reminder, and a UI to start a backup.
@@ -30,6 +30,11 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ⬜ Automatic updates (signed release feed, download, backup first, migrate, health check, roll back).
 - ⬜ Data import: Excel templates for suppliers, products and opening stock; a go-live stock count.
 - ✅ Settings (shop, receipt, billing, closing, alerts, backup, cloud), number formats (letters allowed), counters with printer settings.
+- ✅ **Test mode** (Settings → Test mode, Super Admin only, password asked again; `core/testmode.ts`, `/api/test-mode`):
+  - Turning it on copies the real database (`pg_dump` → `<db>_testmode` → `pg_restore`) and every request then works on the copy. `deps.db` is a proxy (`switchableDb`) that follows the switch, so routes need no change.
+  - While on: receipts print "TEST MODE - NOT A REAL BILL" at the top and bottom (`stampTest` in `printing/escpos.ts`), document numbers start with `TEST-` (`TEST-INV-000124`), the cash drawer never opens, and backups pause. Every screen, the sign-in screen included, shows a red frame and a "TEST MODE" tab (`components/TestModeBanner.tsx`).
+  - It turns itself off after the time chosen (30 minutes to 8 hours), so a forgotten switch can't swallow real sales. The state lives in `<DATA_DIR>/test-mode.json` and survives a restart.
+  - Turning it off goes back to the real database exactly where it stopped; nothing done in test mode is kept. The real audit log keeps `testmode.on` and `testmode.off`/`testmode.auto_off` with the number and total of test bills, and the dashboard counts the switches.
 
 ### Stock
 - ✅ Suppliers: auto SUP- codes, 1–3 phones in one format, reps, similar-name warning, credit days, opening balance (locked once entries exist), deactivate.
@@ -39,6 +44,8 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Products and sub-products: auto 5-digit codes, old codes kept, box-to-piece buying, mix paint item created for loose-sale paints (several sizes can link to one), code renames that cascade to sub and MP codes after confirmation, price changes for one or all sub-products with price history.
 - ✅ Renaming a product (code, name or receipt name), or renaming one sub-product, also updates old bills, quotations and held bills (`sale_lines` code, name and print name). Amounts never change. Each rename is logged as `product.rename`. The Super Admin sees "old → new" under "Name and code changes" on the product page (`GET /api/products/:id/renames`).
 - ✅ Purchases (GRN): draft or post; server-side line maths; Rs 1 match against the supplier invoice total; duplicate-invoice warning; automatic sub-product rules 1–7 (match, reuse at zero stock, new code when anything differs); paid now; edit while stock is unmoved (reopen); Admin reversal; keyboard grid; inline new item.
+- ✅ **The sales discount is never above the purchase discount**, not even on a draft (`computeLines` in `purchases/service.ts` refuses drafts too; posting and price changes already did). The GRN screen keeps Enter on a cell that breaks a price rule, lists every issue of the line under it and shows the limit ("max 200.00"); the price dialog shows it as well.
+- ✅ The GRN supplier and sales rep boxes offer "+ Add supplier" (the supplier form opens with the typed name, and its similar-name warning offers to use that supplier instead) and "+ Add rep" (`POST /api/suppliers/:id/reps`). The item cell's "+ Add item" opens the product form with the typed name, or the code if it is all digits.
 - ✅ Stock view with filters (category, brand, supplier, location, low, out, expiring, inactive), product detail, bin card, zero-stock sub-products hidden.
 - ✅ Mix paint transfers at weighted-average cost; PIN flow when a cashier opens a can at the counter. Price per liter: the one typed, or the Admin's price for the whole can ÷ liters (`adminCanPrice`), or the current price; the very first can takes its own sales price ÷ liters. Never below the new average cost (`assertMixPrice`, plain-words `BELOW_COST` message).
 - ✅ Location transfers (API, plus "Move 1 from Store?" in billing). There is no stand-alone transfer screen yet.
@@ -56,7 +63,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
   - **Bill history → Deleted** lists both, with who, when and why. They are never counted as sales.
   - **Every hold is logged** (`sale.hold`). Holding a recalled bill again logs what it had before (`sale.hold_again`), and paying a recalled bill logs the lines it was held with (`sale.complete` → `before.held`).
   - **Lines taken off before payment:** lines removed or quantities lowered, and a bill left unpaid when the screen closes (sent with `sendBeacon`), are logged as `bill.lines_removed` through `POST /api/sales/removed-lines`.
-  - **Dashboard "Things to check"** counts, for the range: voids, held bills and quotations deleted, lines taken off bills, returns, reprints and mix paint prices changed at the counter.
+  - **Dashboard "Things to check"** counts, for the range: voids, held bills and quotations deleted, lines taken off bills, returns, reprints, days closed automatically, test mode switches and mix paint prices changed at the counter.
   - **Still open, the owner's call:** day end no longer counts the cash in the drawer (the owner's "Simplify Day End" change), so a cash shortage isn't flagged.
 - ✅ **A resting mouse no longer picks a suggestion.** Lists (item suggestions, batch picker, held bills, dropdowns) follow the mouse only when it moves, so a list opening under a still pointer can't change what Enter takes.
 - ✅ **Same item, same line:** adding the same batch at the same discount (or the same loose paint at the same price per liter) adds to that line's qty (`mergeLines` in `billing/bill.ts`). A different batch, discount or price stays a separate line. Changing a line's discount to match another line of the same batch merges them. Lines are compared on their own discounts, never on "No discount".
@@ -65,7 +72,8 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Receipts: 80 mm ESC/POS with "You saved Rs X", reprint stamps, return notes, the day-end report. Drivers: network 9100, shared Windows printer, file (testing), none.
 - 🟡 Sinhala receipts: the setting exists but receipts always print in English. Printing Sinhala as a raster image is not built.
 - ✅ Returns: refund = what was paid; restock to the same batch, or to the Damaged location; loose paint blocked; old-system bills need an Admin.
-- ✅ Day end: opening float, cash in/out with reasons, counted denominations, expected-cash difference, printed report, then a backup.
+- ✅ Day end: opening float, cash in/out with reasons, expected cash, then a backup. Printing is optional: "Finish day" or "Finish & print report", and any recent day end can be printed later from its row (`POST /api/shifts/:id/print`).
+- ✅ **A day left open closes by itself** when its counter next opens on a later date (`autoCloseShift`, logged as `shift.auto_close`, counted on the dashboard). A forgotten day end no longer blocks the next day's billing.
 
 ### HRM and commission (added by the owner on `main`)
 - ✅ Monthly commission share, fixed expenses and salaries (`modules/hrm`, `hrm/HrmPage.tsx`).
@@ -96,7 +104,13 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ The permission editor's sections (Billing, Stock, HRM, Admin, Cost privacy) open and close one by one, with Open all / Close all, a count, a change count and a tick-all box. The View/Add/Edit/Approve/Export toggles have icons.
 - ✅ Page actions have icons beside their words (`Button icon={…}`). Print, Edit and Delete in page headers and the Previous/Next page buttons are icon buttons with tooltips.
 - ✅ Row actions are icon buttons (`components/ui/icon-button.tsx`) with a tooltip on hover and keyboard focus, and the words as `aria-label`.
-- ✅ The app's own confirm and one-line question dialogs (`components/AskDialog.tsx`, `useConfirm()` and `useAsk()`) replace `window.confirm` and `window.prompt`.
+- ✅ The app's own confirm and one-line question dialogs (`components/AskDialog.tsx`, `useConfirm()` and `useAsk()`, which can start with `initial` text) replace `window.confirm` and `window.prompt`.
+- ✅ **Pickers** (`components/ui/combobox.tsx`) for the GRN supplier, sales rep and item cells, the mix paint search, and every value list (unit, category, brand via `ValueSelect`):
+  - typing suggests (server search, or a filtered fixed list); arrow keys, Enter and Esc work; an Enter typed before the answer arrives waits for it;
+  - leaving the box without picking clears what was typed, so a box never shows a name it isn't using;
+  - a name that isn't there offers "+ Add …" in the list, and a + button sits beside the box; both open a small pop-up that starts with the typed name (`AddValueDialog` for value lists);
+  - after a pick the name is selected, so typing again starts afresh.
+  Use it for any new "type to find" box instead of a hand-made suggestion list.
 
 ### Owner's changes the tests now follow
 These came in with the owner's own work on `main`; the tests were updated to match them:
@@ -117,7 +131,7 @@ These were my calls; confirm them with the owner if any matters:
 4. **Converting a quotation keeps the quoted net price until the validity date**, even above the counter discount cap. A lower current price wins, and it never sells below cost; if it would, the cashier is told to quote again. Batches are re-picked oldest first.
 5. **Admins don't create GRNs**, because the GRN screen shows cost and Admins must not see cost. They can view purchases (cost fields hidden) and reverse them. A person who does both gets both roles ticked.
 6. **Any negative adjustment counts as a write-off and needs an Admin**, MP wastage included.
-7. **One day end per counter per date.** Invoices need an open day (float entered). Quotations don't. Yesterday's open day must be closed before billing today.
+7. **One day end per counter per date.** The day opens by itself on the first bill and, if nobody did the day end, closes by itself when the counter is next used on a later date (no cash count; the dashboard shows it).
 8. **Cash rounding** setting: none by default; Rs 1, 5 or 10 are possible, stored as a rounding adjustment on the bill.
 9. **Reprints** are numbered from #2; the original print is copy #1.
 10. **PINs are stored as HMAC-SHA256** with the server's `PIN_SECRET`, so a PIN alone can identify the user (they are unique). Losing `PIN_SECRET` means resetting every PIN.
@@ -128,6 +142,7 @@ These were my calls; confirm them with the owner if any matters:
 15. **Old bills follow product renames** (the owner asked for this). It overrides the plan's "old bills never change" for names and codes only: prices, quantities and totals stay as sold. A bill line keeps its text if someone had changed it separately; only lines still showing the old text are updated.
 16. **Permission changes for one user** are stored as differences from their roles: "add X" or "take away Y". If the roles change later, the differences still apply. A Super Admin always has everything, and Super Admin-only permissions can never be given to anyone else.
 17. **Customised built-in roles** keep their name. The Super Admin role can't be edited.
+18. **Test mode works on a full copy** rather than flags on rows, so nothing in test mode can leak into real figures. It can't be misused to hide sales for long: it needs the Super Admin's password, ends by itself (at most 8 hours), every slip says TEST, the drawer stays shut, and the switch and the test bill count are kept in the real audit log. Logins made during test mode exist only in the copy, so those PCs sign in again afterwards.
 
 ## Known gaps and rough edges
 
@@ -141,6 +156,7 @@ These were my calls; confirm them with the owner if any matters:
 - ESLint is not set up; Prettier and `tsc` are the checks.
 - `e2e/start-server.sh` lost its executable bit in a commit made on Windows. It was restored in this session with `git update-index --chmod=+x`.
 - No desktop shell yet (Tauri or Electron full-screen wrapper that starts with Windows and blocks browser keys).
+- Test mode needs the database role to have CREATEDB, and `pg_dump`/`pg_restore` on the server (the same tools as backups). The copy (`<db>_testmode`) stays on disk until the next time test mode is turned on. When the cloud sync agent is built, it must read only the real database (`testMode.production`), never the copy.
 
 ## Suggested next steps (in order)
 
@@ -156,7 +172,7 @@ These were my calls; confirm them with the owner if any matters:
 All routes are under `/api`. Each module has `routes.ts` (HTTP, permission guards, transactions) and `service.ts` (rules) under `apps/server/src/modules/<name>/`:
 
 - **Auth and setup:** `setup/` (first run), `auth/routes.ts` (login, logout, me, PIN switch/unlock, lock, change password, recover, shortcuts, verify-approval).
-- **Admin:** `users/` (users, roles, sessions), `admin/` (settings, number formats, counters, audit log), `values/` (value manager), `system/` (status bar, alerts, backups, the `/api/live` WebSocket).
+- **Admin:** `users/` (users, roles, sessions), `admin/` (settings, number formats, counters, audit log), `values/` (value manager), `system/` (status bar, alerts, backups, test mode, the `/api/live` WebSocket).
 - **Stock:** `suppliers/` (suppliers, ledger, payments, cheques), `products/` (products, search, sub-products, prices, bin card), `purchases/` (GRN), `mixpaint/`, `stock/` (transfers, adjustments, stock per location).
 - **Billing:** `sales/` (lookup, status, sales, hold, history, void, reprint, convert, returns, receipt printing), `shifts/` (day end).
 

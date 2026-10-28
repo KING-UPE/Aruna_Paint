@@ -71,6 +71,43 @@ export class EscPos {
   }
 }
 
+const INIT = Buffer.from([ESC, 0x40]);
+const DRAWER = Buffer.from([ESC, 0x70, 0x00, 0x19, 0xfa]);
+const FEED_CUT = Buffer.from([ESC, 0x64, 3, GS, 0x56, 0x42, 0x00]);
+
+/**
+ * Test mode: "TEST MODE - NOT A REAL BILL" at the top and bottom of every slip, and no drawer
+ * kick, so a test bill can't pass for a real one or open the till. A drawer-only job prints nothing.
+ */
+export function stampTest(data: Buffer): Buffer {
+  let body = data;
+  for (let i = body.indexOf(DRAWER); i >= 0; i = body.indexOf(DRAWER)) {
+    body = Buffer.concat([body.subarray(0, i), body.subarray(i + DRAWER.length)]);
+  }
+  const start = body.subarray(0, 2).equals(INIT) ? 2 : 0;
+  if (body.length <= start) return Buffer.alloc(0);
+  const banner = new EscPos()
+    .align('center')
+    .bold(true)
+    .big(true)
+    .line('** TEST **')
+    .big(false)
+    .line('TEST MODE - NOT A REAL BILL')
+    .bold(false)
+    .align('left')
+    .build()
+    .subarray(INIT.length);
+  const cut = body.lastIndexOf(FEED_CUT);
+  const end = cut >= 0 ? cut : body.length;
+  return Buffer.concat([
+    body.subarray(0, start),
+    banner,
+    body.subarray(start, end),
+    banner,
+    body.subarray(end),
+  ]);
+}
+
 /** Plain-text copy of what was printed, for previews and the "file" driver. */
 export function stripEscPos(buf: Buffer): string {
   const out: string[] = [];

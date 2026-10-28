@@ -13,6 +13,7 @@ import {
   ArrowUpRight,
   Ban,
   CalendarClock,
+  FlaskConical,
   CheckCircle2,
   ClipboardX,
   FileX,
@@ -92,6 +93,7 @@ interface Dashboard {
     reprints: number;
     priceOverrides: number;
     autoClosed: number;
+    testModeOn: number;
     removedLines: { count: number; total: string };
   };
 }
@@ -967,6 +969,12 @@ function WatchCard({ w }: { w: Dashboard['watch'] }) {
       label: 'Days closed automatically (no day end done)',
       icon: <CalendarClock size={16} />,
       count: w.autoClosed,
+    },
+    {
+      key: 'testMode',
+      label: 'Times test mode was turned on',
+      icon: <FlaskConical size={16} />,
+      count: w.testModeOn,
     },
     {
       key: 'prices',

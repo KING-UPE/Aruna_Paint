@@ -23,6 +23,8 @@ export function connectLive(queryClient: QueryClient): () => void {
       if (event.type === 'sale')
         void queryClient.invalidateQueries({ queryKey: ['billing-status'] });
       if (event.type === 'settings') void queryClient.invalidateQueries({ queryKey: ['me'] });
+      // Test mode switched: the data underneath changed, so everything reloads.
+      if (event.type === 'testmode') void queryClient.invalidateQueries();
     };
     socket.onclose = () => {
       if (!stopped) retry = window.setTimeout(open, 5000);

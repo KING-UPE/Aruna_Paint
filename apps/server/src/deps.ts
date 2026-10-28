@@ -4,6 +4,7 @@ import type { EventBus } from './core/events';
 import type { SettingsService } from './core/settings';
 import type { PrintService } from './printing/service';
 import type { BackupService } from './core/backups';
+import type { TestModeService } from './core/testmode';
 
 /** Everything route handlers need, decorated onto the Fastify instance as `app.deps`. */
 export interface Deps {
@@ -13,4 +14,5 @@ export interface Deps {
   events: EventBus;
   printer: PrintService;
   backups: BackupService;
+  testMode: TestModeService;
 }

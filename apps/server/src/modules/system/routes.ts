@@ -1,5 +1,8 @@
+import { DomainError } from '@aruna/shared';
 import type { FastifyInstance } from 'fastify';
-import { perm, shopOnly } from '../../auth/guard';
+import { z } from 'zod';
+import { verifyPassword } from '../../auth/crypto';
+import { perm, shopOnly, superAdminOnly } from '../../auth/guard';
 import { audit } from '../../core/audit';
 import { actorOf } from '../../core/context';
 
@@ -48,6 +51,11 @@ export async function systemRoutes(app: FastifyInstance) {
 
   app.post('/api/backups', { preHandler: [shopOnly(), perm('backups.create')] }, async (req) => {
     const row = await app.deps.backups.run('MANUAL');
+    if (!row)
+      throw new DomainError(
+        'INVALID_STATE',
+        "Backups pause in test mode: the real data isn't changing. Turn test mode off first.",
+      );
     await audit(db, actorOf(req.ctx), {
       action: 'backup.manual',
       entity: 'backup',
@@ -56,6 +64,27 @@ export async function systemRoutes(app: FastifyInstance) {
     });
     return { ...row, sizeBytes: row.sizeBytes.toString() };
   });
+
+  /** Test mode status for every screen's banner, the sign-in screen included. */
+  app.get('/api/test-mode', { config: { public: true } }, async () => {
+    const { byUserId: _by, ...status } = app.deps.testMode.get();
+    return status;
+  });
+
+  /** Super Admin only, with the password again so nobody turns it on from an unlocked screen. */
+  app.post('/api/test-mode/on', { preHandler: [shopOnly(), superAdminOnly()] }, async (req) => {
+    const body = z
+      .object({ password: z.string().min(1), hours: z.number().positive() })
+      .parse(req.body);
+    const user = await db.user.findUniqueOrThrow({ where: { id: req.ctx.user.id } });
+    if (!(await verifyPassword(body.password, user.passwordHash)))
+      throw new DomainError('UNAUTHENTICATED', 'Wrong password.', 'password');
+    return app.deps.testMode.turnOn({ userId: user.id, name: user.fullName }, body.hours);
+  });
+
+  app.post('/api/test-mode/off', { preHandler: [shopOnly(), superAdminOnly()] }, async (req) =>
+    app.deps.testMode.turnOff({ userId: req.ctx.user.id }),
+  );
 
   /**
    * Live updates over a WebSocket: a sale or purchase anywhere tells every counter which stock
