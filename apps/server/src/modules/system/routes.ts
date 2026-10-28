@@ -73,13 +73,11 @@ export async function systemRoutes(app: FastifyInstance) {
 
   /** Super Admin only, with the password again so nobody turns it on from an unlocked screen. */
   app.post('/api/test-mode/on', { preHandler: [shopOnly(), superAdminOnly()] }, async (req) => {
-    const body = z
-      .object({ password: z.string().min(1), hours: z.number().positive() })
-      .parse(req.body);
+    const body = z.object({ password: z.string().min(1) }).parse(req.body);
     const user = await db.user.findUniqueOrThrow({ where: { id: req.ctx.user.id } });
     if (!(await verifyPassword(body.password, user.passwordHash)))
       throw new DomainError('UNAUTHENTICATED', 'Wrong password.', 'password');
-    return app.deps.testMode.turnOn({ userId: user.id, name: user.fullName }, body.hours);
+    return app.deps.testMode.turnOn({ userId: user.id, name: user.fullName });
   });
 
   app.post('/api/test-mode/off', { preHandler: [shopOnly(), superAdminOnly()] }, async (req) =>

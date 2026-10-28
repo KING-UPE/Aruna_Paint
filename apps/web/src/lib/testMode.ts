@@ -4,7 +4,6 @@ import { api } from './api';
 export interface TestModeStatus {
   on: boolean;
   since: string | null;
-  until: string | null;
   byName: string | null;
 }
 

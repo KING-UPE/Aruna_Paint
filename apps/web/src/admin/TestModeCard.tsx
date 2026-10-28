@@ -1,4 +1,4 @@
-import { formatDateTime, formatTime } from '@aruna/shared';
+import { formatDateTime } from '@aruna/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { FlaskConical, Undo2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
@@ -7,24 +7,18 @@ import { useConfirm } from '@/components/AskDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
-import { Input, Select } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { useTestMode } from '@/lib/testMode';
 
-const HOURS = [
-  { value: '0.5', label: '30 minutes' },
-  { value: '1', label: '1 hour' },
-  { value: '2', label: '2 hours' },
-  { value: '4', label: '4 hours' },
-  { value: '8', label: '8 hours' },
-];
-
-/** Super Admin only: try the whole system on a copy of the data, then go back to the real data. */
+/**
+ * Super Admin only: an on/off switch. On, the whole system works on a copy of the data; off goes
+ * back to the real data where it stopped.
+ */
 export function TestModeCard() {
   const q = useTestMode();
   const qc = useQueryClient();
   const confirm = useConfirm();
-  const [hours, setHours] = useState('1');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -39,7 +33,7 @@ export function TestModeCard() {
     if (!password) return setError('Type your password.');
     setBusy(true);
     try {
-      await api.post('/api/test-mode/on', { password, hours: Number(hours) });
+      await api.post('/api/test-mode/on', { password });
       setPassword('');
       toast.success('Test mode is on. Nothing done now is kept.');
       await refresh();
@@ -83,8 +77,8 @@ export function TestModeCard() {
           <>
             <p className="font-semibold text-danger">
               Test mode is on: since {formatDateTime(status.since!)}
-              {status.byName ? `, turned on by ${status.byName}` : ''}. It ends by itself at{' '}
-              {formatTime(status.until!)}.
+              {status.byName ? `, turned on by ${status.byName}` : ''}. It stays on until you turn
+              it off.
             </p>
             <p className="text-muted">
               Bills, stock and everything else work as normal but on a copy. Turning it off goes
@@ -113,22 +107,12 @@ export function TestModeCard() {
                 Turning it off goes back to the real data exactly where it stopped. Nothing done in
                 test mode is kept.
               </li>
-              <li>It turns itself off after the time you choose, so real sales are never lost.</li>
+              <li>
+                It stays on until you turn it off here, and every screen shows TEST MODE meanwhile,
+                so remember to turn it off before real billing starts.
+              </li>
             </ul>
-            <form onSubmit={turnOn} className="grid gap-3 md:grid-cols-3 md:items-end">
-              <Field label="Turn off by itself after" htmlFor="test-mode-hours">
-                <Select
-                  id="test-mode-hours"
-                  value={hours}
-                  onChange={(e) => setHours(e.target.value)}
-                >
-                  {HOURS.map((h) => (
-                    <option key={h.value} value={h.value}>
-                      {h.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+            <form onSubmit={turnOn} className="grid gap-3 md:grid-cols-2 md:items-end">
               <Field label="Your password" htmlFor="test-mode-password" error={error || undefined}>
                 <Input
                   id="test-mode-password"

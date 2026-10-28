@@ -1,4 +1,3 @@
-import { formatTime } from '@aruna/shared';
 import { useTestMode } from '@/lib/testMode';
 
 /**
@@ -19,7 +18,6 @@ export function TestModeBanner() {
         className="pointer-events-none fixed left-1/2 top-0 z-[70] -translate-x-1/2 rounded-b-[8px] bg-danger px-3 text-xs font-bold leading-[18px] text-white shadow-md"
       >
         TEST MODE · nothing here is real
-        {q.data.until ? ` · back to the real data at ${formatTime(q.data.until)}` : ''}
       </div>
     </>
   );

@@ -10,16 +10,11 @@ import { libpqUrl } from './backups';
 export interface TestModeStatus {
   on: boolean;
   since: string | null;
-  /** Test mode turns itself off then, so a forgotten switch can't swallow real sales. */
-  until: string | null;
   byUserId: string | null;
   byName: string | null;
 }
 
-const OFF: TestModeStatus = { on: false, since: null, until: null, byUserId: null, byName: null };
-
-/** The longest a Super Admin can leave test mode on. */
-export const TEST_MODE_MAX_HOURS = 8;
+const OFF: TestModeStatus = { on: false, since: null, byUserId: null, byName: null };
 
 /**
  * The database client every route holds. It forwards to production, or to the test copy while
@@ -67,7 +62,6 @@ export class TestModeService {
   private status: TestModeStatus = OFF;
   private testDb: Db | null = null;
   private busy = false;
-  private timer: NodeJS.Timeout | null = null;
 
   constructor(
     /** Always the real database: test mode's own records are written here. */
@@ -99,8 +93,8 @@ export class TestModeService {
     return { url: u.toString(), name: `${name}_testmode` };
   }
 
-  /** After a restart, test mode carries on (or ends, if its time is up). */
-  async start(scheduler = true) {
+  /** An on/off switch: after a restart, test mode stays on until the Super Admin turns it off. */
+  async start() {
     try {
       const saved = JSON.parse(await readFile(this.file, 'utf8')) as TestModeStatus;
       if (saved.on) {
@@ -108,21 +102,11 @@ export class TestModeService {
         this.testDb = createPrisma(this.testUrl.url);
         await this.testDb.$connect();
         this.activate(this.testDb, true);
-        await this.checkExpiry();
       }
     } catch {
       // No file (normal), or the test copy is gone: stay on the real data.
       if (this.status.on) await this.forceOff();
     }
-    if (!scheduler) return;
-    this.timer = setInterval(() => void this.checkExpiry(), 30_000);
-    this.timer.unref();
-  }
-
-  /** Ends test mode once its time is up (checked every 30 s). */
-  async checkExpiry() {
-    if (this.status.on && this.status.until && new Date(this.status.until) <= new Date())
-      await this.turnOff(null).catch(() => undefined);
   }
 
   private activate(db: Db, on: boolean) {
@@ -180,15 +164,9 @@ export class TestModeService {
     return copy;
   }
 
-  async turnOn(actor: { userId: string; name: string }, hours: number) {
+  async turnOn(actor: { userId: string; name: string }) {
     if (this.status.on) throw new DomainError('INVALID_STATE', 'Test mode is already on.');
     if (this.busy) throw new DomainError('INVALID_STATE', 'Test mode is switching; try again.');
-    if (!(hours > 0 && hours <= TEST_MODE_MAX_HOURS))
-      throw new DomainError(
-        'VALIDATION',
-        `Test mode can be on for up to ${TEST_MODE_MAX_HOURS} hours.`,
-        'hours',
-      );
     this.busy = true;
     try {
       let copy: Db;
@@ -200,11 +178,9 @@ export class TestModeService {
           `Could not make the test copy of the data: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-      const since = new Date();
       this.status = {
         on: true,
-        since: since.toISOString(),
-        until: new Date(since.getTime() + hours * 3_600_000).toISOString(),
+        since: new Date().toISOString(),
         byUserId: actor.userId,
         byName: actor.name,
       };
@@ -217,7 +193,6 @@ export class TestModeService {
           action: 'testmode.on',
           entity: 'system',
           entityId: null,
-          after: { until: this.status.until, hours },
         },
       );
       this.activate(copy, true);
@@ -227,8 +202,8 @@ export class TestModeService {
     }
   }
 
-  /** Back to the real data. `actor` null means the time ran out. */
-  async turnOff(actor: { userId: string } | null) {
+  /** Back to the real data, where it stopped. */
+  async turnOff(actor: { userId: string }) {
     if (!this.status.on || !this.testDb)
       throw new DomainError('INVALID_STATE', 'Test mode is off.');
     const test = this.testDb;
@@ -253,9 +228,9 @@ export class TestModeService {
     });
     await audit(
       this.production,
-      { userId: actor?.userId ?? was.byUserId },
+      { userId: actor.userId },
       {
-        action: actor ? 'testmode.off' : 'testmode.auto_off',
+        action: 'testmode.off',
         entity: 'system',
         entityId: null,
         before: { since: was.since, by: was.byName },
@@ -279,7 +254,6 @@ export class TestModeService {
   }
 
   async close() {
-    if (this.timer) clearInterval(this.timer);
     await this.testDb?.$disconnect();
   }
 }

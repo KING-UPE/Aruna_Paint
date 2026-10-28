@@ -33,8 +33,8 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ **Test mode** (Settings → Test mode, Super Admin only, password asked again; `core/testmode.ts`, `/api/test-mode`):
   - Turning it on copies the real database (`pg_dump` → `<db>_testmode` → `pg_restore`) and every request then works on the copy. `deps.db` is a proxy (`switchableDb`) that follows the switch, so routes need no change.
   - While on: receipts print "TEST MODE - NOT A REAL BILL" at the top and bottom (`stampTest` in `printing/escpos.ts`), document numbers start with `TEST-` (`TEST-INV-000124`), the cash drawer never opens, and backups pause. Every screen, the sign-in screen included, shows a red frame and a "TEST MODE" tab (`components/TestModeBanner.tsx`).
-  - It turns itself off after the time chosen (30 minutes to 8 hours), so a forgotten switch can't swallow real sales. The state lives in `<DATA_DIR>/test-mode.json` and survives a restart.
-  - Turning it off goes back to the real database exactly where it stopped; nothing done in test mode is kept. The real audit log keeps `testmode.on` and `testmode.off`/`testmode.auto_off` with the number and total of test bills, and the dashboard counts the switches.
+  - It is a plain on/off switch (the owner asked for no time limit): it stays on until the Super Admin turns it off, even across a server restart (the state lives in `<DATA_DIR>/test-mode.json`).
+  - Turning it off goes back to the real database exactly where it stopped; nothing done in test mode is kept. The real audit log keeps `testmode.on` and `testmode.off` with the number and total of test bills, and the dashboard counts the switches.
 
 ### Stock
 - ✅ Suppliers: auto SUP- codes, 1–3 phones in one format, reps, similar-name warning, credit days, opening balance (locked once entries exist), deactivate.
@@ -142,7 +142,7 @@ These were my calls; confirm them with the owner if any matters:
 15. **Old bills follow product renames** (the owner asked for this). It overrides the plan's "old bills never change" for names and codes only: prices, quantities and totals stay as sold. A bill line keeps its text if someone had changed it separately; only lines still showing the old text are updated.
 16. **Permission changes for one user** are stored as differences from their roles: "add X" or "take away Y". If the roles change later, the differences still apply. A Super Admin always has everything, and Super Admin-only permissions can never be given to anyone else.
 17. **Customised built-in roles** keep their name. The Super Admin role can't be edited.
-18. **Test mode works on a full copy** rather than flags on rows, so nothing in test mode can leak into real figures. It can't be misused to hide sales for long: it needs the Super Admin's password, ends by itself (at most 8 hours), every slip says TEST, the drawer stays shut, and the switch and the test bill count are kept in the real audit log. Logins made during test mode exist only in the copy, so those PCs sign in again afterwards.
+18. **Test mode works on a full copy** rather than flags on rows, so nothing in test mode can leak into real figures. Against misuse: it needs the Super Admin's password, every screen shows it, every slip says TEST, the drawer stays shut, and the switch and the test bill count are kept in the real audit log. It has no time limit (the owner's call), so a forgotten switch keeps real sales out of the real data until someone notices the red frame. Logins made during test mode exist only in the copy, so those PCs sign in again afterwards.
 
 ## Known gaps and rough edges
 

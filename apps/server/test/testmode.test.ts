@@ -15,7 +15,7 @@ beforeAll(async () => {
   app = await createTestApp();
 });
 afterEach(async () => {
-  if (app.deps.testMode.isOn()) await app.deps.testMode.turnOff(null);
+  if (app.deps.testMode.isOn()) await app.deps.testMode.turnOff({ userId: shop.ids.admin! });
 });
 afterAll(async () => {
   await app.close();
@@ -39,13 +39,9 @@ const stockOf = async (subId: string) =>
 describe('test mode', () => {
   it('works on a copy with TEST receipts, then goes back to the real data where it stopped', async () => {
     // Only the Super Admin turns it on, and only with the password again.
-    expect(
-      (await shop.admin.post('/api/test-mode/on', { password: PASSWORD, hours: 1 })).status,
-    ).toBe(403);
-    expect((await shop.sa.post('/api/test-mode/on', { password: 'nope', hours: 1 })).status).toBe(
-      401,
-    );
-    const on = await shop.sa.post('/api/test-mode/on', { password: PASSWORD, hours: 1 });
+    expect((await shop.admin.post('/api/test-mode/on', { password: PASSWORD })).status).toBe(403);
+    expect((await shop.sa.post('/api/test-mode/on', { password: 'nope' })).status).toBe(401);
+    const on = await shop.sa.post('/api/test-mode/on', { password: PASSWORD });
     expect(on.status).toBe(200);
     expect(on.body.on).toBe(true);
     expect((await shop.cashier.get('/api/test-mode')).body).toMatchObject({
@@ -88,25 +84,23 @@ describe('test mode', () => {
     expect(log[1]!.after).toMatchObject({ testBills: 1, testSales: '5,200.00' });
   }, 60_000);
 
-  it('turns itself off when its time is up, so a forgotten switch never swallows real sales', async () => {
-    const tm = app.deps.testMode;
-    await tm.turnOn({ userId: shop.ids.admin!, name: 'Owner' }, 1);
-    expect(tm.isOn()).toBe(true);
-    await tm.checkExpiry();
-    expect(tm.isOn()).toBe(true);
-    (tm as unknown as { status: { until: string } }).status.until = new Date(
-      Date.now() - 1000,
-    ).toISOString();
-    await tm.checkExpiry();
-    expect(tm.isOn()).toBe(false);
-    const last = await app.deps.db.auditLog.findFirst({
-      where: { action: { startsWith: 'testmode.' } },
-      orderBy: { at: 'desc' },
-    });
-    expect(last?.action).toBe('testmode.auto_off');
-    // At most 8 hours.
-    await expect(tm.turnOn({ userId: shop.ids.admin!, name: 'Owner' }, 9)).rejects.toThrow(
-      /up to 8 hours/,
-    );
+  it('is a plain switch: it stays on, even after a restart, until the Super Admin turns it off', async () => {
+    await app.deps.testMode.turnOn({ userId: shop.ids.admin!, name: 'Owner' });
+    // A restarted server carries on in test mode, on the copy.
+    const again = await createTestApp();
+    try {
+      expect(again.deps.testMode.isOn()).toBe(true);
+      const [row] = await again.deps.db.$queryRaw<
+        { db: string }[]
+      >`SELECT current_database() AS db`;
+      expect(row!.db).toMatch(/_testmode$/);
+    } finally {
+      await again.close();
+    }
+    expect(app.deps.testMode.isOn()).toBe(true);
+    await app.deps.testMode.turnOff({ userId: shop.ids.admin! });
+    expect(app.deps.testMode.isOn()).toBe(false);
+    const [row] = await app.deps.db.$queryRaw<{ db: string }[]>`SELECT current_database() AS db`;
+    expect(row!.db).not.toMatch(/_testmode$/);
   }, 60_000);
 });

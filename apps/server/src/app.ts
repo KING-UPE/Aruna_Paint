@@ -57,7 +57,7 @@ export async function buildApp(
     backups: overrides.backups ?? new BackupService(db, config, settings, isTest),
     testMode,
   };
-  await testMode.start(!config.disableSchedulers);
+  await testMode.start();
   app.decorate('deps', deps);
   app.setErrorHandler(errorHandler);
 
