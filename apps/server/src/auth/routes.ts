@@ -323,6 +323,7 @@ export async function authRoutes(app: FastifyInstance) {
       },
       appearance,
       mode: app.deps.config.mode,
+      testMode: ctx.testMode,
     };
   }
 }

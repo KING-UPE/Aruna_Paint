@@ -1,90 +1,134 @@
-import { execFile } from 'node:child_process';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DomainError, formatMoney } from '@aruna/shared';
 import type { AppConfig } from '../config';
 import { createPrisma, type Db } from '../db';
 import { audit } from './audit';
-import { libpqUrl } from './backups';
-import { findPgTool, pgTool, pgToolMissing, type PgTool } from './pgtools';
+import type { ActorRef } from './context';
+import { inTestData } from './dbscope';
+import { splitSql } from './sqlsplit';
 
 export interface TestModeStatus {
-  on: boolean;
-  since: string | null;
-  byUserId: string | null;
-  byName: string | null;
-}
-
-const OFF: TestModeStatus = { on: false, since: null, byUserId: null, byName: null };
-
-/**
- * The database client every route holds. It forwards to production, or to the test copy while
- * test mode is on, so routes that took `db` once at start-up follow the switch.
- */
-export function switchableDb(initial: Db) {
-  let current = initial;
-  const db = new Proxy({} as Db, {
-    get(_target, prop) {
-      const v = (current as unknown as Record<PropertyKey, unknown>)[prop];
-      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(current) : v;
-    },
-  });
-  return {
-    db,
-    use(next: Db) {
-      current = next;
-    },
-  };
+  /** When the test copy was last made from the real data. */
+  copyMadeAt: string | null;
+  users: { id: string; username: string; fullName: string }[];
 }
 
 // Document numbers in test mode start with TEST-, so a test receipt can never pass for a real one.
-let numberPrefix = '';
 export function testNumberPrefix(): string {
-  return numberPrefix;
+  return inTestData() ? 'TEST-' : '';
 }
 
-function run(bin: string, args: string[]): Promise<{ code: number; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(bin, args, { timeout: 10 * 60_000, windowsHide: true }, (err, _out, stderr) => {
-      if (err && typeof err.code !== 'number')
-        return reject(new Error(stderr.trim() || err.message));
-      resolve({ code: err ? Number(err.code) : 0, stderr: stderr.trim() });
-    });
-  });
+/** Tables the copy leaves out: migration history, logins (they stay real) and the sync queue. */
+const NOT_COPIED = new Set(['_prisma_migrations', 'sessions', 'sync_outbox']);
+const PAGE = 2000;
+
+/** The same migrations a shop install runs, wherever the server was started from. */
+async function migrationStatements(): Promise<string[]> {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const dir = [
+    join(process.cwd(), 'prisma', 'migrations'),
+    join(here, '..', '..', 'prisma', 'migrations'),
+    join(here, '..', 'prisma', 'migrations'),
+  ].find((d) => existsSync(d));
+  if (!dir) throw new Error('The prisma/migrations folder is missing next to the server.');
+  const names = (await readdir(dir, { withFileTypes: true }))
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort();
+  const out: string[] = [];
+  for (const n of names) {
+    const file = join(dir, n, 'migration.sql');
+    if (existsSync(file)) out.push(...splitSql(await readFile(file, 'utf8')));
+  }
+  return out;
+}
+
+const q = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
+/**
+ * Copies every row from the real database into the freshly migrated copy, in one consistent
+ * snapshot so a bill and its lines always come together, while the shop keeps working.
+ */
+async function copyRows(production: Db, copy: Db) {
+  const tables = (
+    await copy.$queryRaw<{ t: string }[]>`
+      SELECT tablename AS t FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`
+  )
+    .map((r) => r.t)
+    .filter((t) => !NOT_COPIED.has(t));
+  // Foreign keys come off during the copy (any order works) and go back on after, which also
+  // checks the copy.
+  const fks = await copy.$queryRaw<{ t: string; name: string; def: string }[]>`
+    SELECT conrelid::regclass::text AS t, conname AS name, pg_get_constraintdef(oid) AS def
+      FROM pg_constraint WHERE contype = 'f' AND connamespace = 'public'::regnamespace`;
+  for (const fk of fks)
+    await copy.$executeRawUnsafe(`ALTER TABLE ${fk.t} DROP CONSTRAINT ${q(fk.name)}`);
+  // No append-only or sync triggers while loading.
+  for (const t of tables) await copy.$executeRawUnsafe(`ALTER TABLE ${q(t)} DISABLE TRIGGER USER`);
+  await copy.$executeRawUnsafe(`TRUNCATE ${tables.map(q).join(', ')}`);
+
+  await production.$transaction(
+    async (tx) => {
+      for (const t of tables) {
+        let after = '(0,0)';
+        for (;;) {
+          // Rows travel as JSON text, so money, dates and big numbers arrive exactly as stored.
+          const [page] = await tx.$queryRawUnsafe<
+            { rows: string; last: string | null; n: number }[]
+          >(
+            `WITH page AS (
+               SELECT ctid AS c, r FROM ${q(t)} r WHERE ctid > $1::tid ORDER BY ctid LIMIT ${PAGE})
+             SELECT COALESCE(json_agg(r ORDER BY c), '[]')::text AS rows,
+                    (array_agg(c ORDER BY c DESC))[1]::text AS last, count(*)::int AS n
+               FROM page`,
+            after,
+          );
+          if (!page || page.n === 0) break;
+          await copy.$executeRawUnsafe(
+            `INSERT INTO ${q(t)} SELECT * FROM json_populate_recordset(NULL::${q(t)}, $1::json)`,
+            page.rows,
+          );
+          if (page.n < PAGE || !page.last) break;
+          after = page.last;
+        }
+      }
+    },
+    { isolationLevel: 'RepeatableRead', maxWait: 10_000, timeout: 10 * 60_000 },
+  );
+
+  for (const fk of fks)
+    await copy.$executeRawUnsafe(`ALTER TABLE ${fk.t} ADD CONSTRAINT ${q(fk.name)} ${fk.def}`);
+  for (const t of tables) await copy.$executeRawUnsafe(`ALTER TABLE ${q(t)} ENABLE TRIGGER USER`);
+  await copy.$executeRawUnsafe('ANALYZE');
 }
 
 /**
- * Test mode (Super Admin): the whole system keeps working on a fresh copy of the shop's data,
- * while the real data waits untouched. Receipts say TEST, numbers start with TEST-, the cash
- * drawer stays shut and backups pause. Turning it off goes back to the real data exactly where it
- * stopped; nothing done in test mode is kept, except the record that it was on.
+ * Test mode, per user (the Super Admin switches single accounts, usually from afar). A user in
+ * test mode works on a copy of the shop's data, while everyone else keeps working on the real
+ * data at the same time. On the copy, receipts say TEST, numbers start with TEST-, the cash
+ * drawer stays shut and backups don't run. Nothing done there ever reaches the real data.
  */
 export class TestModeService {
-  private status: TestModeStatus = OFF;
-  private testDb: Db | null = null;
-  private busy = false;
+  private copy: Db | null = null;
+  private building: Promise<Db> | null = null;
+  private madeAt: string | null = null;
 
   constructor(
-    /** Always the real database: test mode's own records are written here. */
-    private readonly production: Db,
-    private readonly sw: { use(db: Db): void },
+    /** Always the real database: users, sessions and test mode's own records live here. */
+    readonly production: Db,
     private readonly config: AppConfig,
-    private readonly onSwitch: (on: boolean) => void,
+    /** Something changed: caches of the copy and every screen of the users switched. */
+    private readonly onChange: () => void,
   ) {}
-
-  get(): TestModeStatus {
-    return { ...this.status };
-  }
-
-  isOn(): boolean {
-    return this.status.on;
-  }
 
   private get file() {
     return join(this.config.dataDir, 'test-mode.json');
   }
 
-  /** The test copy sits next to the real database: aruna_pos → aruna_pos_testmode. */
+  /** The copy sits next to the real database: aruna_pos → aruna_pos_testmode. */
   private get testUrl() {
     const u = new URL(this.config.databaseUrl);
     const name = decodeURIComponent(u.pathname.slice(1));
@@ -94,172 +138,153 @@ export class TestModeService {
     return { url: u.toString(), name: `${name}_testmode` };
   }
 
-  /** An on/off switch: after a restart, test mode stays on until the Super Admin turns it off. */
+  /** The copy's client for the proxy; null until a user in test mode needs it. */
+  current(): Db | null {
+    return this.copy;
+  }
+
   async start() {
     try {
-      const saved = JSON.parse(await readFile(this.file, 'utf8')) as TestModeStatus;
-      if (saved.on) {
-        this.status = saved;
-        this.testDb = createPrisma(this.testUrl.url);
-        await this.testDb.$connect();
-        this.activate(this.testDb, true);
-      }
+      this.madeAt = (
+        JSON.parse(await readFile(this.file, 'utf8')) as { copyMadeAt: string }
+      ).copyMadeAt;
     } catch {
-      // No file (normal), or the test copy is gone: stay on the real data.
-      if (this.status.on) await this.forceOff();
+      this.madeAt = null;
     }
   }
 
-  private activate(db: Db, on: boolean) {
-    this.sw.use(db);
-    numberPrefix = on ? 'TEST-' : '';
-    this.onSwitch(on);
+  async status(): Promise<TestModeStatus> {
+    const users = await this.production.user.findMany({
+      where: { testMode: true },
+      select: { id: true, username: true, fullName: true },
+      orderBy: { fullName: 'asc' },
+    });
+    return { copyMadeAt: this.madeAt, users };
   }
 
-  private async save() {
-    await mkdir(this.config.dataDir, { recursive: true });
-    await writeFile(this.file, JSON.stringify(this.status, null, 2));
+  /** The copy, connected; made from the real data if there is none yet (after a restart too). */
+  async ready(): Promise<Db> {
+    if (this.copy) return this.copy;
+    if (this.building) return this.building;
+    if (this.madeAt) {
+      const db = createPrisma(this.testUrl.url);
+      try {
+        await db.$queryRaw`SELECT 1 FROM users LIMIT 1`;
+        this.copy = db;
+        return db;
+      } catch {
+        await db.$disconnect();
+      }
+    }
+    return this.rebuild();
   }
 
-  private bin(tool: PgTool) {
-    return pgTool(tool, this.config.pgBinDir);
+  /** A fresh copy of the real data, replacing the old one. */
+  rebuild(): Promise<Db> {
+    if (this.building) return this.building;
+    this.building = this.build().finally(() => {
+      this.building = null;
+    });
+    return this.building;
   }
 
-  /** A fresh copy of the real data: pg_dump, a new database, pg_restore. */
-  private async copyProduction() {
+  private async build(): Promise<Db> {
     const { url, name } = this.testUrl;
-    const folder = join(this.config.dataDir, 'test-mode');
-    const dump = join(folder, 'copy.dump');
-    await mkdir(folder, { recursive: true });
-    const dumped = await run(this.bin('pg_dump'), [
-      '--format=custom',
-      '--no-owner',
-      '--no-privileges',
-      `--file=${dump}`,
-      `--dbname=${libpqUrl(this.config.databaseUrl)}`,
-    ]);
-    if (dumped.code !== 0) throw new Error(dumped.stderr || 'pg_dump failed');
-    await this.production.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
-    await this.production.$executeRawUnsafe(`CREATE DATABASE "${name}" TEMPLATE template0`);
-    // pg_restore reports harmless warnings (extension comments) with exit code 1; the row
-    // counts below are what prove the copy.
-    const restored = await run(this.bin('pg_restore'), [
-      '--no-owner',
-      '--no-privileges',
-      `--dbname=${libpqUrl(url)}`,
-      dump,
-    ]);
-    await rm(dump, { force: true });
+    const old = this.copy;
+    this.copy = null;
+    await old?.$disconnect();
+    try {
+      await this.production.$executeRawUnsafe(`DROP DATABASE IF EXISTS ${q(name)} WITH (FORCE)`);
+      await this.production.$executeRawUnsafe(`CREATE DATABASE ${q(name)}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new DomainError(
+        'INVALID_STATE',
+        /permission denied/i.test(msg)
+          ? 'Test mode needs the database user to be allowed to create databases (CREATEDB). Ask whoever set up PostgreSQL to run: ALTER ROLE <user> CREATEDB.'
+          : `Could not make the test copy: ${msg}`,
+      );
+    }
     const copy = createPrisma(url);
     try {
-      const [a, b] = await Promise.all([
-        Promise.all([this.production.user.count(), this.production.sale.count()]),
-        Promise.all([copy.user.count(), copy.sale.count()]),
-      ]);
-      if (a[0] !== b[0] || b[1] < a[1])
-        throw new Error(restored.stderr || 'The copy is incomplete.');
+      for (const sql of await migrationStatements()) await copy.$executeRawUnsafe(sql);
+      await copyRows(this.production, copy);
     } catch (err) {
       await copy.$disconnect();
-      throw err;
+      throw new DomainError(
+        'INVALID_STATE',
+        `Could not make the test copy: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
+    this.copy = copy;
+    this.madeAt = new Date().toISOString();
+    await mkdir(this.config.dataDir, { recursive: true });
+    await writeFile(this.file, JSON.stringify({ copyMadeAt: this.madeAt }, null, 2));
+    this.onChange();
     return copy;
   }
 
-  async turnOn(actor: { userId: string; name: string }) {
-    if (this.status.on) throw new DomainError('INVALID_STATE', 'Test mode is already on.');
-    if (this.busy) throw new DomainError('INVALID_STATE', 'Test mode is switching; try again.');
-    // Say plainly what to fix when PostgreSQL's tools can't be found.
-    for (const tool of ['pg_dump', 'pg_restore'] as const) {
-      if (!findPgTool(tool, this.config.pgBinDir))
-        throw new DomainError('INVALID_STATE', pgToolMissing(tool, this.config.pgBinDir));
-    }
-    this.busy = true;
-    try {
-      let copy: Db;
-      try {
-        copy = await this.copyProduction();
-      } catch (err) {
-        throw new DomainError(
-          'INVALID_STATE',
-          `Could not make the test copy of the data: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-      this.status = {
-        on: true,
-        since: new Date().toISOString(),
-        byUserId: actor.userId,
-        byName: actor.name,
-      };
-      await this.save();
-      this.testDb = copy;
-      await audit(
-        this.production,
-        { userId: actor.userId },
-        {
-          action: 'testmode.on',
-          entity: 'system',
-          entityId: null,
-        },
-      );
-      this.activate(copy, true);
-      return this.get();
-    } finally {
-      this.busy = false;
-    }
-  }
-
-  /** Back to the real data, where it stopped. */
-  async turnOff(actor: { userId: string }) {
-    if (!this.status.on || !this.testDb)
-      throw new DomainError('INVALID_STATE', 'Test mode is off.');
-    const test = this.testDb;
-    const was = this.status;
-    // What was done in test mode, for the record in the real data.
-    const since = new Date(was.since!);
-    const sales = await test.sale
-      .aggregate({
-        where: { kind: 'INVOICE', status: 'COMPLETED', completedAt: { gte: since } },
-        _count: true,
-        _sum: { netTotal: true },
-      })
-      .catch(() => null);
-    this.status = OFF;
-    this.testDb = null;
-    await this.save();
-    this.activate(this.production, false);
-    // The screens were busy on the copy; their real sessions shouldn't lock at once.
-    await this.production.session.updateMany({
-      where: { revokedAt: null, lockedAt: null, expiresAt: { gt: new Date() } },
-      data: { lastActivityAt: new Date() },
+  /** Puts one user on the test copy, or back on the real data. */
+  async setUser(actor: ActorRef, userId: string, on: boolean) {
+    const user = await this.production.user.findUnique({
+      where: { id: userId },
+      include: { roles: { include: { role: true } } },
     });
-    await audit(
-      this.production,
-      { userId: actor.userId },
-      {
-        action: 'testmode.off',
-        entity: 'system',
-        entityId: null,
-        before: { since: was.since, by: was.byName },
-        after: {
-          testBills: sales?._count ?? 0,
-          testSales: formatMoney(sales?._sum.netTotal?.toString() ?? '0'),
-        },
-      },
-    );
-    // Let requests already running on the copy finish first.
-    setTimeout(() => void test.$disconnect(), 5_000).unref();
-    return this.get();
+    if (!user) throw new DomainError('NOT_FOUND', 'User not found.');
+    if (on && user.roles.some((r) => r.role.code === 'SUPER_ADMIN'))
+      throw new DomainError(
+        'INVALID_STATE',
+        'The Super Admin always works on the real data, to look after test mode.',
+      );
+    if (user.testMode === on) return this.status();
+    if (on) {
+      // The first person to test starts from today's real data; others join the same copy.
+      const others = await this.production.user.count({ where: { testMode: true } });
+      if (others === 0) await this.rebuild();
+      else await this.ready();
+    }
+    let summary: { testBills: number; testSales: string } | undefined;
+    if (!on && this.copy) {
+      const s = await this.copy.sale
+        .aggregate({
+          // Only bills made in test mode: the copy also holds the real history.
+          where: {
+            kind: 'INVOICE',
+            status: 'COMPLETED',
+            cashierId: userId,
+            no: { startsWith: 'TEST-' },
+          },
+          _count: true,
+          _sum: { netTotal: true },
+        })
+        .catch(() => null);
+      if (s)
+        summary = {
+          testBills: s._count,
+          testSales: formatMoney(s._sum.netTotal?.toString() ?? '0'),
+        };
+    }
+    await this.production.user.update({ where: { id: userId }, data: { testMode: on } });
+    await audit(this.production, actor, {
+      action: on ? 'testmode.user_on' : 'testmode.user_off',
+      entity: 'user',
+      entityId: userId,
+      before: { testMode: !on },
+      after: { testMode: on, ...summary },
+    });
+    this.onChange();
+    return this.status();
   }
 
-  /** The copy is unusable after a restart: go back to the real data. */
-  private async forceOff() {
-    this.status = OFF;
-    this.testDb = null;
-    await this.save().catch(() => undefined);
-    this.activate(this.production, false);
+  /** "Refresh the test copy": start testing again from the real data as it is now. */
+  async refresh(actor: ActorRef) {
+    await this.rebuild();
+    await audit(this.production, actor, { action: 'testmode.refresh', entity: 'system' });
+    return this.status();
   }
 
   async close() {
-    await this.testDb?.$disconnect();
+    await this.building?.catch(() => undefined);
+    await this.copy?.$disconnect();
   }
 }

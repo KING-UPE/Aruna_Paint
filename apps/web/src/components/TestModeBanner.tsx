@@ -1,12 +1,8 @@
-import { useTestMode } from '@/lib/testMode';
-
 /**
- * While test mode is on, every screen has a red frame and a "TEST MODE" tab at the top, so no
- * one mistakes a test bill for a real one. It never takes clicks or keys.
+ * For a user in test mode, every screen has a red frame and a "TEST MODE" tab at the top, so
+ * nobody mistakes a test bill for a real one. It never takes clicks or keys.
  */
 export function TestModeBanner() {
-  const q = useTestMode();
-  if (!q.data?.on) return null;
   return (
     <>
       <div

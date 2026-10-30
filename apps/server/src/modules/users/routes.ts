@@ -1,7 +1,7 @@
 import { idSchema, passwordSchema, pinSchema } from '@aruna/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { perm, shopOnly } from '../../auth/guard';
+import { perm, shopOnly, superAdminOnly } from '../../auth/guard';
 import { audit } from '../../core/audit';
 import { actorOf } from '../../core/context';
 import { TX_OPTIONS } from '../../db';
@@ -27,6 +27,16 @@ export async function userRoutes(app: FastifyInstance) {
   app.get('/api/users', { preHandler: perm('users.view') }, async () => ({
     items: await listUsers(db),
   }));
+
+  /** The Super Admin puts one account on the test copy, or back on the real data. */
+  app.post(
+    '/api/users/:id/test-mode',
+    { preHandler: [shopOnly(), superAdminOnly()] },
+    async (req) => {
+      const { on } = z.object({ on: z.boolean() }).parse(req.body);
+      return app.deps.testMode.setUser(actorOf(req.ctx), idParam(req.params), on);
+    },
+  );
 
   app.post('/api/users', { preHandler: [shopOnly(), perm('users.create')] }, async (req) =>
     db.$transaction(

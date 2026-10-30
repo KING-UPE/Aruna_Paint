@@ -208,7 +208,7 @@ export async function dashboard(
     where: { action: 'shift.auto_close', at: { gte: from, lt: to } },
   });
   const testModeOn = await tx.auditLog.count({
-    where: { action: 'testmode.on', at: { gte: from, lt: to } },
+    where: { action: 'testmode.user_on', at: { gte: from, lt: to } },
   });
   // Lines taken off bills before payment, as the screens reported them.
   const removed = await tx.auditLog.findMany({

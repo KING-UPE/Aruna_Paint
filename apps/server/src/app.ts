@@ -9,7 +9,8 @@ import type { Deps } from './deps';
 import { BackupService } from './core/backups';
 import { EventBus } from './core/events';
 import { SettingsService } from './core/settings';
-import { switchableDb, TestModeService } from './core/testmode';
+import { inTestData, runInScope, scopedDb } from './core/dbscope';
+import { TestModeService } from './core/testmode';
 import { errorHandler } from './lib/errors';
 import { PrintService } from './printing/service';
 import { registerSessionHook, resetLocationCache } from './auth/session';
@@ -37,30 +38,33 @@ export async function buildApp(
   });
 
   const production = overrides.db ?? createPrisma(config.databaseUrl);
-  // Routes keep this one client; it follows test mode to the test copy and back.
-  const sw = switchableDb(production);
-  const db = sw.db;
-  const settings = overrides.settings ?? new SettingsService(db);
   const events = overrides.events ?? new EventBus();
-  const testMode = new TestModeService(production, sw, config, (on) => {
+  // Set just below; the callback only runs later, when a copy is made or a user switched.
+  let settings: SettingsService;
+  const testMode = new TestModeService(production, config, () => {
     settings.invalidate();
     resetLocationCache();
-    events.publish({ type: 'testmode', on });
+    events.publish({ type: 'testmode' });
   });
-  const isTest = () => testMode.isOn();
+  // Routes keep this one client; per request it is the real data, or the test copy for a user
+  // in test mode (core/dbscope.ts).
+  const db = scopedDb(production, () => testMode.current());
+  settings = overrides.settings ?? new SettingsService(db);
   const deps: Deps = {
     db,
     config,
     settings,
     events,
-    printer: overrides.printer ?? new PrintService(db, config, isTest),
-    backups: overrides.backups ?? new BackupService(db, config, settings, isTest),
+    printer: overrides.printer ?? new PrintService(db, config, inTestData),
+    backups: overrides.backups ?? new BackupService(db, config, settings, inTestData),
     testMode,
   };
   await testMode.start();
   app.decorate('deps', deps);
   app.setErrorHandler(errorHandler);
 
+  // Every request starts on the real data; the session hook moves test-mode users to the copy.
+  app.addHook('onRequest', (_req, _reply, done) => runInScope(done));
   await app.register(cookie);
   await app.register(websocket);
   registerSessionHook(app);

@@ -50,14 +50,7 @@ export function App() {
     if (appearanceKey) applyAppearance(JSON.parse(appearanceKey) as AppearanceSettings);
   }, [appearanceKey]);
   return (
-    <>
-      <TestModeBanner />
-      <Screens
-        setupLoading={setup.isLoading}
-        needsSetup={Boolean(setup.data?.needsSetup)}
-        me={me}
-      />
-    </>
+    <Screens setupLoading={setup.isLoading} needsSetup={Boolean(setup.data?.needsSetup)} me={me} />
   );
 }
 
@@ -108,6 +101,7 @@ function Session() {
         '/profile');
   return (
     <>
+      {me.testMode ? <TestModeBanner /> : null}
       <ShortcutHelp />
       <CommandPalette />
       <Routes>

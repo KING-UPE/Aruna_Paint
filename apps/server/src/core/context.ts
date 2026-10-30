@@ -15,6 +15,8 @@ export interface RequestContext {
   /** The counter's location, or the main shop for PCs that aren't counters. */
   locationId: string;
   ip: string;
+  /** This user works on the test copy (set by the Super Admin). */
+  testMode: boolean;
 }
 
 /** For jobs that run without a person (nightly backup, scheduled alerts). */

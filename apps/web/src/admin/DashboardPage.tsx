@@ -972,7 +972,7 @@ function WatchCard({ w }: { w: Dashboard['watch'] }) {
     },
     {
       key: 'testMode',
-      label: 'Times test mode was turned on',
+      label: 'Users put in test mode',
       icon: <FlaskConical size={16} />,
       count: w.testModeOn,
     },

@@ -1,13 +1,13 @@
 # Build progress and handoff
 
-Last updated: 28 Oct 2026, after the day end, pickers and test mode session (working on `main`).
+Last updated: 30 Oct 2026, after per-user test mode (working on `main`).
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
 
 Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Phase 2 (reports, closing, reorder, cloud) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status on 28 Oct 2026: `pnpm typecheck` is clean; 86 shared unit tests, 95 server integration tests and 10 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
+Test status on 30 Oct 2026: `pnpm typecheck` is clean; 86 shared unit tests, 96 server integration tests and 10 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -30,11 +30,11 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ⬜ Automatic updates (signed release feed, download, backup first, migrate, health check, roll back).
 - ⬜ Data import: Excel templates for suppliers, products and opening stock; a go-live stock count.
 - ✅ Settings (shop, receipt, billing, closing, alerts, backup, cloud), number formats (letters allowed), counters with printer settings.
-- ✅ **Test mode** (Settings → Test mode, Super Admin only, password asked again; `core/testmode.ts`, `/api/test-mode`):
-  - Turning it on copies the real database (`pg_dump` → `<db>_testmode` → `pg_restore`) and every request then works on the copy. `deps.db` is a proxy (`switchableDb`) that follows the switch, so routes need no change.
-  - While on: receipts print "TEST MODE - NOT A REAL BILL" at the top and bottom (`stampTest` in `printing/escpos.ts`), document numbers start with `TEST-` (`TEST-INV-000124`), the cash drawer never opens, and backups pause. Every screen, the sign-in screen included, shows a red frame and a "TEST MODE" tab (`components/TestModeBanner.tsx`).
-  - It is a plain on/off switch (the owner asked for no time limit): it stays on until the Super Admin turns it off, even across a server restart (the state lives in `<DATA_DIR>/test-mode.json`).
-  - Turning it off goes back to the real database exactly where it stopped; nothing done in test mode is kept. The real audit log keeps `testmode.on` and `testmode.off` with the number and total of test bills, and the dashboard counts the switches.
+- ✅ **Test mode, per user** (the Super Admin switches single accounts with the flask button in Users and roles; Settings → Test mode lists who is testing and has "Refresh test copy"; `core/testmode.ts`, `core/dbscope.ts`, `POST /api/users/:id/test-mode`, `/api/test-mode`):
+  - Users in test mode work on a copy of the data (`<db>_testmode`) while everyone else keeps working on the real data at the same time. Each request picks its database: `deps.db` is a proxy (`scopedDb`) that reads the request's scope from `AsyncLocalStorage`, and the session hook moves test-mode users to the copy. Signing in, the lock and the user's own account (`/api/auth/*`) always stay real. A Super Admin can't be put in test mode.
+  - The copy is built by the server itself, with no `pg_dump`: a new database, the same migration files a shop install runs (`core/sqlsplit.ts` splits them), then every row copied in one consistent snapshot (foreign keys off during the load, back on after). Logins and the sync queue are not copied. The first user switched on gets a fresh copy; others join it; "Refresh test copy" starts again from the real data.
+  - On the copy: receipts print "TEST MODE - NOT A REAL BILL" at the top and bottom (`stampTest` in `printing/escpos.ts`), numbers start with `TEST-`, the cash drawer never opens, and backups don't run. The user's screens show a red frame and a "TEST MODE" tab (`components/TestModeBanner.tsx`, from `me.testMode`). Settings are cached separately for the copy.
+  - The switch stays on (even across a restart) until the Super Admin turns it off. The real audit log keeps `testmode.user_on`, `testmode.user_off` (with that user's test bill count and total) and `testmode.refresh`; the dashboard counts users put in test mode.
 
 ### Stock
 - ✅ Suppliers: auto SUP- codes, 1–3 phones in one format, reps, similar-name warning, credit days, opening balance (locked once entries exist), deactivate.
@@ -142,7 +142,7 @@ These were my calls; confirm them with the owner if any matters:
 15. **Old bills follow product renames** (the owner asked for this). It overrides the plan's "old bills never change" for names and codes only: prices, quantities and totals stay as sold. A bill line keeps its text if someone had changed it separately; only lines still showing the old text are updated.
 16. **Permission changes for one user** are stored as differences from their roles: "add X" or "take away Y". If the roles change later, the differences still apply. A Super Admin always has everything, and Super Admin-only permissions can never be given to anyone else.
 17. **Customised built-in roles** keep their name. The Super Admin role can't be edited.
-18. **Test mode works on a full copy** rather than flags on rows, so nothing in test mode can leak into real figures. Against misuse: it needs the Super Admin's password, every screen shows it, every slip says TEST, the drawer stays shut, and the switch and the test bill count are kept in the real audit log. It has no time limit (the owner's call), so a forgotten switch keeps real sales out of the real data until someone notices the red frame. Logins made during test mode exist only in the copy, so those PCs sign in again afterwards.
+18. **Test mode is per user and works on a full copy** (the owner asked for single accounts, switched by the Super Admin who is usually away), rather than flags on rows, so nothing in test mode can leak into real figures. Against misuse: only the Super Admin switches it, the user's screens show it, every slip says TEST, the drawer stays shut, and each switch with the test bill count is kept in the real audit log. It has no time limit (the owner's call), so a user left in test mode keeps their sales out of the real data until someone notices the red frame.
 
 ## Known gaps and rough edges
 
@@ -156,7 +156,7 @@ These were my calls; confirm them with the owner if any matters:
 - ESLint is not set up; Prettier and `tsc` are the checks.
 - `e2e/start-server.sh` lost its executable bit in a commit made on Windows. It was restored in this session with `git update-index --chmod=+x`.
 - No desktop shell yet (Tauri or Electron full-screen wrapper that starts with Windows and blocks browser keys).
-- Test mode needs the database role to have CREATEDB, and `pg_dump`/`pg_restore` on the server (the same tools as backups). `core/pgtools.ts` finds them in `PG_BIN_DIR`, then PATH, then PostgreSQL's usual install folders (`C:\Program Files\PostgreSQL\<version>\bin` on Windows, which the installer doesn't add to PATH); when they're missing, test mode and backups say which folder to set. The copy (`<db>_testmode`) stays on disk until the next time test mode is turned on. When the cloud sync agent is built, it must read only the real database (`testMode.production`), never the copy.
+- Test mode needs the database role to have CREATEDB (the message says so if it is missing); it doesn't need `pg_dump`. Backups do: `core/pgtools.ts` finds `pg_dump` in `PG_BIN_DIR`, then PATH, then PostgreSQL's usual install folders (`C:\Program Files\PostgreSQL\<version>\bin` on Windows, which the installer doesn't add to PATH), and says which folder to set when it is missing. The copy (`<db>_testmode`) stays on disk until it is refreshed. When the cloud sync agent is built, it must read only the real database (`testMode.production`), never the copy. A new in-memory cache of database rows must be kept per scope (see `SettingsService`) or reset in `TestModeService`'s `onChange`.
 
 ## Suggested next steps (in order)
 

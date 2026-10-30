@@ -1,10 +1,13 @@
 import { DomainError } from '@aruna/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { RequestContext } from '../core/context';
+import { useTestData } from '../core/dbscope';
 import { newToken, sha256 } from './crypto';
 import { loadUserPermissions } from './permissions';
 
 export const SESSION_COOKIE = 'aruna_sid';
+
+const REAL_ONLY = ['/api/auth/', '/api/test-mode', '/api/live'];
 
 declare module 'fastify' {
   interface FastifyContextConfig {
@@ -96,7 +99,14 @@ export function registerSessionHook(app: FastifyInstance): void {
         : null,
       locationId: counter?.locationId ?? shop!,
       ip: req.ip,
+      testMode: session.user.testMode,
     };
+    // A user in test mode works on the test copy. Signing in, the lock and their own account
+    // (password, PIN, keys) stay on the real data.
+    if (session.user.testMode && !REAL_ONLY.some((p) => req.url.startsWith(p))) {
+      await app.deps.testMode.ready();
+      useTestData();
+    }
   });
 }
 

@@ -17,6 +17,8 @@ export interface Me {
   };
   appearance: AppearanceSettings;
   mode: 'shop' | 'cloud';
+  /** This user works on the test copy (set by the Super Admin). */
+  testMode: boolean;
 }
 
 export interface ValueItem {

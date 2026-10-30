@@ -58,6 +58,7 @@ function publicUser(u: {
   fullName: string;
   active: boolean;
   mustChangePassword: boolean;
+  testMode: boolean;
   pinHmac: string | null;
   commissionRate: { toString(): string } | null;
   lastLoginAt: Date | null;
@@ -71,6 +72,7 @@ function publicUser(u: {
     fullName: u.fullName,
     active: u.active,
     mustChangePassword: u.mustChangePassword,
+    testMode: u.testMode,
     hasPin: u.pinHmac !== null,
     commissionRate: u.commissionRate?.toString() ?? null,
     lastLoginAt: u.lastLoginAt,

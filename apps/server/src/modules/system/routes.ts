@@ -1,7 +1,5 @@
 import { DomainError } from '@aruna/shared';
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import { verifyPassword } from '../../auth/crypto';
 import { perm, shopOnly, superAdminOnly } from '../../auth/guard';
 import { audit } from '../../core/audit';
 import { actorOf } from '../../core/context';
@@ -65,23 +63,14 @@ export async function systemRoutes(app: FastifyInstance) {
     return { ...row, sizeBytes: row.sizeBytes.toString() };
   });
 
-  /** Test mode status for every screen's banner, the sign-in screen included. */
-  app.get('/api/test-mode', { config: { public: true } }, async () => {
-    const { byUserId: _by, ...status } = app.deps.testMode.get();
-    return status;
-  });
+  /** Who is in test mode and how fresh the test copy is (Super Admin). */
+  app.get('/api/test-mode', { preHandler: superAdminOnly() }, async () =>
+    app.deps.testMode.status(),
+  );
 
-  /** Super Admin only, with the password again so nobody turns it on from an unlocked screen. */
-  app.post('/api/test-mode/on', { preHandler: [shopOnly(), superAdminOnly()] }, async (req) => {
-    const body = z.object({ password: z.string().min(1) }).parse(req.body);
-    const user = await db.user.findUniqueOrThrow({ where: { id: req.ctx.user.id } });
-    if (!(await verifyPassword(body.password, user.passwordHash)))
-      throw new DomainError('UNAUTHENTICATED', 'Wrong password.', 'password');
-    return app.deps.testMode.turnOn({ userId: user.id, name: user.fullName });
-  });
-
-  app.post('/api/test-mode/off', { preHandler: [shopOnly(), superAdminOnly()] }, async (req) =>
-    app.deps.testMode.turnOff({ userId: req.ctx.user.id }),
+  /** Start testing again from the real data as it is now. */
+  app.post('/api/test-mode/refresh', { preHandler: [shopOnly(), superAdminOnly()] }, async (req) =>
+    app.deps.testMode.refresh(actorOf(req.ctx)),
   );
 
   /**

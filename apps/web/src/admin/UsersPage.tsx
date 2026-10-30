@@ -10,6 +10,8 @@ import {
   CheckCheck,
   ChevronDown,
   EyeOff,
+  FlaskConical,
+  FlaskConicalOff,
   KeyRound,
   ListChecks,
   Pencil,
@@ -23,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import { useAuth } from '@/auth/AuthProvider';
 import { useAsk, useConfirm } from '@/components/AskDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,6 +49,8 @@ interface UserRow {
   fullName: string;
   active: boolean;
   mustChangePassword: boolean;
+  /** Works on the test copy (the Super Admin switches it). */
+  testMode: boolean;
   hasPin: boolean;
   commissionRate: string | null;
   lastLoginAt: string | null;
@@ -81,6 +86,8 @@ const isSuperAdminRole = (r: { code: string; name: string }) =>
  * role or for one user only.
  */
 export function UsersPage() {
+  const { me } = useAuth();
+  const superAdmin = me.roles.includes('SUPER_ADMIN') && me.mode === 'shop';
   const qc = useQueryClient();
   const confirm = useConfirm();
   const ask = useAsk();
@@ -99,6 +106,38 @@ export function UsersPage() {
     void qc.invalidateQueries({ queryKey: ['roles'] });
   };
   const isSuperAdmin = (u: UserRow) => u.roles.some(isSuperAdminRole);
+  const [switching, setSwitching] = useState<string | null>(null);
+  const setTestMode = async (u: UserRow, on: boolean) => {
+    const ok = await confirm(
+      on
+        ? {
+            title: `Put ${u.fullName} in test mode?`,
+            message:
+              'Their bills, stock and everything else go to the test copy, with TEST on every slip and the cash drawer shut. Everyone else keeps working on the real data.',
+            confirmLabel: 'Put in test mode',
+          }
+        : {
+            title: `Put ${u.fullName} back on the real data?`,
+            message:
+              'What they did in test mode stays in the test copy and never reaches the real data.',
+            confirmLabel: 'Back to real data',
+          },
+    );
+    if (!ok) return;
+    setSwitching(u.id);
+    try {
+      await api.post(`/api/users/${u.id}/test-mode`, { on });
+      toast.success(
+        on ? `${u.fullName} is in test mode.` : `${u.fullName} is back on the real data.`,
+      );
+      refresh();
+      void qc.invalidateQueries({ queryKey: ['test-mode'] });
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSwitching(null);
+    }
+  };
   const deleteUser = async (u: UserRow) => {
     const ok = await confirm({
       title: 'Delete user?',
@@ -187,6 +226,7 @@ export function UsersPage() {
                       <span className="font-medium">{u.fullName}</span>
                       {!u.active ? <Badge>Disabled</Badge> : null}
                       {!u.hasPin ? <Badge tone="warn">No PIN</Badge> : null}
+                      {u.testMode ? <Badge tone="danger">Test mode</Badge> : null}
                     </div>
                   </td>
                   <td className="px-4 py-2.5">{u.username}</td>
@@ -227,6 +267,19 @@ export function UsersPage() {
                         icon={<RectangleEllipsis size={16} />}
                         onClick={() => void reset(u, 'pin')}
                       />
+                      {superAdmin && !isSuperAdmin(u) ? (
+                        <IconButton
+                          label={u.testMode ? 'Back to real data' : 'Put in test mode'}
+                          tone={u.testMode ? 'danger' : 'default'}
+                          icon={
+                            u.testMode ? <FlaskConicalOff size={16} /> : <FlaskConical size={16} />
+                          }
+                          disabled={switching === u.id}
+                          onClick={() => void setTestMode(u, !u.testMode)}
+                        />
+                      ) : superAdmin ? (
+                        <span className="w-8" aria-hidden />
+                      ) : null}
                       {/* Keeps the icons lined up when a Super Admin row has no delete. */}
                       {!isSuperAdmin(u) ? (
                         <IconButton

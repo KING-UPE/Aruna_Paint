@@ -1,28 +1,38 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-test('the Super Admin turns test mode on and off; every screen shows it meanwhile', async ({
-  page,
-}) => {
-  await page.goto('/');
-  await page.getByLabel('Username').fill('owner');
+async function login(page: Page, username: string, url = '/') {
+  await page.goto(url);
+  await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password').fill('password123');
   await page.keyboard.press('Enter');
   await expect(page.getByLabel('Username')).toBeHidden();
-  await page.goto('/admin/settings');
+}
 
-  await page.getByLabel('Your password').fill('password123');
-  await page.getByRole('button', { name: 'Turn test mode on' }).click();
-  const banner = page.getByRole('status').filter({ hasText: 'TEST MODE' });
-  await expect(banner).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/^Test mode is on: since/)).toBeVisible();
+test('the Super Admin puts one cashier in test mode; only that cashier sees TEST MODE', async ({
+  page,
+  browser,
+}) => {
+  await login(page, 'owner');
+  await page.goto('/admin/users');
+  const row = page
+    .getByRole('row')
+    .filter({ has: page.getByRole('cell', { name: 'cashier', exact: true }) });
+  await row.getByRole('button', { name: 'Put in test mode' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Put in test mode' }).click();
+  await expect(row.getByText('Test mode', { exact: true })).toBeVisible({ timeout: 30_000 });
 
-  // The banner stays on other screens too.
-  await page.goto('/stock/products');
-  await expect(banner).toBeVisible();
+  // The cashier, at a counter elsewhere, works in test mode.
+  const counter = await browser.newPage();
+  await login(counter, 'cashier', '/?counter=C1');
+  const banner = (p: Page) => p.getByRole('status').filter({ hasText: 'TEST MODE' });
+  await expect(banner(counter)).toBeVisible();
+  // The Super Admin stays on the real data.
+  await expect(banner(page)).toBeHidden();
 
-  await page.goto('/admin/settings');
-  await page.getByRole('button', { name: 'Turn test mode off' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Turn test mode off' }).click();
-  await expect(banner).toBeHidden({ timeout: 20_000 });
-  await expect(page.getByRole('button', { name: 'Turn test mode on' })).toBeVisible();
+  await row.getByRole('button', { name: 'Back to real data' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Back to real data' }).click();
+  await expect(row.getByText('Test mode', { exact: true })).toBeHidden();
+  // The cashier's screens hear about it and drop the banner.
+  await expect(banner(counter)).toBeHidden({ timeout: 15_000 });
+  await counter.close();
 });
