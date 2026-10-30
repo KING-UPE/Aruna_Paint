@@ -5,6 +5,8 @@ export interface NavItem {
   label: string;
   section: 'Billing' | 'Stock' | 'HRM' | 'Admin';
   perms: Permission[];
+  /** Needs the counters: not on the online panel. */
+  shopOnly?: boolean;
 }
 
 /** Only the sections and screens the user's roles allow appear. */
@@ -20,6 +22,7 @@ export const navItems: NavItem[] = [
     label: 'Billing',
     section: 'Billing',
     perms: ['billing.view', 'quotations.view'],
+    shopOnly: true,
   },
   {
     to: '/billing/history',
@@ -27,7 +30,13 @@ export const navItems: NavItem[] = [
     section: 'Billing',
     perms: ['bill_history.view'],
   },
-  { to: '/billing/day-end', label: 'Day end', section: 'Billing', perms: ['day_end.view'] },
+  {
+    to: '/billing/day-end',
+    label: 'Day end',
+    section: 'Billing',
+    perms: ['day_end.view'],
+    shopOnly: true,
+  },
   {
     to: '/stock/products',
     label: 'Products and stock',
@@ -47,6 +56,7 @@ export const navItems: NavItem[] = [
   { to: '/admin/values', label: 'Value manager', section: 'Admin', perms: ['values.edit'] },
   { to: '/admin/users', label: 'Users and roles', section: 'Admin', perms: ['users.view'] },
   { to: '/admin/settings', label: 'Settings', section: 'Admin', perms: ['settings.view'] },
+  { to: '/admin/sync', label: 'Cloud sync', section: 'Admin', perms: ['settings.view'] },
   { to: '/admin/audit', label: 'Audit log', section: 'Admin', perms: ['audit_log.view'] },
 ];
 

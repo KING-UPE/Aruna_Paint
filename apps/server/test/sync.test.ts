@@ -108,6 +108,10 @@ describe('shop ⇄ cloud sync', () => {
     expect(r.status).toBe(403);
     // Billing needs the counters.
     expect((await online.post('/api/sales', { lines: [] })).status).toBe(403);
+    // The shop's own link to the cloud, and recovery codes, stay at the shop.
+    expect((await online.put('/api/settings/cloud', { url: '', shopKey: '' })).status).toBe(403);
+    const anon = new Client(cloudApp);
+    expect((await anon.post('/api/auth/recover', { username: 'owner' })).status).toBe(403);
 
     // Each machine, when it last synced, and its counters.
     const nodes = (await online.get('/api/sync/status')).body.nodes;

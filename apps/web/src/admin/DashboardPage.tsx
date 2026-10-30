@@ -44,6 +44,7 @@ import { PageHeader } from '@/components/ui/misc';
 import { api, qs } from '@/lib/api';
 import type { Page, ShiftSummary, StockListItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { Link } from 'react-router';
 
 interface Totals {
   sales: string;
@@ -100,7 +101,7 @@ interface Dashboard {
 
 interface SystemStatus {
   version: string;
-  sync: { linked: boolean; pending: number };
+  sync: { linked: boolean; online: boolean; pending: number; lastSyncedAt: string | null };
   lastBackup: { at: string; kind: string; status: string } | null;
 }
 
@@ -587,8 +588,19 @@ export function DashboardPage() {
           <CardBody className="flex flex-col gap-1 text-sm">
             <div>Version {system.data?.version}</div>
             <div>
-              Sync: {system.data?.sync.linked ? 'linked' : 'cloud not linked yet'} ·{' '}
-              {system.data?.sync.pending ?? 0} changes waiting
+              Cloud sync:{' '}
+              {!system.data?.sync.linked
+                ? 'not linked yet'
+                : system.data.sync.online
+                  ? 'online'
+                  : 'offline'}{' '}
+              · {system.data?.sync.pending ?? 0} changes waiting
+              {system.data?.sync.lastSyncedAt
+                ? ` · last sync ${formatDateTime(system.data.sync.lastSyncedAt)}`
+                : ''}{' '}
+              <Link to="/admin/sync" className="text-accent-strong underline">
+                Details
+              </Link>
             </div>
             <div>
               Last backup:{' '}

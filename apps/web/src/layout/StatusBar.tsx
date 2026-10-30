@@ -1,4 +1,4 @@
-import { formatDate, formatRs, formatTime } from '@aruna/shared';
+import { formatDate, formatDateTime, formatRs, formatTime } from '@aruna/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/auth/AuthProvider';
@@ -8,7 +8,13 @@ import { cn } from '@/lib/utils';
 
 interface SystemStatus {
   version: string;
-  sync: { linked: boolean; pending: number; lastSyncedAt: string | null };
+  sync: {
+    linked: boolean;
+    online: boolean;
+    pending: number;
+    lastSyncedAt: string | null;
+    lastError: string;
+  };
   serverTime: string;
 }
 
@@ -21,21 +27,41 @@ export function useClock() {
   return now;
 }
 
-/** "Online · synced 10 s ago" or "Offline · 128 changes waiting". */
-export function SyncStatus({ sync }: { sync: SystemStatus['sync'] | undefined }) {
+/** "10 s ago", "5 min ago", "3 h ago", or the date and time. */
+function ago(iso: string) {
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `${Math.max(1, s)} s ago`;
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86_400) return `${Math.round(s / 3600)} h ago`;
+  return formatDateTime(iso);
+}
+
+/**
+ * At the shop: "Online · synced 10 s ago" or "Offline · 128 changes waiting · last sync 3 h ago".
+ * Online: when the shop last synced.
+ */
+export function SyncStatus({
+  sync,
+  cloud,
+}: {
+  sync: SystemStatus['sync'] | undefined;
+  cloud: boolean;
+}) {
   if (!sync) return null;
-  const text = !sync.linked
-    ? `Cloud not linked · ${sync.pending} changes waiting`
-    : sync.lastSyncedAt
-      ? `Online · synced ${Math.max(1, Math.round((Date.now() - new Date(sync.lastSyncedAt).getTime()) / 1000))} s ago`
-      : `Offline · ${sync.pending} changes waiting`;
+  const last = sync.lastSyncedAt ? ago(sync.lastSyncedAt) : 'never';
+  const text = cloud
+    ? sync.online
+      ? `Shop online · synced ${last}`
+      : `Shop offline · last sync ${last}`
+    : !sync.linked
+      ? `Cloud not linked · ${sync.pending} changes waiting`
+      : sync.online
+        ? `Online · synced ${last}`
+        : `Offline · ${sync.pending} changes waiting · last sync ${last}`;
   return (
-    <span className="flex items-center gap-1.5">
+    <span className="flex items-center gap-1.5" title={sync.lastError || undefined}>
       <span
-        className={cn(
-          'h-2 w-2 rounded-full',
-          sync.linked && sync.lastSyncedAt ? 'bg-ok' : 'bg-warn',
-        )}
+        className={cn('h-2 w-2 rounded-full', sync.linked && sync.online ? 'bg-ok' : 'bg-warn')}
         aria-hidden
       />
       {text}
@@ -74,7 +100,7 @@ export function StatusBar({ billing }: { billing?: BillingStatus | undefined }) 
         </span>
       ) : null}
       <span className="flex items-center gap-4">
-        <SyncStatus sync={system.data?.sync} />
+        <SyncStatus sync={system.data?.sync} cloud={me.mode === 'cloud'} />
         <span>{me.user.fullName}</span>
         <span>v{system.data?.version ?? ''}</span>
       </span>

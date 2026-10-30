@@ -23,6 +23,12 @@ declare module 'fastify' {
   }
 }
 
+/** The shop's own link to the cloud and its backup folders are set at the shop only. */
+function shopOnlySetting(req: FastifyRequest) {
+  const key = (req.params as { key?: string } | undefined)?.key;
+  return req.routeOptions.url === '/api/settings/:key' && (key === 'cloud' || key === 'backup');
+}
+
 /** Online changes run one at a time, so each one's captured rows are its own. */
 function lock() {
   let tail = Promise.resolve();
@@ -48,8 +54,11 @@ export function registerCloudCapture(app: FastifyInstance) {
   app.addHook('onRequest', async (req) => {
     if (!req.url.startsWith('/api/') || req.method === 'GET' || req.method === 'HEAD') return;
     const key = routeKey(req);
+    // A recovery code resets the Super Admin's password at the shop, where it counts.
+    if (key === 'POST /api/auth/recover')
+      throw new DomainError('FORBIDDEN', 'Use a recovery code at the shop.');
     if (CLOUD_OWN(key) && key !== 'POST /api/auth/change-password') return;
-    if (!ONLINE_CHANGES.has(key))
+    if (!ONLINE_CHANGES.has(key) || shopOnlySetting(req))
       throw new DomainError('FORBIDDEN', 'This can only be done at the shop.');
     const release = await acquire();
     let released = false;

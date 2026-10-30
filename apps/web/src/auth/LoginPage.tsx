@@ -1,4 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -36,6 +36,14 @@ export function AuthShell({
 /** Username and password login. */
 export function LoginPage() {
   const qc = useQueryClient();
+  // Same answer the app asked for at start (cached): is this the online panel?
+  const setup = useQuery({
+    queryKey: ['setup-status'],
+    queryFn: () =>
+      api.get<{ mode: 'shop' | 'cloud'; waitingForShop?: boolean }>('/api/setup/status'),
+    staleTime: Infinity,
+  });
+  const cloud = setup.data?.mode === 'cloud';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -59,8 +67,18 @@ export function LoginPage() {
   if (recover) return <RecoverPage onDone={() => setRecover(false)} />;
 
   return (
-    <AuthShell title="Aruna POS" subtitle="Pannala Aruna Paint Center">
+    <AuthShell
+      title={cloud ? 'Aruna POS · Online' : 'Aruna POS'}
+      subtitle="Pannala Aruna Paint Center"
+    >
       <form onSubmit={submit} className="flex flex-col gap-3">
+        {cloud ? (
+          <p className="rounded-[8px] bg-surface-2 px-3 py-2 text-sm text-muted">
+            {setup.data?.waitingForShop
+              ? 'The online panel is waiting for the shop’s first sync. Link the shop in its Settings → Cloud mirror, then sign in here with your shop username and password.'
+              : 'The online panel, for Admins and the Super Admin. Sign in with your shop username and password.'}
+          </p>
+        ) : null}
         <Field label="Username" htmlFor="username">
           <Input
             id="username"
@@ -87,13 +105,16 @@ export function LoginPage() {
         <Button type="submit" variant="primary" disabled={busy || !username || !password}>
           Log in
         </Button>
-        <button
-          type="button"
-          className="text-left text-sm text-muted underline-offset-2 hover:underline"
-          onClick={() => setRecover(true)}
-        >
-          Forgot the Super Admin password? Use a recovery code
-        </button>
+        {/* A recovery code resets the password at the shop, where it counts. */}
+        {!cloud ? (
+          <button
+            type="button"
+            className="text-left text-sm text-muted underline-offset-2 hover:underline"
+            onClick={() => setRecover(true)}
+          >
+            Forgot the Super Admin password? Use a recovery code
+          </button>
+        ) : null}
       </form>
     </AuthShell>
   );

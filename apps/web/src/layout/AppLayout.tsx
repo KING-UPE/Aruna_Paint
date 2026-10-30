@@ -50,7 +50,10 @@ export function AppLayout() {
       <nav className="flex-1 overflow-y-auto px-2 pb-4" aria-label="Main">
         {SECTIONS.map((section) => {
           const items = navItems.filter(
-            (n) => n.section === section && (!n.perms.length || can(...n.perms)),
+            (n) =>
+              n.section === section &&
+              (!n.perms.length || can(...n.perms)) &&
+              !(n.shopOnly && me.mode === 'cloud'),
           );
           if (!items.length) return null;
           return (

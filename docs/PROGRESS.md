@@ -1,13 +1,13 @@
 # Build progress and handoff
 
-Last updated: 30 Oct 2026, after per-user test mode (working on `main`).
+Last updated: 30 Oct 2026, after two-way cloud sync (working on `main`).
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
 
-Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Phase 2 (reports, closing, reorder, cloud) and Phase 3 have not started, but the database tables for most of them already exist.
+Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Two-way cloud sync and the online panel are built (see Foundation). The rest of Phase 2 (reports, closing, reorder) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status on 30 Oct 2026: `pnpm typecheck` is clean; 86 shared unit tests, 96 server integration tests and 10 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
+Test status on 30 Oct 2026: `pnpm typecheck` is clean; 86 shared unit tests, 103 server integration tests (`test/sync.test.ts` runs a shop app and a cloud app side by side) and 11 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -24,7 +24,14 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Per-user shortcut keys: remap in My profile, validation against reserved and already-used keys, reset to default, F1 help, Ctrl+K command palette.
 - ✅ Value manager: categories, brands, units (with an allows-decimal flag), locations (Super Admin only), reasons (with "applies to"), cutoff types. Unique names ignoring case and spaces, merge with history, deactivate when in use, ordering. Missing values are added from the picker itself (see "Pickers" under Look and feel).
 - ✅ Audit log: written in the same transaction as each change; append-only at the database level; viewer with filters and before/after values.
-- ✅ Sync outbox written from day one by DB triggers in the same transaction. The sync agent that pushes it to the cloud does not exist yet (Phase 2).
+- ✅ Sync outbox written from day one by DB triggers in the same transaction; each change also carries the row before it (`sync_outbox.old`), captured in UTC.
+- ✅ **Two-way cloud sync and the online panel** (`core/syncagent.ts`, `core/syncapply.ts`, `modules/sync/`, Admin → Cloud sync):
+  - **The shop works fully offline.** The same app runs in the cloud with `APP_MODE=cloud`, its own PostgreSQL and `SYNC_KEY`. The shop's agent (every 15 s, after each start) sends the outbox to `POST /api/sync/push`. The cloud applies each change once, in order, without capturing it again (`aruna.sync_apply`); a row it can't apply is skipped and noted, so the queue never sticks. An empty cloud waits for the shop's first sync, which brings everything since day one.
+  - **The online panel** is for Admins and the Super Admin only (others are refused at login), with their shop passwords. It shows everything. It can change users, passwords, PINs, roles and permissions, test mode, settings (not the shop's cloud link or backup folders), value lists, number formats, product details and prices, supplier details and reps, and HRM (`ONLINE_CHANGES` in `modules/sync/online.ts`). Billing, purchases, payments and stock moves are refused there: they need the counters.
+  - **Online changes come down as row changes** (`sync_commands`): the cloud runs the normal route on its copy, so the change shows online at once, and records the rows it changed, with a PIN set online going down on purpose. The shop's agent takes them before sending its own changes.
+  - **Conflicts, field by field:** a change is applied when the shop didn't touch the same fields meanwhile; changes to different fields on each side are both kept (the update sets only the fields changed online). When the shop changed the same field to something else, the change waits as a **conflict**: the Super Admin chooses "Use online change" or "Keep shop version", at the shop or online (the shop follows at its next sync). A change that can't be applied (e.g. a username already made at the shop) is "Not applied"; the shop sends its real rows back and the cloud shows them again.
+  - **Machines and last sync:** each shop server reports its name, version, changes waiting and each counter's last bill (`sync_nodes`). The Cloud sync page shows them online, and at the shop shows online/offline, last sync, what is waiting, the last error and "Sync now". The status bar says "Online · synced 10 s ago" / "Offline · 12 changes waiting · last sync 3 h ago" (online: "Shop online · synced …").
+  - **To link:** deploy the server in cloud mode (same `PIN_SECRET` as the shop, so PINs set online work there, plus `SYNC_KEY`), run `prisma migrate deploy` on its database, serve it over HTTPS, then enter the cloud address and the same key in the shop's Settings → Cloud mirror.
 - 🟡 Backups: `pg_dump` at day end and nightly (`backup.nightlyAt`), keeping 30 daily and 12 monthly copies, optional second folder, failure alerts, manual backup API, backup list. **Missing:** a cloud copy, the restore wizard, the monthly test-restore reminder, and a UI to start a backup.
 - ⬜ Windows installer (Inno Setup/NSIS; Node and PostgreSQL as services) and first-run wizard polish. The first-run wizard itself exists (`/api/setup` and `SetupPage`).
 - ⬜ Automatic updates (signed release feed, download, backup first, migrate, health check, roll back).
@@ -143,10 +150,11 @@ These were my calls; confirm them with the owner if any matters:
 16. **Permission changes for one user** are stored as differences from their roles: "add X" or "take away Y". If the roles change later, the differences still apply. A Super Admin always has everything, and Super Admin-only permissions can never be given to anyone else.
 17. **Customised built-in roles** keep their name. The Super Admin role can't be edited.
 18. **Test mode is per user and works on a full copy** (the owner asked for single accounts, switched by the Super Admin who is usually away), rather than flags on rows, so nothing in test mode can leak into real figures. Against misuse: only the Super Admin switches it, the user's screens show it, every slip says TEST, the drawer stays shut, and each switch with the test bill count is kept in the real audit log. It has no time limit (the owner's call), so a user left in test mode keeps their sales out of the real data until someone notices the red frame.
+19. **Online changes are allowed, but the shop stays in charge** (the owner asked for editing online; the plan had a view-only panel). An online change is a set of row changes the shop applies when it syncs, checked field by field: no conflict when different fields changed, a Super Admin decision when the same field changed on both sides. Billing, purchases, payments and stock moves stay shop-only, so stock and money are only ever counted in one place.
 
 ## Known gaps and rough edges
 
-- The cloud side (`APP_MODE=cloud`, the mirror DB, the sync agent, the online admin panel) is not built. `shopOnly()` already blocks writes in cloud mode.
+- Cloud sync: one shop server per cloud so far (each server has its own `sync_nodes` row, but the mirror is a single database). A product renamed online updates the bills the cloud knew about; bills rung up at the shop while it was offline keep the old name. Captured rows are kept in `sync_outbox` after sending (prune old sent rows one day). The online panel has no "release feed" for updates yet.
 - No reports, PDF or Excel exports yet (the dashboard has charts, see Admin below).
 - No screens yet for monthly closing, commission, reorder, purchase returns, stock count, location transfers or adjustments. The shared formulas exist for closing and reorder, and the database tables exist for all of them.
 - Alerts: only backup failures create alerts. Low stock shows on the dashboard straight from the stock query. Near expiry, cheques due, day end not done and high returns are not generated.
@@ -156,7 +164,7 @@ These were my calls; confirm them with the owner if any matters:
 - ESLint is not set up; Prettier and `tsc` are the checks.
 - `e2e/start-server.sh` lost its executable bit in a commit made on Windows. It was restored in this session with `git update-index --chmod=+x`.
 - No desktop shell yet (Tauri or Electron full-screen wrapper that starts with Windows and blocks browser keys).
-- Test mode needs the database role to have CREATEDB (the message says so if it is missing); it doesn't need `pg_dump`. Backups do: `core/pgtools.ts` finds `pg_dump` in `PG_BIN_DIR`, then PATH, then PostgreSQL's usual install folders (`C:\Program Files\PostgreSQL\<version>\bin` on Windows, which the installer doesn't add to PATH), and says which folder to set when it is missing. The copy (`<db>_testmode`) stays on disk until it is refreshed. When the cloud sync agent is built, it must read only the real database (`testMode.production`), never the copy. A new in-memory cache of database rows must be kept per scope (see `SettingsService`) or reset in `TestModeService`'s `onChange`.
+- Test mode needs the database role to have CREATEDB (the message says so if it is missing); it doesn't need `pg_dump`. Backups do: `core/pgtools.ts` finds `pg_dump` in `PG_BIN_DIR`, then PATH, then PostgreSQL's usual install folders (`C:\Program Files\PostgreSQL\<version>\bin` on Windows, which the installer doesn't add to PATH), and says which folder to set when it is missing. The copy (`<db>_testmode`) stays on disk until it is refreshed. The sync agent reads only the real database (`testMode.production`), never the copy. A new in-memory cache of database rows must be kept per scope (see `SettingsService`) or reset in `TestModeService`'s `onChange`.
 
 ## Suggested next steps (in order)
 
@@ -165,7 +173,7 @@ These were my calls; confirm them with the owner if any matters:
 3. **Shop install:** an Inno Setup script that bundles Node 22, PostgreSQL 16, the built server (`pnpm --filter @aruna/server build`) and `apps/web/dist`; Windows services; first-run wizard; generate `PIN_SECRET` at install.
 4. **Automatic updates** as the plan describes (release feed with signatures, back up first, `prisma migrate deploy`, health check, roll back).
 5. **Sinhala receipts:** render the receipt to a 576 px bitmap (for example with `@napi-rs/canvas` and Noto Sans Sinhala) and send it as an ESC/POS raster (`GS v 0`).
-6. **Phase 2:** reports with three date modes and PDF/Excel export, dashboard charts, commission (the rate already lives on `users.commission_rate`), monthly closing (formula in `shared/domain/closing.ts`, tables `cutoff_rules` and `monthly_closings`), reorder lists with PDFs per supplier, purchase returns (tables exist), stock count, alert generation, then the cloud sync agent and the view-only panel.
+6. **Phase 2:** reports with three date modes and PDF/Excel export, dashboard charts, commission (the rate already lives on `users.commission_rate`), monthly closing (formula in `shared/domain/closing.ts`, tables `cutoff_rules` and `monthly_closings`), reorder lists with PDFs per supplier, purchase returns (tables exist), stock count and alert generation. The cloud sync and online panel are built; next there are software updates from the cloud's release feed.
 
 ## How the API is organised
 
