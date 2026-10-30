@@ -264,7 +264,7 @@ export class PermissionSet {
 /**
  * On the online panel everyone with cloud.access sees what their roles let them see, as of the
  * last sync, and changes nothing. Only the Super Admin changes things there, and only what an
- * Admin can't: users, roles and permissions, and the settings.
+ * Admin can't: users, roles and permissions, settings, counters, backups, the HRM figures.
  */
 export function onlinePermissions(perms: Iterable<string>, superAdmin: boolean): string[] {
   // The billing screen and day end need a counter; bill history still shows every bill.
@@ -276,7 +276,7 @@ export function onlinePermissions(perms: Iterable<string>, superAdmin: boolean):
         p.endsWith('.export') ||
         p.startsWith('cost.') ||
         p === 'cloud.access' ||
-        (superAdmin && (p.startsWith('users.') || p.startsWith('settings.')))),
+        (superAdmin && isPermission(p) && isSuperAdminOnly(p))),
   );
 }
 

@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../../db';
 import { uuidv7 } from '../../lib/ids';
 import { mirrorChange, TableCatalog, type RowChange } from '../../core/syncapply';
-import { ONLINE_CHANGES } from './online';
+import { ONLINE_CHANGES, SHOP_REQUESTS } from './online';
 
 /** Writes the online panel does for itself (signing in, the lock) or for syncing; never sent on. */
 const CLOUD_OWN = (route: string) =>
@@ -24,10 +24,10 @@ declare module 'fastify' {
   }
 }
 
-/** The shop's own link to the cloud and its backup folders are set at the shop only. */
+/** The shop's own link to the cloud is set at the shop only: a wrong one would cut it off. */
 function shopOnlySetting(req: FastifyRequest) {
   const key = (req.params as { key?: string } | undefined)?.key;
-  return req.routeOptions.url === '/api/settings/:key' && (key === 'cloud' || key === 'backup');
+  return req.routeOptions.url === '/api/settings/:key' && key === 'cloud';
 }
 
 /** Online changes run one at a time, so each one's captured rows are its own. */
@@ -52,7 +52,7 @@ export function registerCloudCapture(app: FastifyInstance) {
   const { db } = app.deps;
   const acquire = lock();
 
-  app.addHook('onRequest', async (req) => {
+  app.addHook('onRequest', async (req, reply) => {
     if (!req.url.startsWith('/api/') || req.method === 'GET' || req.method === 'HEAD') return;
     const key = routeKey(req);
     // A recovery code resets the Super Admin's password at the shop, where it counts.
@@ -65,6 +65,20 @@ export function registerCloudCapture(app: FastifyInstance) {
         'FORBIDDEN',
         'The online panel is view-only. Changes are made at the shop.',
       );
+    if (SHOP_REQUESTS[key]) {
+      // Nothing changes here: the shop does it at its next sync.
+      const command = await db.syncCommand.create({
+        data: {
+          id: uuidv7(),
+          createdById: req.ctx.user.id,
+          createdByName: req.ctx.user.fullName,
+          route: key,
+          summary: SHOP_REQUESTS[key],
+          changes: [],
+        },
+      });
+      return reply.code(202).send({ requested: true, commandId: command.id });
+    }
     if (!ONLINE_CHANGES.has(key) || shopOnlySetting(req))
       throw new DomainError('FORBIDDEN', 'This can only be done at the shop.');
     const release = await acquire();

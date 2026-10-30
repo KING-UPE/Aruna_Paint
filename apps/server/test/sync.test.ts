@@ -142,6 +142,16 @@ describe('online panel for several shops', () => {
     expect(products.map((p: { name: string }) => p.name)).toContain('Thinner 4L');
     const ownerB = (await online('owner', shopB)).c;
     expect((await ownerB.get('/api/products')).body.items).toEqual([]);
+    // Each works at its own shop location, not the one signed in to first.
+    const shopLocation = (app: FastifyInstance) =>
+      app.deps.db.location.findFirstOrThrow({
+        where: { kind: 'SHOP' },
+        orderBy: { sortOrder: 'asc' },
+      });
+    expect((await ownerB.get('/api/auth/me')).body.location.id).toBe(
+      (await shopLocation(shopB)).id,
+    );
+    expect((await owner.get('/api/auth/me')).body.location.id).toBe((await shopLocation(shopA)).id);
 
     // Cashiers and Stock Managers aren't given it by default; an Admin is.
     expect((await online('cashier', shopA)).status).toBe(403);
@@ -250,6 +260,102 @@ describe('online panel for several shops', () => {
     await sync(shopA);
     expect((await a.sa.get('/api/settings')).body.receipt.footerEn).toBe('Online footer');
     expect((await commands(owner))[0].status).toBe('APPLIED');
+  });
+
+  it('the colour theme changed at either end shows at the other', async () => {
+    const theme = async (c: Client) => (await c.get('/api/auth/me')).body.appearance;
+    const look = (await a.sa.get('/api/settings')).body.appearance;
+    // Both ends have already shown the theme (so it is held in memory) before it changes.
+    expect((await theme(owner)).mode).toBe(look.mode);
+    expect((await theme(a.sa)).mode).toBe(look.mode);
+
+    // Online: dark. The shop takes it on its next sync.
+    expect((await owner.put('/api/settings/appearance', { ...look, mode: 'dark' })).status).toBe(
+      200,
+    );
+    await sync(shopA);
+    expect((await theme(a.sa)).mode).toBe('dark');
+    expect((await theme(owner)).mode).toBe('dark');
+
+    // At the shop: light. The panel shows it once the shop has synced.
+    expect((await a.sa.put('/api/settings/appearance', { ...look, mode: 'light' })).status).toBe(
+      200,
+    );
+    await sync(shopA);
+    expect((await theme(owner)).mode).toBe('light');
+  });
+
+  it('everything only the Super Admin may do can be done online, and reaches the shop', async () => {
+    // Counters and their printers.
+    const add = await owner.post('/api/counters', {
+      code: 'C9',
+      name: 'Counter 9',
+      locationId: (await shopA.deps.db.location.findFirstOrThrow({ where: { kind: 'SHOP' } })).id,
+      printer: { driver: 'network', host: '192.168.1.50', port: 9100 },
+    });
+    expect(add.status).toBe(200);
+    // The HRM month start and one month's figures.
+    expect((await owner.put('/api/hrm/month-start', { day: 25 })).status).toBe(200);
+    const month = await owner.put('/api/hrm/month/2026-10', {
+      maxCommissionPercent: 5,
+      shopRent: 45000,
+      electricityBill: 8000,
+      salaries: [],
+      members: [],
+      syncUserRates: false,
+    });
+    expect(month.status).toBe(200);
+    // Backup times and folders.
+    const backup = (await owner.get('/api/settings')).body.backup;
+    expect(
+      (await owner.put('/api/settings/backup', { ...backup, nightlyAt: '23:15' })).status,
+    ).toBe(200);
+    // Still at the shop only: its link to the cloud. And an Admin still only looks.
+    const cloud = (await owner.get('/api/settings')).body.cloud;
+    expect((await owner.put('/api/settings/cloud', cloud)).status).toBe(403);
+    const admin = (await online('admin', shopA)).c;
+    expect((await admin.put('/api/settings/backup', backup)).status).toBe(403);
+
+    await sync(shopA);
+    const counter = await shopA.deps.db.counter.findUniqueOrThrow({ where: { code: 'C9' } });
+    expect(counter.printer).toMatchObject({ host: '192.168.1.50' });
+    const shopSettings = (await a.sa.get('/api/settings')).body;
+    expect(shopSettings.backup.nightlyAt).toBe('23:15');
+    expect(shopSettings.closing.monthStartDay).toBe(25);
+    expect(shopSettings.hrm.monthlyOverrides['2026-10']).toMatchObject({ shopRent: 45000 });
+    expect((await commands(owner)).every((c: { status: string }) => c.status === 'APPLIED')).toBe(
+      true,
+    );
+  });
+
+  it('a backup or a fresh test copy asked for online is done by the shop at its next sync', async () => {
+    const backups = await shopA.deps.db.backup.count();
+    const asked = await owner.post('/api/backups', {});
+    expect(asked.status).toBe(202);
+    expect((await owner.post('/api/test-mode/refresh', {})).status).toBe(202);
+    // Nothing happens until the shop connects.
+    expect(await shopA.deps.db.backup.count()).toBe(backups);
+    expect((await commands(owner)).map((c: { status: string }) => c.status)).toEqual([
+      'PENDING',
+      'PENDING',
+    ]);
+
+    await sync(shopA);
+    expect(await shopA.deps.db.backup.count()).toBe(backups + 1);
+    const done = await commands(owner);
+    const of = (summary: string) => done.find((c: { summary: string }) => c.summary === summary);
+    // The shop's answer, whatever it was: made, or the reason it couldn't be.
+    expect(['APPLIED', 'FAILED']).toContain(of('backup.manual').status);
+    expect(of('backup.manual').message).not.toBe('');
+    expect(of('testmode.refresh')).toMatchObject({ status: 'APPLIED' });
+    // Done in the name of the Super Admin who asked.
+    const ownerId = (await shopA.deps.db.user.findFirstOrThrow({ where: { username: 'owner' } }))
+      .id;
+    expect(
+      await shopA.deps.db.auditLog.count({
+        where: { action: { in: ['testmode.refresh', 'backup.manual'] }, userId: ownerId },
+      }),
+    ).toBe(2);
   });
 
   it('different fields changed at each end are both kept; "Keep shop version" puts the panel back', async () => {

@@ -3,7 +3,11 @@ import type { Prisma } from '@prisma/client';
 import type { Db, Tx } from '../db';
 import { inTestData, scopeShop } from './dbscope';
 
-/** Shop settings with an in-memory cache; one server process owns the database. */
+/**
+ * Shop settings with an in-memory cache; at a shop one server process owns the database. The
+ * online panel doesn't cache: shops' syncs change the rows behind it, and on Vercel several
+ * copies of the server answer at once.
+ */
 export class SettingsService {
   // One cache per set of data: the real data, the test copy a test user may change, and on the
   // online panel each shop's copy.
@@ -15,17 +19,20 @@ export class SettingsService {
     return c;
   }
 
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly keep = true,
+  ) {}
 
   async get<K extends SettingsKey>(key: K): Promise<Settings[K]> {
-    const cached = this.cache[key];
+    const cached = this.keep ? this.cache[key] : undefined;
     if (cached) return cached;
     const row = await this.db.setting.findUnique({ where: { key } });
     const value = SETTINGS_SCHEMAS[key].parse({
       ...DEFAULT_SETTINGS[key],
       ...((row?.value as object) ?? {}),
     }) as Settings[K];
-    this.cache[key] = value;
+    if (this.keep) this.cache[key] = value;
     return value;
   }
 

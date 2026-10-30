@@ -91,6 +91,10 @@ const ACTIONS: Record<string, string> = {
   'supplier.update': 'Supplier changed',
   'supplier.rep_add': 'Sales rep added',
   'hrm.update': 'HRM changed',
+  'counter.create': 'New counter',
+  'counter.update': 'Counter changed',
+  'backup.manual': 'Backup asked for',
+  'testmode.refresh': 'Fresh test copy asked for',
 };
 
 const what = (c: Command) => {
@@ -225,7 +229,7 @@ export function SyncPage() {
         description={
           s.mode === 'shop'
             ? 'The shop works fully offline. Its changes go up to the cloud when the internet is on, and changes made online come down.'
-            : 'Everything here is the shop as of its last sync. Only the Super Admin changes things online (users, permissions, settings), and they reach the shop when it next connects.'
+            : 'Everything here is the shop as of its last sync. Only the Super Admin changes things online (users, permissions, settings, counters, backups, HRM figures), and they reach the shop when it next connects.'
         }
       >
         {s.mode === 'shop' && s.agent.linked ? (

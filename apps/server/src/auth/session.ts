@@ -1,7 +1,7 @@
 import { DomainError, onlinePermissions, PermissionSet } from '@aruna/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { RequestContext } from '../core/context';
-import { scopeShop, useShopData, useTestData } from '../core/dbscope';
+import { inTestData, scopeShop, useShopData, useTestData } from '../core/dbscope';
 import { newToken, sha256 } from './crypto';
 import { loadUserPermissions } from './permissions';
 
@@ -124,22 +124,26 @@ export function registerSessionHook(app: FastifyInstance): void {
   });
 }
 
-let cachedShopId: string | null = null;
+// One per set of data (the real data, the test copy). The online panel looks it up each time:
+// every shop there has its own.
+const cachedShopIds = new Map<string, string>();
 
 /** The first active shop; PCs that aren't counters work there. */
 export async function defaultLocationId(app: FastifyInstance): Promise<string> {
-  if (cachedShopId) return cachedShopId;
+  const key = scopeShop() ? null : inTestData() ? ':test' : ':real';
+  const hit = key ? cachedShopIds.get(key) : undefined;
+  if (hit) return hit;
   const shop = await app.deps.db.location.findFirst({
     where: { kind: 'SHOP', active: true },
     orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
   });
   if (!shop) throw new DomainError('INVALID_STATE', 'No shop location is set up yet.');
-  cachedShopId = shop.id;
+  if (key) cachedShopIds.set(key, shop.id);
   return shop.id;
 }
 
 export function resetLocationCache(): void {
-  cachedShopId = null;
+  cachedShopIds.clear();
 }
 
 export async function createSession(

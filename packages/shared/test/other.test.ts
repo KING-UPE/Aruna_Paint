@@ -23,6 +23,7 @@ import {
   resolvePermissions,
   assignablePermissions,
   isSuperAdminOnly,
+  onlinePermissions,
   normalizeCombo,
   validateKeyAssignment,
   eventToCombo,
@@ -246,6 +247,17 @@ describe('permissions', () => {
     expect(assignablePermissions()).not.toContain('users.create');
     expect(assignablePermissions()).not.toContain('cost.totals');
     expect(isSuperAdminOnly('settings.edit')).toBe(true);
+  });
+  it('online, everyone only looks; the Super Admin keeps what only a Super Admin may do', () => {
+    const all = resolvePermissions([{ code: 'SUPER_ADMIN' }]).toArray();
+    const sa = onlinePermissions(all, true);
+    for (const p of ['users.edit', 'settings.edit', 'backups.create', 'hrm.edit', 'products.view'])
+      expect(sa).toContain(p);
+    // Stock, money and the counter screens stay at the shop, for the Super Admin too.
+    for (const p of ['products.edit', 'purchases.create', 'billing.view', 'day_end.view'])
+      expect(sa).not.toContain(p);
+    const admin = onlinePermissions(resolvePermissions([{ code: 'ADMIN' }]).toArray(), false);
+    expect(admin.filter((p) => !/\.(view|export)$/.test(p) && p !== 'cloud.access')).toEqual([]);
   });
 });
 

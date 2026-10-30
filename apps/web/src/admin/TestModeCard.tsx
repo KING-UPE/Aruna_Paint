@@ -4,6 +4,7 @@ import { FlaskConicalOff, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
+import { useAuth } from '@/auth/AuthProvider';
 import { useConfirm } from '@/components/AskDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,9 @@ import { useTestMode } from '@/lib/testMode';
  * while everyone else keeps working on the real data. Accounts are switched from Users and roles.
  */
 export function TestModeCard() {
+  const { me } = useAuth();
+  // Online: the copy is at the shop, so a refresh asked for here is done there.
+  const online = me.mode === 'cloud';
   const q = useTestMode();
   const qc = useQueryClient();
   const confirm = useConfirm();
@@ -55,7 +59,11 @@ export function TestModeCard() {
     setBusy(true);
     try {
       await api.post('/api/test-mode/refresh', {});
-      toast.success('The test copy is fresh from the real data.');
+      toast.success(
+        online
+          ? 'Asked. The shop makes a fresh test copy when it next connects; Cloud sync shows how it went.'
+          : 'The test copy is fresh from the real data.',
+      );
       await done();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -71,7 +79,7 @@ export function TestModeCard() {
         <Button
           size="sm"
           icon={<RefreshCw size={15} />}
-          disabled={busy || !status?.copyMadeAt}
+          disabled={busy || (!online && !status?.copyMadeAt)}
           onClick={() => void refresh()}
         >
           {busy ? 'Making the copy…' : 'Refresh test copy'}
@@ -120,9 +128,11 @@ export function TestModeCard() {
           )}
         </div>
         <p className="text-sm text-muted">
-          {status?.copyMadeAt
-            ? `The test copy was made from the real data on ${formatDateTime(status.copyMadeAt)}.`
-            : 'The test copy is made from the real data when the first user is put in test mode.'}
+          {online
+            ? 'The test copy is kept at the shop.'
+            : status?.copyMadeAt
+              ? `The test copy was made from the real data on ${formatDateTime(status.copyMadeAt)}.`
+              : 'The test copy is made from the real data when the first user is put in test mode.'}
         </p>
       </CardBody>
     </Card>

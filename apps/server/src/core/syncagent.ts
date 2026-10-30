@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db';
+import { SHOP_REQUESTS } from '../modules/sync/online';
+import type { ActorRef } from './context';
 import type { SettingsService } from './settings';
 import {
   findConflicts,
@@ -90,8 +92,12 @@ export class SyncAgent {
     private readonly db: Db,
     private readonly settings: SettingsService,
     private readonly version: string,
-    /** After online changes were applied: caches and screens refresh. */
-    private readonly onApplied: (changes: RowChange[]) => void,
+    private readonly hooks: {
+      /** After online changes were applied: caches and screens refresh. */
+      onApplied: (changes: RowChange[]) => void;
+      /** Does a request made online (SHOP_REQUESTS); the answer is shown on the panel. */
+      runRequest: (route: string, by: ActorRef) => Promise<string>;
+    },
     private readonly transport: SyncTransport = fetchTransport,
   ) {}
 
@@ -267,7 +273,9 @@ export class SyncAgent {
         if (conflicts.length) {
           status = 'CONFLICT';
           message = 'Changed at the shop too while offline. The Super Admin decides which to keep.';
-        } else if (decision === 'APPLY')
+        } else if (SHOP_REQUESTS[c.route])
+          message = await this.hooks.runRequest(c.route, { userId: c.createdById });
+        else if (decision === 'APPLY')
           message = 'The online change was applied over the shop version.';
       } catch (err) {
         status = 'FAILED';
@@ -289,7 +297,7 @@ export class SyncAgent {
       create: { ...base, ...data },
       update: data,
     });
-    if (status === 'APPLIED') this.onApplied(c.changes);
+    if (status === 'APPLIED' && c.changes.length) this.hooks.onApplied(c.changes);
   }
 
   /**

@@ -4,6 +4,8 @@ import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { existsSync } from 'node:fs';
 import type { AppConfig } from './config';
+import { audit } from './core/audit';
+import type { ActorRef } from './core/context';
 import { createPrisma } from './db';
 import type { Deps } from './deps';
 import { BackupService } from './core/backups';
@@ -60,7 +62,7 @@ export async function buildApp(
     () => testMode.current(),
     (id) => shops?.client(id) ?? null,
   );
-  settings = overrides.settings ?? new SettingsService(db);
+  settings = overrides.settings ?? new SettingsService(db, config.mode !== 'cloud');
   if (shops) testMode.usersIn(db);
   const deps: Deps = {
     db,
@@ -77,7 +79,10 @@ export async function buildApp(
             production,
             settings,
             APP_VERSION,
-            (changes) => void afterOnlineChange(changes),
+            {
+              onApplied: (changes) => void afterOnlineChange(changes),
+              runRequest: (route, by) => runShopRequest(route, by),
+            },
             overrides.syncTransport,
           )
         : null,
@@ -93,6 +98,25 @@ export async function buildApp(
     ).length;
     if (switchedOn && (await production.user.count({ where: { testMode: true } })) === switchedOn)
       await testMode.rebuild().catch(() => undefined);
+  }
+  /** Asked for online, done here: a backup now, or a fresh test copy. */
+  async function runShopRequest(route: string, by: ActorRef): Promise<string> {
+    if (route === 'POST /api/test-mode/refresh') {
+      await testMode.refresh(by);
+      return 'The test copy was made again from the real data.';
+    }
+    if (route !== 'POST /api/backups') throw new Error('This server does not know that request.');
+    const row = await deps.backups.run('MANUAL');
+    if (!row) throw new Error('Backups are paused.');
+    await audit(production, by, {
+      action: 'backup.manual',
+      entity: 'backup',
+      entityId: row.id,
+      after: { status: row.status },
+    });
+    if (row.status !== 'OK') throw new Error(`The backup failed: ${row.error}`);
+    const mb = (Number(row.sizeBytes) / 1_048_576).toFixed(1);
+    return `Backup made at the shop: ${row.path} (${mb} MB).`;
   }
   await testMode.start();
   app.decorate('deps', deps);

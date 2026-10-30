@@ -1,5 +1,5 @@
 import type { AppearanceSettings } from '@aruna/shared';
-import { Plus } from 'lucide-react';
+import { DatabaseBackup, Plus } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -18,7 +18,8 @@ type Settings = Record<string, Record<string, unknown>>;
 
 /** Colour theme, shop details, receipt header and footer, billing rules, month start, alerts, backups, cloud link. */
 export function SettingsPage() {
-  const { me } = useAuth();
+  const { me, can } = useAuth();
+  const online = me.mode === 'cloud';
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/api/settings') });
   const [draft, setDraft] = useState<Settings | null>(null);
@@ -55,13 +56,37 @@ export function SettingsPage() {
       />
     </Field>
   );
-  const section = (group: string, title: string, children: React.ReactNode) => (
+  const backupNow = async () => {
+    try {
+      const r = await api.post<{ requested?: boolean; status?: string; error?: string }>(
+        '/api/backups',
+        {},
+      );
+      if (r.requested)
+        toast.success(
+          'Asked. The shop makes the backup when it next connects; Cloud sync shows how it went.',
+        );
+      else if (r.status === 'OK') toast.success('Backup made.');
+      else toast.error(`The backup failed: ${r.error ?? ''}`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  const section = (
+    group: string,
+    title: string,
+    children: React.ReactNode,
+    extra?: React.ReactNode,
+  ) => (
     <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <Button size="sm" variant="primary" onClick={() => void save(group)}>
-          Save
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          {extra}
+          <Button size="sm" variant="primary" onClick={() => void save(group)}>
+            Save
+          </Button>
+        </div>
       </CardHeader>
       <CardBody className="grid gap-3 md:grid-cols-2">{children}</CardBody>
     </Card>
@@ -72,7 +97,7 @@ export function SettingsPage() {
       {draft.appearance && q.data?.appearance ? (
         <AppearanceCard saved={q.data.appearance as unknown as AppearanceSettings} />
       ) : null}
-      {me.roles.includes('SUPER_ADMIN') && me.mode === 'shop' ? <TestModeCard /> : null}
+      {me.roles.includes('SUPER_ADMIN') ? <TestModeCard /> : null}
       {section('shop', 'Shop', [
         text('shop', 'shopName', 'Shop name'),
         text('shop', 'address', 'Address'),
@@ -144,28 +169,40 @@ export function SettingsPage() {
         number('alerts', 'syncWaitingMinutes', 'Sync waiting too long (minutes)'),
         number('alerts', 'clockSkewMinutes', 'PC clock warning (minutes)'),
       ])}
-      {/* Backups, the cloud link and the counters' printers belong to the shop's own PCs. */}
-      {me.mode === 'cloud' ? (
+      {online ? (
         <p className="text-sm text-muted">
-          Backups, the cloud link and the counters are set at the shop. Changes saved here reach the
-          shop when it next connects.
+          Changes saved here reach the shop when it next connects. The shop&apos;s link to the cloud
+          is set at the shop.
         </p>
       ) : null}
-      {me.mode === 'shop' &&
-        section('backup', 'Backups', [
-          text('backup', 'folder', 'Backup folder', 'Empty uses the server data folder.'),
+      {section(
+        'backup',
+        'Backups',
+        [
+          text(
+            'backup',
+            'folder',
+            'Backup folder',
+            "On the shop's server PC. Empty uses the server data folder.",
+          ),
           text('backup', 'secondFolder', 'Second copy (USB or second drive)'),
           text('backup', 'nightlyAt', 'Nightly backup time (HH:MM)'),
           number('backup', 'keepDaily', 'Daily copies to keep'),
           number('backup', 'keepMonthly', 'Monthly copies to keep'),
-        ])}
-      {me.mode === 'shop' &&
+        ],
+        can('backups.create') ? (
+          <Button size="sm" icon={<DatabaseBackup size={15} />} onClick={() => void backupNow()}>
+            Back up now
+          </Button>
+        ) : null,
+      )}
+      {!online &&
         section('cloud', 'Cloud mirror', [
           text('cloud', 'url', 'Cloud address'),
           text('cloud', 'shopKey', 'Shop key'),
         ])}
       <NumberFormats />
-      {me.mode === 'shop' ? <Counters /> : null}
+      <Counters />
     </div>
   );
 }
