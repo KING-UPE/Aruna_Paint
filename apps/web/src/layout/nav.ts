@@ -56,7 +56,12 @@ export const navItems: NavItem[] = [
   { to: '/admin/values', label: 'Value manager', section: 'Admin', perms: ['values.edit'] },
   { to: '/admin/users', label: 'Users and roles', section: 'Admin', perms: ['users.view'] },
   { to: '/admin/settings', label: 'Settings', section: 'Admin', perms: ['settings.view'] },
-  { to: '/admin/sync', label: 'Cloud sync', section: 'Admin', perms: ['settings.view'] },
+  {
+    to: '/admin/sync',
+    label: 'Cloud sync',
+    section: 'Admin',
+    perms: ['settings.view', 'cloud.access'],
+  },
   { to: '/admin/audit', label: 'Audit log', section: 'Admin', perms: ['audit_log.view'] },
 ];
 

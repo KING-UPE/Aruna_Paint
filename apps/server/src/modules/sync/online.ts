@@ -1,7 +1,8 @@
 /**
- * What Admins and the Super Admin may change on the online panel. Each change is kept as the
- * rows it changed, and the shop applies them when it next syncs. Billing, purchases, payments
- * and stock moves need the counters, so they stay at the shop.
+ * The only changes made on the online panel, all by the Super Admin and all things an Admin
+ * can't do: users, passwords, PINs, roles and permissions, test mode, the settings and number
+ * formats, the HRM month start. Each one reaches the shop when it next connects. Everyone else
+ * only looks: the shop's data as of its last sync.
  */
 export const ONLINE_CHANGES = new Set([
   'POST /api/users',
@@ -16,18 +17,6 @@ export const ONLINE_CHANGES = new Set([
   'DELETE /api/roles/:id',
   'PUT /api/settings/:key',
   'PUT /api/number-formats/:docType',
-  'POST /api/values/:list',
-  'PATCH /api/values/:list/:id',
-  'DELETE /api/values/:list/:id',
-  'POST /api/values/:list/:id/merge',
-  'PUT /api/values/:list/order',
-  'PUT /api/products/:id',
-  'PATCH /api/products/:id/names',
-  'POST /api/products/:id/prices',
-  'PATCH /api/sub-products/:id',
-  'PUT /api/suppliers/:id',
-  'POST /api/suppliers/:id/reps',
   'PUT /api/hrm/month-start',
-  'PUT /api/hrm/month/:period',
   'POST /api/auth/change-password',
 ]);

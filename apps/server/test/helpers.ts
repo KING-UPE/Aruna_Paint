@@ -65,11 +65,22 @@ export class Client {
       payload: payload as object | undefined,
       headers: { ...(this.cookie ? { cookie: this.cookie } : {}), ...headers },
     });
+    // A small cookie jar: the online panel sets the shop and that shop's sign-in.
     const setCookie = res.headers['set-cookie'];
     if (setCookie) {
-      const first = Array.isArray(setCookie) ? setCookie[0]! : setCookie;
-      const pair = first.split(';')[0]!;
-      this.cookie = pair.endsWith('=') ? '' : pair;
+      const jar = new Map(
+        this.cookie
+          .split('; ')
+          .filter(Boolean)
+          .map((c) => [c.split('=')[0]!, c] as const),
+      );
+      for (const line of Array.isArray(setCookie) ? setCookie : [setCookie]) {
+        const pair = line.split(';')[0]!;
+        const name = pair.split('=')[0]!;
+        if (pair.endsWith('=')) jar.delete(name);
+        else jar.set(name, pair);
+      }
+      this.cookie = [...jar.values()].join('; ');
     }
     let body: unknown = res.body;
     try {

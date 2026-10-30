@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { firstAllowed, navItems } from './nav';
 import { StatusBar } from './StatusBar';
+import { CloudBar } from './CloudBar';
 
 const SECTIONS = ['Billing', 'Stock', 'HRM', 'Admin'] as const;
 
@@ -132,6 +133,7 @@ export function AppLayout() {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
+          {me.mode === 'cloud' ? <CloudBar /> : null}
           <header className="flex items-center justify-between gap-4 border-b border-border bg-surface px-4 py-2.5 md:px-6">
             <div className="flex items-center gap-3">
               <button

@@ -153,7 +153,7 @@ export function ProductsPage() {
         description="Enter opens an item's sub-products, stock per location and bin card."
       >
         <div className="flex items-center gap-2">
-          {can('mix_paint.view') ? (
+          {can('mix_paint.create') ? (
             <Button
               variant="ghost"
               icon={<PaintBucket size={16} />}

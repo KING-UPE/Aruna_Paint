@@ -1,14 +1,12 @@
-import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { DomainError, formatMoney } from '@aruna/shared';
 import type { AppConfig } from '../config';
 import { createPrisma, type Db } from '../db';
 import { audit } from './audit';
 import type { ActorRef } from './context';
 import { inTestData } from './dbscope';
-import { splitSql } from './sqlsplit';
+import { migrationStatements } from './migrations';
 
 export interface TestModeStatus {
   /** When the test copy was last made from the real data. */
@@ -31,27 +29,6 @@ const NOT_COPIED = new Set([
   'sync_nodes',
 ]);
 const PAGE = 2000;
-
-/** The same migrations a shop install runs, wherever the server was started from. */
-async function migrationStatements(): Promise<string[]> {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const dir = [
-    join(process.cwd(), 'prisma', 'migrations'),
-    join(here, '..', '..', 'prisma', 'migrations'),
-    join(here, '..', 'prisma', 'migrations'),
-  ].find((d) => existsSync(d));
-  if (!dir) throw new Error('The prisma/migrations folder is missing next to the server.');
-  const names = (await readdir(dir, { withFileTypes: true }))
-    .filter((d) => d.isDirectory())
-    .map((d) => d.name)
-    .sort();
-  const out: string[] = [];
-  for (const n of names) {
-    const file = join(dir, n, 'migration.sql');
-    if (existsSync(file)) out.push(...splitSql(await readFile(file, 'utf8')));
-  }
-  return out;
-}
 
 const q = (name: string) => `"${name.replace(/"/g, '""')}"`;
 
@@ -120,6 +97,8 @@ async function copyRows(production: Db, copy: Db) {
  */
 export class TestModeService {
   private copy: Db | null = null;
+  /** Where the users are: the real data at a shop; on the online panel, the shop being looked at. */
+  private users: Db;
   private building: Promise<Db> | null = null;
   private madeAt: string | null = null;
 
@@ -129,7 +108,14 @@ export class TestModeService {
     private readonly config: AppConfig,
     /** Something changed: caches of the copy and every screen of the users switched. */
     private readonly onChange: () => void,
-  ) {}
+  ) {
+    this.users = production;
+  }
+
+  /** Online panel: users are in each shop's copy, reached through the request's shop. */
+  usersIn(db: Db) {
+    this.users = db;
+  }
 
   private get file() {
     return join(this.config.dataDir, 'test-mode.json');
@@ -161,7 +147,7 @@ export class TestModeService {
   }
 
   async status(): Promise<TestModeStatus> {
-    const users = await this.production.user.findMany({
+    const users = await this.users.user.findMany({
       where: { testMode: true },
       select: { id: true, username: true, fullName: true },
       orderBy: { fullName: 'asc' },
@@ -233,7 +219,7 @@ export class TestModeService {
 
   /** Puts one user on the test copy, or back on the real data. */
   async setUser(actor: ActorRef, userId: string, on: boolean) {
-    const user = await this.production.user.findUnique({
+    const user = await this.users.user.findUnique({
       where: { id: userId },
       include: { roles: { include: { role: true } } },
     });
@@ -247,7 +233,7 @@ export class TestModeService {
     // The cloud only records the switch; the shop makes its copy when the change arrives.
     if (on && this.config.mode === 'shop') {
       // The first person to test starts from today's real data; others join the same copy.
-      const others = await this.production.user.count({ where: { testMode: true } });
+      const others = await this.users.user.count({ where: { testMode: true } });
       if (others === 0) await this.rebuild();
       else await this.ready();
     }
@@ -272,8 +258,8 @@ export class TestModeService {
           testSales: formatMoney(s._sum.netTotal?.toString() ?? '0'),
         };
     }
-    await this.production.user.update({ where: { id: userId }, data: { testMode: on } });
-    await audit(this.production, actor, {
+    await this.users.user.update({ where: { id: userId }, data: { testMode: on } });
+    await audit(this.users, actor, {
       action: on ? 'testmode.user_on' : 'testmode.user_off',
       entity: 'user',
       entityId: userId,

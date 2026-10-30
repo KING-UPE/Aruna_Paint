@@ -10,6 +10,7 @@ import { ONLINE_CHANGES } from './online';
 const CLOUD_OWN = (route: string) =>
   route.startsWith('POST /api/auth/') ||
   route.startsWith('POST /api/sync/') ||
+  route.startsWith('POST /api/cloud/') ||
   route.startsWith('PUT /api/auth/');
 
 const routeKey = (req: FastifyRequest) => `${req.method} ${req.routeOptions.url ?? req.url}`;
@@ -58,6 +59,12 @@ export function registerCloudCapture(app: FastifyInstance) {
     if (key === 'POST /api/auth/recover')
       throw new DomainError('FORBIDDEN', 'Use a recovery code at the shop.');
     if (CLOUD_OWN(key) && key !== 'POST /api/auth/change-password') return;
+    // Only the Super Admin changes anything online, and only what an Admin can't do.
+    if (!req.ctx?.roleCodes.includes('SUPER_ADMIN'))
+      throw new DomainError(
+        'FORBIDDEN',
+        'The online panel is view-only. Changes are made at the shop.',
+      );
     if (!ONLINE_CHANGES.has(key) || shopOnlySetting(req))
       throw new DomainError('FORBIDDEN', 'This can only be done at the shop.');
     const release = await acquire();
@@ -163,13 +170,18 @@ export async function undoOnCloud(db: Db, catalog: TableCatalog, rows: RowChange
   });
 }
 
-/** The shop's changes, applied once each, in order, without capturing them again. */
-export async function applyPush(db: Db, catalog: TableCatalog, nodeId: string, body: PushBody) {
-  const node = await db.syncNode.upsert({
-    where: { id: nodeId },
-    create: { id: nodeId, name: body.name },
-    update: {},
-  });
+/**
+ * The shop's changes, applied once each, in order, without capturing them again, on that shop's
+ * copy (`db`, scoped to the shop); `control` is the cloud's list of shops.
+ */
+export async function applyPush(
+  db: Db,
+  control: Db,
+  catalog: TableCatalog,
+  nodeId: string,
+  body: PushBody,
+) {
+  const node = await control.syncNode.findUniqueOrThrow({ where: { id: nodeId } });
   const fresh = body.changes.filter((c) => BigInt(c.id) > node.lastChangeId);
   const last = body.changes.length
     ? body.changes.reduce((m, c) => (BigInt(c.id) > m ? BigInt(c.id) : m), node.lastChangeId)
@@ -192,19 +204,20 @@ export async function applyPush(db: Db, catalog: TableCatalog, nodeId: string, b
             );
         }
       }
-      await tx.syncNode.update({
-        where: { id: nodeId },
-        data: {
-          name: body.name,
-          version: body.version,
-          waiting: Math.max(0, body.waiting - body.changes.length),
-          info: { counters: body.counters, ...(errors.length ? { errors } : {}) },
-          lastSeenAt: new Date(),
-          ...(body.changes.length ? { lastPushAt: new Date(), lastChangeId: last } : {}),
-        },
-      });
     },
     { maxWait: 10_000, timeout: 120_000 },
   );
+  // How the shop is doing, in the cloud's list of shops.
+  await control.syncNode.update({
+    where: { id: nodeId },
+    data: {
+      name: body.name,
+      version: body.version,
+      waiting: Math.max(0, body.waiting - body.changes.length),
+      info: { counters: body.counters, ...(errors.length ? { errors } : {}) },
+      lastSeenAt: new Date(),
+      ...(body.changes.length ? { lastPushAt: new Date(), lastChangeId: last } : {}),
+    },
+  });
   return { lastChangeId: last.toString() };
 }

@@ -55,15 +55,20 @@ function allGroups(): Group[] {
       })),
     })),
   }));
-  groups.push({
-    key: 'cost',
-    label: 'Cost privacy',
-    rows: (Object.keys(SPECIAL_PERMISSIONS) as SpecialPermission[]).map((p) => ({
-      key: p,
-      label: SPECIAL_PERMISSIONS[p].label,
-      items: [{ permission: p, label: 'Can see', icon: Eye }],
-    })),
-  });
+  const special = (group: string, label: string, verb: string) =>
+    groups.push({
+      key: group,
+      label,
+      rows: (Object.keys(SPECIAL_PERMISSIONS) as SpecialPermission[])
+        .filter((p) => SPECIAL_PERMISSIONS[p].group === group)
+        .map((p) => ({
+          key: p,
+          label: SPECIAL_PERMISSIONS[p].label,
+          items: [{ permission: p, label: verb, icon: Eye }],
+        })),
+    });
+  special('cost', 'Cost privacy', 'Can see');
+  special('online', 'Online panel', 'Can open');
   return groups;
 }
 

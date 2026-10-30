@@ -1,14 +1,18 @@
 import { DEFAULT_SETTINGS, SETTINGS_SCHEMAS, type Settings, type SettingsKey } from '@aruna/shared';
 import type { Prisma } from '@prisma/client';
 import type { Db, Tx } from '../db';
-import { inTestData } from './dbscope';
+import { inTestData, scopeShop } from './dbscope';
 
 /** Shop settings with an in-memory cache; one server process owns the database. */
 export class SettingsService {
-  // One cache for the real data and one for the test copy, which a test user may change.
-  private caches: { real: Partial<Settings>; test: Partial<Settings> } = { real: {}, test: {} };
+  // One cache per set of data: the real data, the test copy a test user may change, and on the
+  // online panel each shop's copy.
+  private caches = new Map<string, Partial<Settings>>();
   private get cache(): Partial<Settings> {
-    return inTestData() ? this.caches.test : this.caches.real;
+    const key = scopeShop() ?? (inTestData() ? ':test' : ':real');
+    let c = this.caches.get(key);
+    if (!c) this.caches.set(key, (c = {}));
+    return c;
   }
 
   constructor(private readonly db: Db) {}
@@ -45,6 +49,6 @@ export class SettingsService {
   }
 
   invalidate(): void {
-    this.caches = { real: {}, test: {} };
+    this.caches.clear();
   }
 }

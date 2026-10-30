@@ -1370,10 +1370,12 @@ model SyncCommand {
   @@map("sync_commands")
 }
 
-/// A shop server that syncs with the cloud, with when it was last heard from.
+/// A shop server that syncs with the cloud, with when it was last heard from. In the cloud's own
+/// database this is the list of shops; each shop's data is in its own database (dbName).
 model SyncNode {
   id           String    @id @db.Uuid
   name         String
+  dbName       String    @default("") @map("db_name")
   lastSeenAt   DateTime? @map("last_seen_at") @db.Timestamptz(3)
   lastPushAt   DateTime? @map("last_push_at") @db.Timestamptz(3)
   lastChangeId BigInt    @default(0) @map("last_change_id")

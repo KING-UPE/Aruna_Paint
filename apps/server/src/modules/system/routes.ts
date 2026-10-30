@@ -1,6 +1,7 @@
 import { DomainError } from '@aruna/shared';
 import type { FastifyInstance } from 'fastify';
 import { perm, shopOnly, superAdminOnly } from '../../auth/guard';
+import { scopeShop } from '../../core/dbscope';
 import { audit } from '../../core/audit';
 import { actorOf } from '../../core/context';
 
@@ -21,15 +22,19 @@ async function syncSummary(app: FastifyInstance) {
       lastError: s.lastError,
     };
   }
-  const nodes = await app.deps.testMode.production.syncNode.findMany();
-  const seen = nodes.map((n) => n.lastSeenAt?.getTime() ?? 0);
-  const last = seen.length ? Math.max(...seen) : 0;
+  // Online: the shop being looked at, and when its data was last brought up to date.
+  const shop = scopeShop();
+  const node = shop
+    ? await app.deps.shops!.control.syncNode.findUnique({ where: { id: shop } })
+    : null;
+  const seen = node?.lastSeenAt?.getTime() ?? 0;
   return {
-    linked: nodes.length > 0,
-    online: last > Date.now() - 60_000,
-    pending: nodes.reduce((t, n) => t + n.waiting, 0),
-    lastSyncedAt: last ? new Date(last) : null,
+    linked: Boolean(node),
+    online: seen > Date.now() - 60_000,
+    pending: node?.waiting ?? 0,
+    lastSyncedAt: node?.lastPushAt ?? node?.lastSeenAt ?? null,
     lastError: '',
+    shopName: node?.name ?? '',
   };
 }
 

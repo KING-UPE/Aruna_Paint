@@ -87,7 +87,8 @@ const isSuperAdminRole = (r: { code: string; name: string }) =>
  */
 export function UsersPage() {
   const { me } = useAuth();
-  const superAdmin = me.roles.includes('SUPER_ADMIN') && me.mode === 'shop';
+  // Test mode can be switched at the shop or online (it reaches the shop when it connects).
+  const superAdmin = me.roles.includes('SUPER_ADMIN');
   const qc = useQueryClient();
   const confirm = useConfirm();
   const ask = useAsk();

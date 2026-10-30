@@ -3,7 +3,7 @@ import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { api, errorMessage } from '@/lib/api';
 
 export function AuthShell({
@@ -40,10 +40,19 @@ export function LoginPage() {
   const setup = useQuery({
     queryKey: ['setup-status'],
     queryFn: () =>
-      api.get<{ mode: 'shop' | 'cloud'; waitingForShop?: boolean }>('/api/setup/status'),
+      api.get<{
+        mode: 'shop' | 'cloud';
+        waitingForShop?: boolean;
+        shops?: { id: string; name: string }[];
+        currentShop?: string | null;
+      }>('/api/setup/status'),
     staleTime: Infinity,
   });
   const cloud = setup.data?.mode === 'cloud';
+  // Online panel: users and passwords are each shop's own, so the shop comes first.
+  const shops = setup.data?.shops ?? [];
+  const [chosen, setChosen] = useState('');
+  const shopId = chosen || setup.data?.currentShop || shops[0]?.id || '';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -55,7 +64,7 @@ export function LoginPage() {
     setBusy(true);
     setError('');
     try {
-      await api.post('/api/auth/login', { username, password });
+      await api.post('/api/auth/login', { username, password, ...(cloud ? { shopId } : {}) });
       await qc.invalidateQueries();
     } catch (err) {
       setError(errorMessage(err));
@@ -76,8 +85,19 @@ export function LoginPage() {
           <p className="rounded-[8px] bg-surface-2 px-3 py-2 text-sm text-muted">
             {setup.data?.waitingForShop
               ? 'The online panel is waiting for the shop’s first sync. Link the shop in its Settings → Cloud mirror, then sign in here with your shop username and password.'
-              : 'The online panel, for Admins and the Super Admin. Sign in with your shop username and password.'}
+              : 'The online panel: see each shop as of its last sync. Sign in with your username and password at that shop.'}
           </p>
+        ) : null}
+        {cloud && shops.length ? (
+          <Field label="Shop" htmlFor="shop">
+            <Select id="shop" value={shopId} onChange={(e) => setChosen(e.target.value)}>
+              {shops.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
         ) : null}
         <Field label="Username" htmlFor="username">
           <Input

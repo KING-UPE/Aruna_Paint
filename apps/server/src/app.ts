@@ -10,6 +10,7 @@ import { BackupService } from './core/backups';
 import { EventBus } from './core/events';
 import { SettingsService } from './core/settings';
 import { inTestData, runInScope, scopedDb } from './core/dbscope';
+import { CloudShops } from './core/shops';
 import { SyncAgent, type SyncTransport } from './core/syncagent';
 import type { RowChange } from './core/syncapply';
 import { TestModeService } from './core/testmode';
@@ -52,8 +53,15 @@ export async function buildApp(
   });
   // Routes keep this one client; per request it is the real data, or the test copy for a user
   // in test mode (core/dbscope.ts).
-  const db = scopedDb(production, () => testMode.current());
+  // The online panel serves several shops, each in its own copy database.
+  const shops = config.mode === 'cloud' ? new CloudShops(production, config) : null;
+  const db = scopedDb(
+    production,
+    () => testMode.current(),
+    (id) => shops?.client(id) ?? null,
+  );
   settings = overrides.settings ?? new SettingsService(db);
+  if (shops) testMode.usersIn(db);
   const deps: Deps = {
     db,
     config,
@@ -73,6 +81,7 @@ export async function buildApp(
             overrides.syncTransport,
           )
         : null,
+    shops,
   };
   /** Online changes reached the shop: fresh settings, screens reload, a first test user gets a copy. */
   async function afterOnlineChange(changes: RowChange[]) {
@@ -131,6 +140,7 @@ export async function buildApp(
     await deps.sync?.close();
     await deps.backups.close();
     await testMode.close();
+    await shops?.close();
     await production.$disconnect();
   });
 

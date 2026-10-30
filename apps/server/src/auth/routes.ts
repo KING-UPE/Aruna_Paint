@@ -18,12 +18,16 @@ import { actorOf } from '../core/context';
 import { TX_OPTIONS } from '../db';
 import { requireApproval } from './approvals';
 import { hashPassword, normalizeRecoveryCode, pinHmac, sha256, verifyPassword } from './crypto';
-import { clearSessionCookie, createSession } from './session';
+import { useShopData } from '../core/dbscope';
+import { loadUserPermissions } from './permissions';
+import { clearSessionCookie, createSession, SHOP_COOKIE } from './session';
 
 const loginSchema = z.object({
   username: z.string().min(1).max(60),
   password: z.string().min(1).max(200),
   counterCode: z.string().max(20).optional().nullable(),
+  /** Online panel: which shop to sign in to. */
+  shopId: z.string().max(40).optional().nullable(),
 });
 
 export async function authRoutes(app: FastifyInstance) {
@@ -32,6 +36,19 @@ export async function authRoutes(app: FastifyInstance) {
   /** Username and password only. A counter PC also says which counter it is. */
   app.post('/api/auth/login', { config: { public: true } }, async (req, reply) => {
     const body = loginSchema.parse(req.body);
+    if (app.deps.shops) {
+      // Online panel: users and passwords are each shop's own.
+      if (!body.shopId || !(await app.deps.shops.open(body.shopId)))
+        throw new DomainError('VALIDATION', 'Choose the shop first.', 'shopId');
+      useShopData(body.shopId);
+      reply.setCookie(SHOP_COOKIE, body.shopId, {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: req.protocol === 'https',
+        maxAge: 365 * 86_400,
+      });
+    }
     const user = await db.user.findUnique({ where: { usernameKey: nameKey(body.username) } });
     const ok = user && user.active && (await verifyPassword(body.password, user.passwordHash));
     if (!ok) {
@@ -48,13 +65,10 @@ export async function authRoutes(app: FastifyInstance) {
       throw new DomainError('UNAUTHENTICATED', 'Wrong username or password.');
     }
     if (app.deps.config.mode === 'cloud') {
-      // The online panel is for Admins and the Super Admin.
-      const roles = await db.userRole.findMany({
-        where: { userId: user.id },
-        include: { role: true },
-      });
-      if (!roles.some((r) => r.role.code === 'ADMIN' || r.role.code === 'SUPER_ADMIN'))
-        throw new DomainError('FORBIDDEN', 'The online panel is for Admins and the Super Admin.');
+      // Only those given "Open the online panel" (Admins and the Super Admin by default).
+      const { permissions } = await loadUserPermissions(db, user.id);
+      if (!permissions.has('cloud.access'))
+        throw new DomainError('FORBIDDEN', 'You are not allowed to open the online panel.');
     }
     let counterId: string | null = null;
     if (body.counterCode) {
@@ -93,7 +107,7 @@ export async function authRoutes(app: FastifyInstance) {
         entity: 'user',
         entityId: req.ctx.user.id,
       });
-      clearSessionCookie(reply);
+      clearSessionCookie(reply, req);
       return { ok: true };
     },
   );

@@ -144,19 +144,28 @@ export function SettingsPage() {
         number('alerts', 'syncWaitingMinutes', 'Sync waiting too long (minutes)'),
         number('alerts', 'clockSkewMinutes', 'PC clock warning (minutes)'),
       ])}
-      {section('backup', 'Backups', [
-        text('backup', 'folder', 'Backup folder', 'Empty uses the server data folder.'),
-        text('backup', 'secondFolder', 'Second copy (USB or second drive)'),
-        text('backup', 'nightlyAt', 'Nightly backup time (HH:MM)'),
-        number('backup', 'keepDaily', 'Daily copies to keep'),
-        number('backup', 'keepMonthly', 'Monthly copies to keep'),
-      ])}
-      {section('cloud', 'Cloud mirror', [
-        text('cloud', 'url', 'Cloud address'),
-        text('cloud', 'shopKey', 'Shop key'),
-      ])}
+      {/* Backups, the cloud link and the counters' printers belong to the shop's own PCs. */}
+      {me.mode === 'cloud' ? (
+        <p className="text-sm text-muted">
+          Backups, the cloud link and the counters are set at the shop. Changes saved here reach the
+          shop when it next connects.
+        </p>
+      ) : null}
+      {me.mode === 'shop' &&
+        section('backup', 'Backups', [
+          text('backup', 'folder', 'Backup folder', 'Empty uses the server data folder.'),
+          text('backup', 'secondFolder', 'Second copy (USB or second drive)'),
+          text('backup', 'nightlyAt', 'Nightly backup time (HH:MM)'),
+          number('backup', 'keepDaily', 'Daily copies to keep'),
+          number('backup', 'keepMonthly', 'Monthly copies to keep'),
+        ])}
+      {me.mode === 'shop' &&
+        section('cloud', 'Cloud mirror', [
+          text('cloud', 'url', 'Cloud address'),
+          text('cloud', 'shopKey', 'Shop key'),
+        ])}
       <NumberFormats />
-      <Counters />
+      {me.mode === 'shop' ? <Counters /> : null}
     </div>
   );
 }

@@ -94,11 +94,25 @@ export type ModulePermission = `${ModuleKey}.${Action}`;
 
 /**
  * Cost privacy: each product's cost, profit and margin (Stock Managers and the Super Admin);
- * totals of cost, profit and margin (Super Admin only).
+ * totals of cost, profit and margin (Super Admin only). Online panel: seeing the shop over the
+ * internet, as of its last sync (Admins and the Super Admin; it can be given to anyone).
  */
 export const SPECIAL_PERMISSIONS = {
-  'cost.item': { label: "Each product's cost, profit and margin", superAdminOnly: false },
-  'cost.totals': { label: 'Totals of cost, profit and margin', superAdminOnly: true },
+  'cost.item': {
+    label: "Each product's cost, profit and margin",
+    superAdminOnly: false,
+    group: 'cost',
+  },
+  'cost.totals': {
+    label: 'Totals of cost, profit and margin',
+    superAdminOnly: true,
+    group: 'cost',
+  },
+  'cloud.access': {
+    label: 'Open the online panel (see the shop as of its last sync)',
+    superAdminOnly: false,
+    group: 'online',
+  },
 } as const;
 export type SpecialPermission = keyof typeof SPECIAL_PERMISSIONS;
 
@@ -182,7 +196,7 @@ export const BUILT_IN_ROLE_PERMISSIONS: Record<BuiltInRole, Permission[]> = {
     commission: 'all',
     values: 'all',
     audit_log: 'all',
-  }),
+  }).concat(['cloud.access']),
   // Suppliers, purchases, products with each item's cost, profit and margin, mix-paint transfers,
   // reorder, stock and supplier reports. Write-offs need an Admin.
   STOCK_MANAGER: [
@@ -245,6 +259,25 @@ export class PermissionSet {
   toArray(): Permission[] {
     return [...this.set].filter(isPermission).sort();
   }
+}
+
+/**
+ * On the online panel everyone with cloud.access sees what their roles let them see, as of the
+ * last sync, and changes nothing. Only the Super Admin changes things there, and only what an
+ * Admin can't: users, roles and permissions, and the settings.
+ */
+export function onlinePermissions(perms: Iterable<string>, superAdmin: boolean): string[] {
+  // The billing screen and day end need a counter; bill history still shows every bill.
+  const counterOnly = ['billing.', 'quotations.', 'day_end.'];
+  return [...perms].filter(
+    (p) =>
+      !counterOnly.some((c) => p.startsWith(c)) &&
+      (p.endsWith('.view') ||
+        p.endsWith('.export') ||
+        p.startsWith('cost.') ||
+        p === 'cloud.access' ||
+        (superAdmin && (p.startsWith('users.') || p.startsWith('settings.')))),
+  );
 }
 
 /** Combine every ticked role's permissions. */

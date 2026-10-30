@@ -1,6 +1,6 @@
-import { formatDateTime } from '@aruna/shared';
+import { formatDateTime, formatMoney } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CloudOff, Cloud, RefreshCw, Undo2 } from 'lucide-react';
+import { ArrowRightLeft, Check, CloudOff, Cloud, RefreshCw, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import { useConfirm } from '@/components/AskDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
+import { IconButton } from '@/components/ui/icon-button';
 import { EmptyState, PageHeader, Spinner } from '@/components/ui/misc';
 import { api, errorMessage } from '@/lib/api';
 
@@ -37,6 +38,9 @@ interface Command {
 interface Machine {
   id: string;
   name: string;
+  /** The shop this panel is looking at now. */
+  current: boolean;
+  today: { bills: number; total: string };
   lastSeenAt: string | null;
   lastPushAt: string | null;
   waiting: number;
@@ -161,6 +165,15 @@ export function SyncPage() {
     refetchInterval: 15_000,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ['sync-status'] });
+  // Look at another shop: its own sign-in, the first time.
+  const openShop = async (shopId: string) => {
+    try {
+      await api.post('/api/cloud/switch', { shopId });
+      window.location.assign('/admin/sync');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
 
   const syncNow = async () => {
     setBusy(true);
@@ -212,7 +225,7 @@ export function SyncPage() {
         description={
           s.mode === 'shop'
             ? 'The shop works fully offline. Its changes go up to the cloud when the internet is on, and changes made online come down.'
-            : 'Changes made here reach the shop when it next syncs. Billing, purchases, payments and stock moves are done at the shop.'
+            : 'Everything here is the shop as of its last sync. Only the Super Admin changes things online (users, permissions, settings), and they reach the shop when it next connects.'
         }
       >
         {s.mode === 'shop' && s.agent.linked ? (
@@ -267,18 +280,21 @@ export function SyncPage() {
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>Machines</CardTitle>
+            <CardTitle>Shops</CardTitle>
+            <span className="text-sm text-muted">Each shop as of its last sync</span>
           </CardHeader>
           {s.nodes.length ? (
             <table className="w-full text-sm">
               <thead className="bg-surface-2 text-left text-muted">
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">Shop server</th>
+                  <th className="px-4 py-2.5 font-medium">Shop</th>
                   <th className="px-4 py-2.5 font-medium">Now</th>
                   <th className="px-4 py-2.5 font-medium">Last sync</th>
+                  <th className="px-4 py-2.5 font-medium">Today</th>
                   <th className="px-4 py-2.5 font-medium">Waiting at the shop</th>
                   <th className="px-4 py-2.5 font-medium">Counters (last bill)</th>
                   <th className="px-4 py-2.5 font-medium">Version</th>
+                  <th className="px-4 py-2.5" />
                 </tr>
               </thead>
               <tbody>
@@ -287,7 +303,14 @@ export function SyncPage() {
                     n.lastSeenAt && Date.now() - new Date(n.lastSeenAt).getTime() < 60_000;
                   return (
                     <tr key={n.id} className="border-t border-border align-top">
-                      <td className="px-4 py-2.5 font-medium">{n.name}</td>
+                      <td className="px-4 py-2.5 font-medium">
+                        {n.name}
+                        {n.current ? (
+                          <Badge tone="accent" className="ml-2">
+                            Looking at
+                          </Badge>
+                        ) : null}
+                      </td>
                       <td className="px-4 py-2.5">
                         {live ? (
                           <Badge tone="ok">Online</Badge>
@@ -301,6 +324,9 @@ export function SyncPage() {
                           <div className="text-xs text-muted">{formatDateTime(n.lastPushAt)}</div>
                         ) : null}
                       </td>
+                      <td className="px-4 py-2.5">
+                        {n.today.bills} bills · Rs {formatMoney(n.today.total)}
+                      </td>
                       <td className="num px-4 py-2.5">{n.waiting}</td>
                       <td className="px-4 py-2.5">
                         {n.counters.map((c) => (
@@ -313,6 +339,15 @@ export function SyncPage() {
                         ))}
                       </td>
                       <td className="px-4 py-2.5 text-muted">v{n.version}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        {!n.current ? (
+                          <IconButton
+                            label={`Open ${n.name}`}
+                            icon={<ArrowRightLeft size={16} />}
+                            onClick={() => void openShop(n.id)}
+                          />
+                        ) : null}
+                      </td>
                     </tr>
                   );
                 })}
@@ -320,7 +355,7 @@ export function SyncPage() {
             </table>
           ) : (
             <CardBody>
-              <EmptyState title="No shop server has synced yet." />
+              <EmptyState title="No shop has synced yet." />
             </CardBody>
           )}
         </Card>

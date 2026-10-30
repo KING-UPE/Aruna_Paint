@@ -1,7 +1,7 @@
-import { DomainError } from '@aruna/shared';
+import { DomainError, onlinePermissions, PermissionSet } from '@aruna/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { RequestContext } from '../core/context';
-import { useTestData } from '../core/dbscope';
+import { scopeShop, useShopData, useTestData } from '../core/dbscope';
 import { newToken, sha256 } from './crypto';
 import { loadUserPermissions } from './permissions';
 
@@ -30,9 +30,11 @@ export function registerSessionHook(app: FastifyInstance): void {
   app.addHook('onRequest', async (req, reply) => {
     if (!req.url.startsWith('/api/')) return;
     const config = req.routeOptions.config ?? {};
+    // Online panel: the request works on the copy of the shop chosen at sign-in.
+    if (app.deps.shops) await useChosenShop(app, req);
     if (config.public) return;
 
-    const token = req.cookies[SESSION_COOKIE];
+    const token = sessionToken(req);
     if (!token) throw new DomainError('UNAUTHENTICATED', 'Please log in.');
     const { db, settings } = app.deps;
     const session = await db.session.findUnique({
@@ -41,7 +43,7 @@ export function registerSessionHook(app: FastifyInstance): void {
     });
     const now = new Date();
     if (!session || session.revokedAt || session.expiresAt < now || !session.user.active) {
-      clearSessionCookie(reply);
+      clearSessionCookie(reply, req);
       throw new DomainError('UNAUTHENTICATED', 'Please log in.');
     }
 
@@ -65,7 +67,19 @@ export function registerSessionHook(app: FastifyInstance): void {
       await db.session.update({ where: { id: session.id }, data: { lastActivityAt: now } });
     }
 
-    const { roleCodes, permissions } = await loadUserPermissions(db, session.userId);
+    const loaded = await loadUserPermissions(db, session.userId);
+    const { roleCodes } = loaded;
+    let { permissions } = loaded;
+    if (app.deps.config.mode === 'cloud') {
+      // The online panel: only for those given it, and view-only except for the Super Admin.
+      if (!permissions.has('cloud.access')) {
+        clearSessionCookie(reply, req);
+        throw new DomainError('FORBIDDEN', 'You are not allowed to open the online panel.');
+      }
+      permissions = new PermissionSet(
+        onlinePermissions(permissions.toArray(), roleCodes.includes('SUPER_ADMIN')),
+      );
+    }
     let counter = session.counter;
     if (!counter) {
       counter = await db.counter.findFirst({
@@ -155,7 +169,7 @@ export async function createSession(
       expiresAt,
     },
   });
-  reply.setCookie(SESSION_COOKIE, token, {
+  reply.setCookie(cookieName(req), token, {
     path: '/',
     httpOnly: true,
     sameSite: 'strict',
@@ -164,10 +178,24 @@ export async function createSession(
   });
 }
 
-export function clearSessionCookie(reply: FastifyReply): void {
-  reply.clearCookie(SESSION_COOKIE, { path: '/' });
+export function clearSessionCookie(reply: FastifyReply, req: FastifyRequest): void {
+  reply.clearCookie(cookieName(req), { path: '/' });
 }
 
 export function sessionToken(req: FastifyRequest): string | undefined {
-  return req.cookies[SESSION_COOKIE];
+  return req.cookies[cookieName(req)];
+}
+
+/** The online panel's choice of shop (a cookie, so every tab of the browser agrees). */
+export const SHOP_COOKIE = 'aruna_shop';
+
+/** One sign-in per shop on the online panel, so switching back needs no new sign-in. */
+function cookieName(req: FastifyRequest) {
+  const shop = scopeShop();
+  return req.server.deps.shops && shop ? `${SESSION_COOKIE}_${shop}` : SESSION_COOKIE;
+}
+
+async function useChosenShop(app: FastifyInstance, req: FastifyRequest) {
+  const shop = req.cookies[SHOP_COOKIE];
+  if (shop && (await app.deps.shops!.open(shop))) useShopData(shop);
 }
