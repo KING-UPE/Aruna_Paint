@@ -2,11 +2,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DomainError, formatMoney } from '@aruna/shared';
 import type { AppConfig } from '../config';
-import { createPrisma, type Db } from '../db';
+import { createPrisma, dropDatabase, type Db } from '../db';
 import { audit } from './audit';
 import type { ActorRef } from './context';
 import { inTestData } from './dbscope';
-import { migrationStatements } from './migrations';
+import { bringUpToDate } from './migrations';
 
 export interface TestModeStatus {
   /** When the test copy was last made from the real data. */
@@ -163,6 +163,8 @@ export class TestModeService {
       const db = createPrisma(this.testUrl.url);
       try {
         await db.$queryRaw`SELECT 1 FROM users LIMIT 1`;
+        // After an update, the copy takes the new migrations too.
+        await bringUpToDate(db);
         this.copy = db;
         return db;
       } catch {
@@ -187,7 +189,7 @@ export class TestModeService {
     this.copy = null;
     await old?.$disconnect();
     try {
-      await this.production.$executeRawUnsafe(`DROP DATABASE IF EXISTS ${q(name)} WITH (FORCE)`);
+      await dropDatabase(this.production, name);
       await this.production.$executeRawUnsafe(`CREATE DATABASE ${q(name)}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -200,7 +202,7 @@ export class TestModeService {
     }
     const copy = createPrisma(url);
     try {
-      for (const sql of await migrationStatements()) await copy.$executeRawUnsafe(sql);
+      await bringUpToDate(copy);
       await copyRows(this.production, copy);
     } catch (err) {
       await copy.$disconnect();

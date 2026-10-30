@@ -8,6 +8,7 @@ export const TEST_URL =
 
 export const testConfig: AppConfig = {
   databaseUrl: TEST_URL,
+  directDatabaseUrl: TEST_URL,
   port: 0,
   host: '127.0.0.1',
   mode: 'shop',

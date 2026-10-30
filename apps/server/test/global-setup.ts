@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
+import { dropDatabase } from '../src/db';
 
 /** A fresh test database for each run, migrated exactly like a shop install. */
 export default async function setup() {
@@ -9,7 +10,7 @@ export default async function setup() {
   const admin = new URL(url);
   admin.pathname = '/postgres';
   const prisma = new PrismaClient({ datasources: { db: { url: admin.toString() } } });
-  await prisma.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+  await dropDatabase(prisma, dbName);
   await prisma.$executeRawUnsafe(`CREATE DATABASE "${dbName}"`);
   await prisma.$disconnect();
   execSync('npx prisma migrate deploy', {

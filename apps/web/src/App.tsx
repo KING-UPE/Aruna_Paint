@@ -91,7 +91,8 @@ function Session() {
   const { me, can } = useAuth();
   const qc = useQueryClient();
   useIdleLock(me.settings.idleLockMinutes, me.locked);
-  useEffect(() => connectLive(qc), [qc]);
+  // Live updates come from the shop server; the online panel (on Vercel) refreshes on a timer.
+  useEffect(() => (me.mode === 'shop' ? connectLive(qc) : undefined), [qc, me.mode]);
   const home =
     me.counter && can('billing.view', 'quotations.view')
       ? '/billing'

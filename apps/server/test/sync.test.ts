@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { dropDatabase } from '../src/db';
 import { withShopData } from '../src/core/dbscope';
 import type { SyncTransport } from '../src/core/syncagent';
 import {
@@ -79,7 +80,7 @@ async function freshDb(url: string) {
   const name = admin.pathname.slice(1);
   admin.pathname = '/postgres';
   const pg = new PrismaClient({ datasources: { db: { url: admin.toString() } } });
-  await pg.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+  await dropDatabase(pg, name);
   await pg.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
   await pg.$disconnect();
   execSync('npx prisma migrate deploy', {
@@ -337,5 +338,28 @@ describe('online panel for several shops', () => {
     expect((await owner.get(`/api/suppliers/${cat.supplierB}`)).body.address).toBe(
       'Changed offline',
     );
+  });
+
+  it('an update brings new migrations to every shop’s copy in the cloud', async () => {
+    const id = await nodeId(shopA);
+    // A copy made before the last migration: the column is missing and so is the note.
+    await cloudCopy(shopA, async (db) => {
+      await db.$executeRawUnsafe('ALTER TABLE sync_nodes DROP COLUMN db_name');
+      await db.$executeRawUnsafe(
+        `UPDATE sync_state SET value = jsonb_set(value, '{names}', (value->'names') - '20261030150000_cloud_shops') WHERE key = 'schema'`,
+      );
+    });
+    // The next start opens it and catches up.
+    await cloudApp.deps.shops!.close();
+    expect(await cloudApp.deps.shops!.open(id)).toBe(true);
+    const [col] = await cloudCopy(
+      shopA,
+      (db) =>
+        db.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM information_schema.columns
+         WHERE table_name = 'sync_nodes' AND column_name = 'db_name'`,
+    );
+    expect(col!.n).toBe(1);
+    expect((await owner.get('/api/products')).status).toBe(200);
   });
 });

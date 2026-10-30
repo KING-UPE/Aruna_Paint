@@ -4,6 +4,11 @@ export type AppMode = 'shop' | 'cloud';
 
 export interface AppConfig {
   databaseUrl: string;
+  /**
+   * A direct (not pooled) address of the same database server, for making databases and running
+   * migrations (Neon on Vercel gives DATABASE_URL_UNPOOLED). Defaults to databaseUrl.
+   */
+  directDatabaseUrl: string;
   port: number;
   host: string;
   /** "shop" runs billing and stock; "cloud" is the view-only mirror for admins. */
@@ -33,6 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (mode !== 'shop' && mode !== 'cloud') throw new Error('APP_MODE must be "shop" or "cloud".');
   return {
     databaseUrl,
+    directDatabaseUrl: env.DIRECT_DATABASE_URL || env.DATABASE_URL_UNPOOLED || databaseUrl,
     port: Number(env.PORT ?? 3000),
     host: env.HOST ?? '0.0.0.0',
     mode,

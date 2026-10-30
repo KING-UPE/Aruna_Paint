@@ -12,3 +12,6 @@ test-results/
 .DS_Store
 apps/web/test-results/
 apps/web/playwright-report/
+
+# Vercel build output (apps/server/scripts/vercel-build.mjs)
+.vercel
