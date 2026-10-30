@@ -19,6 +19,8 @@ export interface AppConfig {
   logLevel: string;
   /** Set in tests to skip timers (nightly backup, alerts). */
   disableSchedulers: boolean;
+  /** Cloud only: the key shop servers sync with (their Settings → Cloud "shop key"). */
+  syncKey: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -41,5 +43,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     sessionDays: Number(env.SESSION_DAYS ?? 30),
     logLevel: env.LOG_LEVEL ?? 'info',
     disableSchedulers: env.DISABLE_SCHEDULERS === '1',
+    syncKey: env.SYNC_KEY ?? '',
   };
 }

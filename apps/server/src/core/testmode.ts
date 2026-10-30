@@ -22,7 +22,14 @@ export function testNumberPrefix(): string {
 }
 
 /** Tables the copy leaves out: migration history, logins (they stay real) and the sync queue. */
-const NOT_COPIED = new Set(['_prisma_migrations', 'sessions', 'sync_outbox']);
+const NOT_COPIED = new Set([
+  '_prisma_migrations',
+  'sessions',
+  'sync_outbox',
+  'sync_state',
+  'sync_commands',
+  'sync_nodes',
+]);
 const PAGE = 2000;
 
 /** The same migrations a shop install runs, wherever the server was started from. */
@@ -237,7 +244,8 @@ export class TestModeService {
         'The Super Admin always works on the real data, to look after test mode.',
       );
     if (user.testMode === on) return this.status();
-    if (on) {
+    // The cloud only records the switch; the shop makes its copy when the change arrives.
+    if (on && this.config.mode === 'shop') {
       // The first person to test starts from today's real data; others join the same copy.
       const others = await this.production.user.count({ where: { testMode: true } });
       if (others === 0) await this.rebuild();

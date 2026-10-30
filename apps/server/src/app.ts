@@ -10,7 +10,11 @@ import { BackupService } from './core/backups';
 import { EventBus } from './core/events';
 import { SettingsService } from './core/settings';
 import { inTestData, runInScope, scopedDb } from './core/dbscope';
+import { SyncAgent, type SyncTransport } from './core/syncagent';
+import type { RowChange } from './core/syncapply';
 import { TestModeService } from './core/testmode';
+import { registerCloudCapture } from './modules/sync/cloud';
+import { APP_VERSION } from './modules/system/routes';
 import { errorHandler } from './lib/errors';
 import { PrintService } from './printing/service';
 import { registerSessionHook, resetLocationCache } from './auth/session';
@@ -29,7 +33,7 @@ declare module 'fastify' {
 
 export async function buildApp(
   config: AppConfig,
-  overrides: Partial<Deps> = {},
+  overrides: Partial<Deps> & { syncTransport?: SyncTransport } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: config.logLevel },
@@ -58,7 +62,29 @@ export async function buildApp(
     printer: overrides.printer ?? new PrintService(db, config, inTestData),
     backups: overrides.backups ?? new BackupService(db, config, settings, inTestData),
     testMode,
+    // The shop server syncs with the cloud; the cloud only answers.
+    sync:
+      config.mode === 'shop'
+        ? new SyncAgent(
+            production,
+            settings,
+            APP_VERSION,
+            (changes) => void afterOnlineChange(changes),
+            overrides.syncTransport,
+          )
+        : null,
   };
+  /** Online changes reached the shop: fresh settings, screens reload, a first test user gets a copy. */
+  async function afterOnlineChange(changes: RowChange[]) {
+    settings.invalidate();
+    resetLocationCache();
+    events.publish({ type: 'testmode' });
+    const switchedOn = changes.filter(
+      (c) => c.table === 'users' && c.data?.test_mode === true && c.old?.test_mode !== true,
+    ).length;
+    if (switchedOn && (await production.user.count({ where: { testMode: true } })) === switchedOn)
+      await testMode.rebuild().catch(() => undefined);
+  }
   await testMode.start();
   app.decorate('deps', deps);
   app.setErrorHandler(errorHandler);
@@ -68,6 +94,7 @@ export async function buildApp(
   await app.register(cookie);
   await app.register(websocket);
   registerSessionHook(app);
+  if (config.mode === 'cloud') registerCloudCapture(app);
 
   app.get('/api/health', { config: { public: true } }, async () => ({
     ok: true,
@@ -95,9 +122,13 @@ export async function buildApp(
     });
   }
 
-  if (!config.disableSchedulers) deps.backups.startScheduler();
+  if (!config.disableSchedulers && config.mode === 'shop') {
+    deps.backups.startScheduler();
+    deps.sync?.start();
+  }
 
   app.addHook('onClose', async () => {
+    await deps.sync?.close();
     await deps.backups.close();
     await testMode.close();
     await production.$disconnect();

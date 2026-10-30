@@ -1333,10 +1333,59 @@ model SyncOutbox {
   op        String
   pk        Json
   data      Json?
+  /// The row before an update or delete, so an online change can be checked field by field.
+  old       Json?
   sentAt    DateTime? @map("sent_at") @db.Timestamptz(3)
 
   @@index([sentAt, id])
   @@map("sync_outbox")
+}
+
+/// A change made on the online panel: the rows it changed there, waiting for the shop to apply
+/// them. Kept on both sides with its outcome (applied, conflict, not applied, discarded).
+model SyncCommand {
+  id            String    @id @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdById   String?   @map("created_by_id") @db.Uuid
+  createdByName String    @default("") @map("created_by_name")
+  /// "POST /api/users/:id/reset-password"
+  route         String
+  /// Audit actions of the change, for the screens ("user.reset_password").
+  summary       String    @default("")
+  /// [{ table, op, pk, old, data }] in the order they happened.
+  changes       Json
+  /// PENDING · APPLIED · CONFLICT · FAILED · DISCARDED
+  status        String    @default("PENDING")
+  /// The Super Admin's answer to a conflict, waiting for the shop: APPLY or DISCARD.
+  decision      String?
+  decidedById   String?   @map("decided_by_id") @db.Uuid
+  decidedByName String    @default("") @map("decided_by_name")
+  decidedAt     DateTime? @map("decided_at") @db.Timestamptz(3)
+  message       String    @default("")
+  conflicts     Json?
+  processedAt   DateTime? @map("processed_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status])
+  @@map("sync_commands")
+}
+
+/// A shop server that syncs with the cloud, with when it was last heard from.
+model SyncNode {
+  id           String    @id @db.Uuid
+  name         String
+  lastSeenAt   DateTime? @map("last_seen_at") @db.Timestamptz(3)
+  lastPushAt   DateTime? @map("last_push_at") @db.Timestamptz(3)
+  lastChangeId BigInt    @default(0) @map("last_change_id")
+  /// Changes still waiting at the shop, as it last reported.
+  waiting      Int       @default(0)
+  version      String    @default("")
+  /// { counters: [{ code, name, lastBillAt }] }
+  info         Json?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("sync_nodes")
 }
 
 model SyncState {

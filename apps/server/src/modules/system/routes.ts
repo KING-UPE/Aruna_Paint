@@ -6,22 +6,47 @@ import { actorOf } from '../../core/context';
 
 export const APP_VERSION = process.env.npm_package_version ?? '0.1.0';
 
+/**
+ * For the status bar. At the shop: "Online · synced 10 s ago" or "Offline · 128 changes waiting".
+ * At the cloud: when the shop last synced.
+ */
+async function syncSummary(app: FastifyInstance) {
+  if (app.deps.sync) {
+    const s = await app.deps.sync.status();
+    return {
+      linked: s.linked,
+      online: s.online,
+      pending: s.waiting,
+      lastSyncedAt: s.lastSyncAt,
+      lastError: s.lastError,
+    };
+  }
+  const nodes = await app.deps.testMode.production.syncNode.findMany();
+  const seen = nodes.map((n) => n.lastSeenAt?.getTime() ?? 0);
+  const last = seen.length ? Math.max(...seen) : 0;
+  return {
+    linked: nodes.length > 0,
+    online: last > Date.now() - 60_000,
+    pending: nodes.reduce((t, n) => t + n.waiting, 0),
+    lastSyncedAt: last ? new Date(last) : null,
+    lastError: '',
+  };
+}
+
 export async function systemRoutes(app: FastifyInstance) {
-  const { db, events, settings } = app.deps;
+  const { db, events } = app.deps;
 
   /** The status bar: "Online · synced 10 s ago" or "Offline · 128 changes waiting", and the version. */
   app.get('/api/system/status', async () => {
-    const [pending, lastBackup, cloud, alerts] = await Promise.all([
-      db.syncOutbox.count({ where: { sentAt: null } }),
+    const [lastBackup, alerts] = await Promise.all([
       db.backup.findFirst({ orderBy: { at: 'desc' } }),
-      settings.get('cloud'),
       db.alert.count({ where: { resolvedAt: null } }),
     ]);
     return {
       version: APP_VERSION,
       mode: app.deps.config.mode,
       serverTime: new Date(),
-      sync: { linked: Boolean(cloud.url), pending, lastSyncedAt: null as Date | null },
+      sync: await syncSummary(app),
       lastBackup: lastBackup
         ? {
             at: lastBackup.at,

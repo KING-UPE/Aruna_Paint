@@ -6,6 +6,7 @@ import {
   type Permission,
 } from '@aruna/shared';
 import type { FastifyRequest } from 'fastify';
+import { ONLINE_CHANGES } from '../modules/sync/online';
 
 function label(p: Permission): string {
   if (p in SPECIAL_PERMISSIONS)
@@ -39,14 +40,15 @@ export function superAdminOnly() {
   };
 }
 
-/** The shop server is the only writer; the cloud mirror is view-only. */
+/**
+ * Writes happen at the shop. The online panel may make only the changes in ONLINE_CHANGES, which
+ * the shop applies when it next syncs.
+ */
 export function shopOnly() {
   return async (req: FastifyRequest) => {
-    if (req.server.deps.config.mode !== 'shop') {
-      throw new DomainError(
-        'FORBIDDEN',
-        'The online panel is view-only. Make this change at the shop.',
-      );
+    if (req.server.deps.config.mode === 'shop') return;
+    if (!ONLINE_CHANGES.has(`${req.method} ${req.routeOptions.url}`)) {
+      throw new DomainError('FORBIDDEN', 'This can only be done at the shop.');
     }
   };
 }

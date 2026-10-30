@@ -18,10 +18,14 @@ export const testConfig: AppConfig = {
   sessionDays: 30,
   logLevel: 'silent',
   disableSchedulers: true,
+  syncKey: '',
 };
 
-export async function createTestApp(config: Partial<AppConfig> = {}): Promise<FastifyInstance> {
-  const app = await buildApp({ ...testConfig, ...config });
+export async function createTestApp(
+  config: Partial<AppConfig> = {},
+  overrides: Parameters<typeof buildApp>[1] = {},
+): Promise<FastifyInstance> {
+  const app = await buildApp({ ...testConfig, ...config }, overrides);
   await app.ready();
   return app;
 }

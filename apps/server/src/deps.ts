@@ -4,6 +4,7 @@ import type { EventBus } from './core/events';
 import type { SettingsService } from './core/settings';
 import type { PrintService } from './printing/service';
 import type { BackupService } from './core/backups';
+import type { SyncAgent } from './core/syncagent';
 import type { TestModeService } from './core/testmode';
 
 /** Everything route handlers need, decorated onto the Fastify instance as `app.deps`. */
@@ -15,4 +16,6 @@ export interface Deps {
   printer: PrintService;
   backups: BackupService;
   testMode: TestModeService;
+  /** Shop mode: the agent that syncs with the cloud. Null in the cloud. */
+  sync: SyncAgent | null;
 }

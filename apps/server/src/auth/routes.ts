@@ -47,6 +47,15 @@ export async function authRoutes(app: FastifyInstance) {
       );
       throw new DomainError('UNAUTHENTICATED', 'Wrong username or password.');
     }
+    if (app.deps.config.mode === 'cloud') {
+      // The online panel is for Admins and the Super Admin.
+      const roles = await db.userRole.findMany({
+        where: { userId: user.id },
+        include: { role: true },
+      });
+      if (!roles.some((r) => r.role.code === 'ADMIN' || r.role.code === 'SUPER_ADMIN'))
+        throw new DomainError('FORBIDDEN', 'The online panel is for Admins and the Super Admin.');
+    }
     let counterId: string | null = null;
     if (body.counterCode) {
       const counter = await db.counter.findUnique({ where: { code: codeKey(body.counterCode) } });

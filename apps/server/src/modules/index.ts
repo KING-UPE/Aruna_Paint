@@ -9,6 +9,7 @@ import { shiftRoutes } from './shifts/routes';
 import { systemRoutes } from './system/routes';
 import { hrmRoutes } from './hrm/routes';
 import { dashboardRoutes } from './dashboard/routes';
+import { syncRoutes } from './sync/routes';
 
 /** Stock, billing and system routes. */
 export async function registerModuleRoutes(app: FastifyInstance): Promise<void> {
@@ -22,4 +23,5 @@ export async function registerModuleRoutes(app: FastifyInstance): Promise<void> 
   await app.register(systemRoutes);
   await app.register(hrmRoutes);
   await app.register(dashboardRoutes);
+  await app.register(syncRoutes);
 }

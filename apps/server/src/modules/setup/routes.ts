@@ -6,11 +6,16 @@ export async function setupRoutes(app: FastifyInstance) {
   const { db, config, settings } = app.deps;
 
   /** Public: also the shop's colour theme, so the login screen already wears it. */
-  app.get('/api/setup/status', { config: { public: true } }, async () => ({
-    needsSetup: await needsSetup(db),
-    mode: config.mode,
-    appearance: await settings.get('appearance'),
-  }));
+  app.get('/api/setup/status', { config: { public: true } }, async () => {
+    const empty = await needsSetup(db);
+    return {
+      // The cloud is never set up by hand: it fills from the shop's first sync.
+      needsSetup: config.mode === 'shop' && empty,
+      waitingForShop: config.mode === 'cloud' && empty,
+      mode: config.mode,
+      appearance: await settings.get('appearance'),
+    };
+  });
 
   /** First-run wizard. Works only while no user exists. */
   app.post('/api/setup', { config: { public: true } }, async (req, reply) => {
