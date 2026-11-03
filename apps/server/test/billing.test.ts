@@ -1,4 +1,4 @@
-import { readFile, rm } from 'node:fs/promises';
+import { readdir, readFile, rm } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Client, createTestApp, login, PINS, setupShop, valueId, type Shop } from './helpers';
@@ -45,9 +45,6 @@ beforeEach(async () => {
     pricePerLiter: '650',
   });
   expect(t.status).toBe(200);
-  for (const c of [shop.cashier, shop.cashier2]) {
-    expect((await c.post('/api/shifts/open', { openingFloat: '5000' })).status).toBe(200);
-  }
 });
 
 const mockupLines = () => [
@@ -93,7 +90,7 @@ describe('a sale, start to finish', () => {
     expect(mix.litersHere).toBe('2.500');
   });
 
-  it('prints the 80 mm receipt with totals, change and savings, and opens the drawer', async () => {
+  it('prints the 80 mm receipt with totals, change and savings, and never opens a cash drawer', async () => {
     const dir = '/tmp/aruna-test-receipts';
     await rm(dir, { recursive: true, force: true });
     await app.deps.db.counter.update({
@@ -114,8 +111,17 @@ describe('a sale, start to finish', () => {
     expect(txt).toMatch(/NET TOTAL\s+6,325.00/);
     expect(txt).toMatch(/Change\s+675.00/);
     expect(txt).toContain('You saved Rs 300.00');
+    // The shop uses no cash drawer: no drawer kick on a receipt.
     const bin = await readFile(`${dir}/INV-000001.bin`);
-    expect(bin.includes(Buffer.from([0x1b, 0x70, 0x00]))).toBe(true);
+    expect(bin.includes(Buffer.from([0x1b, 0x70, 0x00]))).toBe(false);
+    // "Print receipt? No" sends nothing to the printer.
+    const files = (await readdir(dir)).length;
+    const quiet = await shop.cashier.post('/api/sales', {
+      lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
+      print: false,
+    });
+    expect(quiet.body.print).toEqual({ printed: false });
+    expect((await readdir(dir)).length).toBe(files);
   });
 
   it('an empty cash amount means exact cash; less than the total is refused', async () => {
@@ -131,7 +137,7 @@ describe('a sale, start to finish', () => {
     expect(short.body.error.field).toBe('cashGiven');
   });
 
-  it('the day opens by itself on the first bill and stops after its day end', async () => {
+  it('the day opens by itself on the first bill and the counter keeps billing all day', async () => {
     // A counter with no day started yet gets one with a zero float on its first bill.
     const counters = (await shop.sa.get('/api/counters')).body.items;
     const c3 = await shop.sa.post('/api/counters', {
@@ -149,18 +155,23 @@ describe('a sale, start to finish', () => {
     const day = (await third.get('/api/shifts/current')).body;
     expect(day.shift).toMatchObject({ openingFloat: '0.00' });
 
-    // Once today's day end is done, that counter takes no more bills today.
-    expect(
-      (await shop.cashier.post('/api/shifts/current/close', { denominations: {} })).status,
-    ).toBe(200);
-    const r = await shop.cashier.post('/api/sales', {
+    // No Finish day any more: the routes are gone.
+    expect((await third.post('/api/shifts/current/close', {})).status).toBe(404);
+    expect((await third.post('/api/shifts/open', { openingFloat: '0' })).status).toBe(404);
+    // A day finished by hand before that update opens again on the next bill.
+    await app.deps.db.shift.update({ where: { id: day.shift.id }, data: { status: 'CLOSED' } });
+    const again = await third.post('/api/sales', {
       lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
     });
-    expect(r.status).toBe(409);
-    expect(r.body.error.message).toBe('The day end for today is already done on this counter.');
+    expect(again.status).toBe(200);
+    expect((await third.get('/api/shifts/current')).body.shift).toMatchObject({
+      id: day.shift.id,
+      status: 'OPEN',
+      billCount: 2,
+    });
   });
 
-  it('a day left open closes by itself the next day; the report prints only when asked', async () => {
+  it('a day left open closes by itself the next day; its report prints any time', async () => {
     const first = await shop.cashier.post('/api/sales', {
       lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
     });
@@ -190,13 +201,13 @@ describe('a sale, start to finish', () => {
     expect(log.total).toBe(1);
     expect((await shop.sa.get('/api/dashboard?range=today')).body.watch.autoClosed).toBe(1);
 
-    // Closing today does not print unless asked; the report can be printed later.
-    const closed = await shop.cashier.post('/api/shifts/current/close', {});
-    expect(closed.status).toBe(200);
-    expect(closed.body.print).toMatchObject({ printed: false, skipped: true });
+    // Yesterday's report, and today's while it is still open; printing closes nothing.
     const recent = (await shop.cashier.get('/api/shifts?recent=1')).body.items;
     expect(recent.map((x: { id: string }) => x.id)).toContain(open.id);
     expect((await shop.cashier.post(`/api/shifts/${open.id}/print`)).status).toBe(200);
+    const today = (await shop.cashier.get('/api/shifts/current')).body.shift;
+    expect((await shop.cashier.post(`/api/shifts/${today.id}/print`)).status).toBe(200);
+    expect((await shop.cashier.get('/api/shifts/current')).body.shift.status).toBe('OPEN');
   });
 
   it('a PC logged in without a counter code bills on the first counter', async () => {
@@ -722,7 +733,7 @@ describe('returns', () => {
 });
 
 describe('day end', () => {
-  it('expects float + sales − refunds + cash in − cash out and records the counted difference', async () => {
+  it("shows the day's sales less refunds; there is no cash float, cash count or drawer", async () => {
     const sale = await shop.cashier.post('/api/sales', { lines: mockupLines(), cashGiven: '7000' });
     const detail = (await shop.cashier.get(`/api/sales/${sale.body.id}`)).body;
     const ret = await valueId(shop.cashier, 'reasons', 'Customer changed mind');
@@ -730,41 +741,22 @@ describe('day end', () => {
       saleId: sale.body.id,
       lines: [{ saleLineId: detail.lines[2].id, qty: '1', reasonId: ret, disposition: 'RESTOCK' }],
     });
-    const petty = await valueId(shop.cashier, 'reasons', 'Petty expense');
-    const out = await shop.cashier.post('/api/shifts/current/cash', {
-      kind: 'OUT',
-      amount: '200',
-      reasonId: petty,
-      note: 'Tea',
-    });
-    expect(out.status).toBe(200);
     const current = (await shop.cashier.get('/api/shifts/current')).body.shift;
-    // 5,000 + 6,325 − 450 − 200
     expect(current).toMatchObject({
+      status: 'OPEN',
+      billCount: 1,
       cashSales: '6325.00',
       cashRefunds: '450.00',
-      cashOut: '200.00',
-      expectedCash: '10675.00',
+      openingFloat: '0.00',
     });
-    const close = await shop.cashier.post('/api/shifts/current/close', {
-      denominations: { '5000': 2, '500': 1, '100': 1, '50': 1, '20': 1 },
-    });
-    expect(close.status).toBe(200);
-    expect(close.body.summary).toMatchObject({
-      status: 'CLOSED',
-      countedCash: '10670.00',
-      difference: '-5.00',
-    });
-    expect(close.body.summary.no).toMatch(/^DE-\d{8}-C1$/);
-    // The day-end backup runs right after.
-    await app.deps.backups.close();
-    const backups = (await shop.sa.get('/api/backups')).body.items;
-    expect(backups[0]).toMatchObject({ kind: 'DAY_END', status: 'OK' });
-    // One day end per counter per day.
-    expect((await shop.cashier.post('/api/shifts/open', { openingFloat: '0' })).status).toBe(409);
+    expect(current.no).toMatch(/^DE-\d{8}-C1$/);
+    // Cash in and out of a drawer is gone too.
+    expect((await shop.cashier.post('/api/shifts/current/cash', { kind: 'OUT' })).status).toBe(404);
   });
 
   it("cashiers see their own counter's day; Admins see every counter", async () => {
+    // Opening the billing screen starts each counter's day.
+    for (const c of [shop.cashier, shop.cashier2]) await c.get('/api/billing/status');
     expect(
       (await shop.cashier.get('/api/shifts')).body.items.map(
         (s: { counter: { code: string } }) => s.counter.code,

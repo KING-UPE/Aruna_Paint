@@ -95,14 +95,9 @@ export async function salesRoutes(app: FastifyInstance) {
       const today = shopDate();
       const todayRange = dayRange(today, today)!;
       // Opening billing starts today's day; one left open from an earlier date closes first.
-      let shift = counter
+      const shift = counter
         ? await db.$transaction(
-            (tx) =>
-              openShiftFor(tx, counter.id, true, req.ctx.user.id).catch((err: unknown) => {
-                // Today's day end is already done on this counter: no open day.
-                if (err instanceof DomainError) return null;
-                throw err;
-              }),
+            (tx) => openShiftFor(tx, counter.id, true, req.ctx.user.id),
             TX_OPTIONS,
           )
         : null;
@@ -132,7 +127,6 @@ export async function salesRoutes(app: FastifyInstance) {
               id: shift.id,
               no: shift.no,
               businessDate: dateOnly(shift.businessDate),
-              needDayEnd: dateOnly(shift.businessDate) !== today,
             }
           : null,
         nextNumbers: { INVOICE: nextInvoice, QUOTATION: nextQuotation },

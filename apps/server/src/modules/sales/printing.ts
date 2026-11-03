@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import type { PrintResult } from '../../printing/service';
-import { drawerOnly, renderReturnReceipt, renderSaleReceipt } from '../../printing/receipts';
+import { renderReturnReceipt, renderSaleReceipt } from '../../printing/receipts';
 import { dateOnly } from '../../lib/json';
 
 /**
- * Prints after the bill is saved. "Print receipt?" Yes prints and opens the drawer; No only opens
- * the drawer. A printer problem never undoes the sale; the cashier can reprint from history.
+ * Prints after the bill is saved when the cashier answers Yes to "Print receipt?". The shop uses
+ * no cash drawer, so nothing opens one. A printer problem never undoes the sale; the cashier can
+ * reprint from history.
  */
 export async function printSale(
   app: FastifyInstance,
@@ -22,12 +23,7 @@ export async function printSale(
     include: { lines: { orderBy: { lineNo: 'asc' } }, cashier: { select: { fullName: true } } },
   });
   const counterId = opts.counterId ?? sale.counterId;
-  const isInvoice = sale.kind === 'INVOICE';
-  if (!opts.print) {
-    if (isInvoice && !opts.reprint)
-      await printer.print(counterId, drawerOnly(), `drawer-${sale.no}`);
-    return { printed: false };
-  }
+  if (!opts.print) return { printed: false };
   const all = await settings.getAll();
   const buf = renderSaleReceipt(
     {
@@ -60,7 +56,6 @@ export async function printSale(
     all,
     {
       reprint: opts.reprint,
-      openDrawer: isInvoice && !opts.reprint,
       hour12: all.billing.timeFormat === '12h',
     },
   );

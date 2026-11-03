@@ -8,7 +8,7 @@ type Stage = 'cash' | 'print';
 
 /**
  * F10: type the cash given (empty means exact) and Enter shows the change in large type.
- * "Print receipt?" then asks Yes or No with Yes selected; the drawer opens either way.
+ * "Print receipt?" then asks Yes or No with Yes selected; No saves the bill without printing.
  */
 export function PayDialog({
   open,

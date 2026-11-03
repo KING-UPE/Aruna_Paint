@@ -100,7 +100,7 @@ export function TestModeCard() {
           </li>
           <li>
             Their receipts print &ldquo;TEST MODE - NOT A REAL BILL&rdquo;, numbers start with
-            TEST-, the cash drawer does not open, and their screens show TEST MODE.
+            TEST-, and their screens show TEST MODE.
           </li>
           <li>Nothing done in test mode ever reaches the real data.</li>
         </ul>

@@ -114,7 +114,7 @@ export function UsersPage() {
         ? {
             title: `Put ${u.fullName} in test mode?`,
             message:
-              'Their bills, stock and everything else go to the test copy, with TEST on every slip and the cash drawer shut. Everyone else keeps working on the real data.',
+              'Their bills, stock and everything else go to the test copy, with TEST on every slip. Everyone else keeps working on the real data.',
             confirmLabel: 'Put in test mode',
           }
         : {

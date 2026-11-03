@@ -1,4 +1,4 @@
-import { formatQty } from '@aruna/shared';
+import { formatMoney, formatQty } from '@aruna/shared';
 import { ChevronLeft, ChevronRight, PackagePlus, PaintBucket, Pencil } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -43,6 +43,15 @@ const baseColumns: ColumnDef<StockListItem, unknown>[] = [
   },
   { header: 'Category', cell: (c) => c.row.original.category?.name ?? '' },
   { header: 'Brand', cell: (c) => c.row.original.brand?.name ?? '' },
+  {
+    header: 'Sales price',
+    meta: { num: true },
+    cell: (c) => {
+      const { salesPriceMin: min, salesPriceMax: max } = c.row.original;
+      if (!min || !max) return <span className="text-muted">—</span>;
+      return min === max ? formatMoney(min) : `${formatMoney(min)} – ${formatMoney(max)}`;
+    },
+  },
   {
     header: 'Stock',
     meta: { num: true },

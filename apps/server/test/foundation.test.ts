@@ -294,6 +294,63 @@ describe('users and roles', () => {
   });
 });
 
+describe('cashier management', () => {
+  beforeEach(async () => {
+    shop = await setupShop(app);
+  });
+
+  it('Admins add, rename, reset, switch off and delete cashier accounts, and only those', async () => {
+    expect((await shop.cashier.get('/api/cashiers')).status).toBe(403);
+    expect((await shop.stock.get('/api/cashiers')).status).toBe(403);
+    const names = (await shop.admin.get('/api/cashiers')).body.items
+      .map((u: { username: string }) => u.username)
+      .sort();
+    expect(names).toEqual(['cashier', 'cashier2']);
+
+    // A new account is always a cashier, whatever else is sent.
+    const adminRole = await app.deps.db.role.findUniqueOrThrow({ where: { code: 'ADMIN' } });
+    const add = await shop.admin.post('/api/cashiers', {
+      username: 'nimal',
+      fullName: 'Nimal',
+      password: 'password123',
+      pin: '7777',
+      roleIds: [adminRole.id],
+    });
+    expect(add.status).toBe(200);
+    expect(add.body.roles.map((r: { code: string }) => r.code)).toEqual(['CASHIER']);
+    expect(add.body.mustChangePassword).toBe(true);
+    const id = add.body.id as string;
+    const renamed = await shop.admin.patch(`/api/cashiers/${id}`, { fullName: 'Nimal Perera' });
+    expect(renamed.body.fullName).toBe('Nimal Perera');
+    const reset = (what: string, body: object, who = id) =>
+      shop.admin.post(`/api/cashiers/${who}/reset-${what}`, body);
+    expect((await reset('password', { password: 'temporary1' })).status).toBe(200);
+    expect((await reset('pin', { pin: '7778' })).status).toBe(200);
+
+    // Never another kind of account.
+    for (const other of [shop.ids.stock!, shop.ids.admin!]) {
+      expect((await reset('password', { password: 'temporary1' }, other)).status).toBe(403);
+      expect((await shop.admin.patch(`/api/cashiers/${other}`, { active: false })).status).toBe(
+        403,
+      );
+      expect((await shop.admin.delete(`/api/cashiers/${other}`)).status).toBe(403);
+    }
+
+    // Deleted when it has no history...
+    expect((await shop.admin.delete(`/api/cashiers/${id}`)).body).toEqual({ deleted: true });
+    expect(await app.deps.db.user.findUnique({ where: { id } })).toBeNull();
+    // ...switched off when it has, so its old records keep the name.
+    const c2 = shop.ids.cashier2!;
+    await shop.cashier2.get('/api/billing/status');
+    expect((await shop.admin.delete(`/api/cashiers/${c2}`)).body).toEqual({
+      deleted: false,
+      switchedOff: true,
+    });
+    expect((await app.deps.db.user.findUniqueOrThrow({ where: { id: c2 } })).active).toBe(false);
+    expect((await shop.cashier2.get('/api/auth/me')).status).toBe(401);
+  });
+});
+
 describe('value manager', () => {
   beforeEach(async () => {
     shop = await setupShop(app);

@@ -355,9 +355,6 @@ export function BillingScreen() {
           return pay(cashGiven, print, p);
         }
         setPayError(err.message);
-      } else if (err instanceof ApiError && err.details?.needShift) {
-        await api.post('/api/shifts/open', { openingFloat: '0' });
-        return pay(cashGiven, print, approvalPin);
       } else if (err instanceof ApiError && err.field?.startsWith('lines.')) {
         const idx = Number(err.field.split('.')[1]);
         const key = lines[idx]?.key;
@@ -585,16 +582,6 @@ export function BillingScreen() {
           <span>Menu</span>
         </button>
       </header>
-
-      {status.data?.shift?.needDayEnd ? (
-        <div className="border-b border-border bg-warn-soft px-4 py-2 text-sm font-medium text-warn">
-          The day end for {status.data.shift.businessDate} is not done.{' '}
-          <Link to="/billing/day-end" className="underline">
-            Finish it
-          </Link>{' '}
-          before billing today.
-        </div>
-      ) : null}
 
       <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <section className="flex min-h-0 flex-col gap-3 rounded-[var(--radius-card)] border border-border bg-surface p-4">

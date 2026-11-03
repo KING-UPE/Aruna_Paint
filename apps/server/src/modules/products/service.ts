@@ -552,9 +552,28 @@ export async function listProducts(tx: Tx, f: StockListFilters) {
     ${where}
     GROUP BY p.id
     ${havingSql}`;
-  const rows = await tx.$queryRaw<{ id: string; stock: string; subs: number; total: number }[]>`
+  // The sales price of what is in stock (a range when batches differ); else of the active ones.
+  const inStock = f.locationId
+    ? Prisma.sql`b.qty > 0 AND b.location_id = ${f.locationId}::uuid`
+    : Prisma.sql`b.qty > 0`;
+  const rows = await tx.$queryRaw<
+    {
+      id: string;
+      stock: string;
+      subs: number;
+      total: number;
+      price_min: string | null;
+      price_max: string | null;
+      any_min: string | null;
+      any_max: string | null;
+    }[]
+  >`
     SELECT p.id, ${stockExpr}::text AS stock,
            COUNT(DISTINCT sp.id) FILTER (WHERE b.qty > 0)::int AS subs,
+           MIN(sp.sales_price) FILTER (WHERE ${inStock})::text AS price_min,
+           MAX(sp.sales_price) FILTER (WHERE ${inStock})::text AS price_max,
+           MIN(sp.sales_price) FILTER (WHERE sp.active)::text AS any_min,
+           MAX(sp.sales_price) FILTER (WHERE sp.active)::text AS any_max,
            COUNT(*) OVER ()::int AS total
     ${base}
     ORDER BY p.name ASC, p.code ASC
@@ -572,6 +591,8 @@ export async function listProducts(tx: Tx, f: StockListFilters) {
         ...productOut(p),
         stock: stock.toFixed(3),
         subProductsInStock: r.subs,
+        salesPriceMin: r.price_min ?? r.any_min,
+        salesPriceMax: r.price_max ?? r.any_max,
         lowStock: D(p.reorderLevel).greaterThan(0) && stock.lessThanOrEqualTo(D(p.reorderLevel)),
         outOfStock: stock.isZero(),
       };

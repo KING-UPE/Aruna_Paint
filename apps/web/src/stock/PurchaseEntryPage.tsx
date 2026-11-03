@@ -1,6 +1,7 @@
 import {
   D,
   computePurchaseLine,
+  maxSalesDiscountPercent,
   computePurchaseTotals,
   formatDate,
   formatMoney,
@@ -125,9 +126,10 @@ const COLS = [
   'qty',
   'free',
   'discount',
+  // Right after the purchase discount: the two are typed together on long lists.
+  'salesDiscount',
   'rPrice',
   'wPrice',
-  'salesDiscount',
   'salesPrice',
   'expiryDate',
 ] as const;
@@ -504,12 +506,12 @@ export function PurchaseEntryPage() {
                 <th className="num px-2 py-2 font-medium">Qty</th>
                 <th className="num px-2 py-2 font-medium">Free</th>
                 <th className="num px-2 py-2 font-medium">Discount (%)</th>
+                <th className="num px-2 py-2 font-medium">Sales disc (%)</th>
                 {canCost ? <th className="num px-2 py-2 font-medium">Cost</th> : null}
                 {canCost ? <th className="num px-2 py-2 font-medium">Amount</th> : null}
                 {canCost ? <th className="num px-2 py-2 font-medium">Actual</th> : null}
                 <th className="num px-2 py-2 font-medium">R-price</th>
                 <th className="num px-2 py-2 font-medium">W-price</th>
-                <th className="num px-2 py-2 font-medium">Sales disc (%)</th>
                 <th className="num px-2 py-2 font-medium">Sales price</th>
                 {canCost ? <th className="num px-2 py-2 font-medium">Margin</th> : null}
                 <th className="px-2 py-2 font-medium">Exp date</th>
@@ -519,6 +521,7 @@ export function PurchaseEntryPage() {
             <tbody>
               {lines.map((l, i) => {
                 const { r, issues } = computed[i]!;
+                const maxPct = r && l.value ? maxSalesDiscountPercent(r) : null;
                 const issue = (f: string) =>
                   errFor(i, f) ?? issues.find((x) => x.field === f)?.message ?? null;
                 const cell = (
@@ -633,23 +636,8 @@ export function PurchaseEntryPage() {
                         }
                       },
                     )}
-                    {canCost ? (
-                      <td className="num px-2 py-2">{r ? formatMoney(r.cost) : ''}</td>
-                    ) : null}
-                    {canCost ? (
-                      <td className="num px-2 py-2">{r ? formatMoney(r.amount) : ''}</td>
-                    ) : null}
-                    {canCost ? (
-                      <td className="num px-2 py-2">{r ? formatMoney(r.actualPrice) : ''}</td>
-                    ) : null}
-                    {cell(5, 'rPrice', l.rPrice ?? (r && l.value ? r.rPrice.toFixed(2) : ''), (v) =>
-                      update(i, { rPrice: v || null }),
-                    )}
-                    {cell(6, 'wPrice', l.wPrice ?? (r && l.value ? r.wPrice.toFixed(2) : ''), (v) =>
-                      update(i, { wPrice: v || null }),
-                    )}
                     {cell(
-                      7,
+                      5,
                       'salesDiscount',
                       l.salesDiscount,
                       (v) => update(i, { salesDiscount: v, salesPrice: null }),
@@ -665,7 +653,22 @@ export function PurchaseEntryPage() {
                           update(i, { salesDiscount: `${trimmed}%`, salesPrice: null });
                         }
                       },
-                      r && l.value ? `max ${r.purchaseDiscount.toFixed(2)}` : undefined,
+                      maxPct ? `max ${maxPct.toString()}%` : undefined,
+                    )}
+                    {canCost ? (
+                      <td className="num px-2 py-2">{r ? formatMoney(r.cost) : ''}</td>
+                    ) : null}
+                    {canCost ? (
+                      <td className="num px-2 py-2">{r ? formatMoney(r.amount) : ''}</td>
+                    ) : null}
+                    {canCost ? (
+                      <td className="num px-2 py-2">{r ? formatMoney(r.actualPrice) : ''}</td>
+                    ) : null}
+                    {cell(6, 'rPrice', l.rPrice ?? (r && l.value ? r.rPrice.toFixed(2) : ''), (v) =>
+                      update(i, { rPrice: v || null }),
+                    )}
+                    {cell(7, 'wPrice', l.wPrice ?? (r && l.value ? r.wPrice.toFixed(2) : ''), (v) =>
+                      update(i, { wPrice: v || null }),
                     )}
                     {cell(
                       8,

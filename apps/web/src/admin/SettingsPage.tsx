@@ -165,7 +165,6 @@ export function SettingsPage() {
       ])}
       {section('alerts', 'Alert limits', [
         number('alerts', 'nearExpiryDays', 'Near expiry (days)'),
-        number('alerts', 'cashDifferenceLimit', 'Cash difference at day end (Rs)'),
         number('alerts', 'syncWaitingMinutes', 'Sync waiting too long (minutes)'),
         number('alerts', 'clockSkewMinutes', 'PC clock warning (minutes)'),
       ])}

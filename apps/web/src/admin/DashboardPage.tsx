@@ -192,9 +192,10 @@ export function DashboardPage() {
   const prev = d?.totals.previous;
   const daily = d?.daily ?? [];
   const pastDaily = daily.filter((x) => !x.future);
-  const drawers = (shifts.data?.items ?? [])
+  // Days still open (today's): their sales less refunds. The shop uses no cash drawer.
+  const openDays = (shifts.data?.items ?? [])
     .filter((x) => x.status === 'OPEN')
-    .reduce((a, x) => a + Number(x.expectedCash), 0);
+    .reduce((a, x) => a + Number(x.cashSales) - Number(x.cashRefunds), 0);
   const nowHour = Number(
     new Intl.DateTimeFormat('en-GB', {
       hour: 'numeric',
@@ -316,7 +317,7 @@ export function DashboardPage() {
             full={rs(d.supplierDues.total)}
           />
         ) : (
-          <StatTile label="Cash in drawers now" value={rs(drawers)} />
+          <StatTile label="Net sales in open days" value={rs(openDays)} />
         )}
       </div>
 
@@ -617,7 +618,7 @@ export function DashboardPage() {
               )}
             </div>
             {can('day_end.view') ? (
-              <div>Cash in drawers now: Rs {formatMoney(String(drawers))}</div>
+              <div>Net sales in open days: Rs {formatMoney(String(openDays))}</div>
             ) : null}
           </CardBody>
         </Card>

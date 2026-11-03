@@ -13,6 +13,7 @@ import {
   Sliders,
   Truck,
   User,
+  UserCog,
   Users,
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router';
@@ -285,6 +286,23 @@ export function MenuPage() {
                     <div className="text-xs text-muted">
                       Sales figures, fast movers & low stock alerts
                     </div>
+                  </div>
+                </Link>
+              )}
+
+              {can('cashiers.view') && (
+                <Link
+                  to="/admin/cashiers"
+                  className="group flex items-start gap-3 rounded-xl border border-border/70 p-3 transition hover:border-accent hover:bg-accent-soft/30"
+                >
+                  <div className="mt-0.5 rounded-lg bg-surface-2 p-2 group-hover:bg-accent group-hover:text-accent-text">
+                    <UserCog size={18} />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-text group-hover:text-accent-strong">
+                      Cashiers
+                    </div>
+                    <div className="text-xs text-muted">Add cashiers, reset passwords and PINs</div>
                   </div>
                 </Link>
               )}

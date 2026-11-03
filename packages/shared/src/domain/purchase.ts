@@ -100,6 +100,19 @@ export function computePurchaseLine(input: PurchaseLineInput): PurchaseLineResul
   };
 }
 
+/**
+ * The most sales discount a line may have, as a percent of its R-price: the same money as the
+ * purchase discount, so 36% off a Rs 1,000 value with a Rs 1,000 R-price allows 36% (not "360").
+ * Rounded down, so the figure shown always passes. Null without an R-price.
+ */
+export function maxSalesDiscountPercent(result: PurchaseLineResult): Decimal | null {
+  if (!result.rPrice.greaterThan(0)) return null;
+  return result.purchaseDiscount
+    .dividedBy(result.rPrice)
+    .times(100)
+    .toDecimalPlaces(2, Decimal.ROUND_DOWN);
+}
+
 /** The purchase-line rules from the plan; an empty list means the line can be posted. */
 export function validatePurchaseLine(
   input: PurchaseLineInput,
@@ -147,10 +160,11 @@ export function validatePurchaseLine(
       message: 'Sales price cannot be above the R-price.',
     });
   } else if (result.salesDiscount.greaterThan(result.purchaseDiscount)) {
+    const pct = maxSalesDiscountPercent(result);
     issues.push({
       code: 'DISCOUNT_ABOVE_LIMIT',
       field: 'salesDiscount',
-      message: `Sales discount cannot be more than the purchase discount (Rs ${result.purchaseDiscount.toFixed(2)}).`,
+      message: `Sales discount cannot be more than the purchase discount (${pct ? `max ${pct.toString()}%, ` : ''}Rs ${result.purchaseDiscount.toFixed(2)}).`,
     });
   }
   if (result.salesPrice.lessThan(result.cost)) {

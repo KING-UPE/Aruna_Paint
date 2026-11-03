@@ -711,4 +711,22 @@ describe('stock view', () => {
     ).body.items.map((p: { name: string }) => p.name);
     expect(bySupplier).toEqual(['Brush 2 inch']);
   });
+
+  it('shows the sales price of what is in stock, as a range when batches differ', async () => {
+    await postGrn(shop, cat.supplierA, [{ productId: cat.thinner, value: '2000', qty: '3' }]);
+    const price = async () => {
+      const items = (await shop.admin.get('/api/products')).body.items;
+      const p = items.find((x: { id: string }) => x.id === cat.thinner);
+      return [p.salesPriceMin, p.salesPriceMax];
+    };
+    expect(await price()).toEqual(['2000.00', '2000.00']);
+    // A second batch at a new price.
+    await postGrn(shop, cat.supplierA, [{ productId: cat.thinner, value: '2200', qty: '2' }]);
+    expect(await price()).toEqual(['2000.00', '2200.00']);
+    // Never bought yet: no price.
+    const brush = (await shop.admin.get('/api/products')).body.items.find(
+      (x: { id: string }) => x.id === cat.brush,
+    );
+    expect(brush.salesPriceMin).toBeNull();
+  });
 });

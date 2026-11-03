@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router';
 import { AuditLogPage } from './AuditLogPage';
+import { CashiersPage } from './CashiersPage';
 import { DashboardPage } from './DashboardPage';
 import { SettingsPage } from './SettingsPage';
 import { SyncPage } from './SyncPage';
@@ -11,6 +12,7 @@ export function AdminRoutes() {
     <Routes>
       <Route index element={<DashboardPage />} />
       <Route path="values" element={<ValueManagerPage />} />
+      <Route path="cashiers" element={<CashiersPage />} />
       <Route path="users" element={<UsersPage />} />
       <Route path="settings" element={<SettingsPage />} />
       <Route path="sync" element={<SyncPage />} />

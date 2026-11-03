@@ -41,62 +41,42 @@ export function requireCounter(ctx: RequestContext) {
 
 /**
  * Bills attach to today's open day for the counter. The day opens by itself with the first bill,
- * and a day still open from an earlier date closes by itself first (no day end to remember).
+ * and a day still open from an earlier date closes by itself first (no day end to remember). A
+ * day finished by hand before the Finish day button was removed opens again, so a counter never
+ * stops taking bills.
  */
-export async function openShiftFor(
-  tx: Tx,
-  counterId: string,
-  required: boolean,
-  openedById?: string,
-) {
+export async function openShiftFor(tx: Tx, counterId: string, required: boolean, userId: string) {
   let shift = await tx.shift.findFirst({
     where: { counterId, status: 'OPEN' },
     orderBy: { openedAt: 'desc' },
   });
-  if (shift && dateOnly(shift.businessDate) !== shopDate() && openedById) {
-    await autoCloseShift(tx, shift.id, openedById);
+  if (shift && dateOnly(shift.businessDate) !== shopDate()) {
+    await autoCloseShift(tx, shift.id, userId);
     shift = null;
   }
-  if (!shift) {
-    if (!required) return null;
-    const today = shopDate();
-    const existingToday = await tx.shift.findUnique({
-      where: {
-        counterId_businessDate: { counterId, businessDate: parseDateOnly(today) },
-      },
+  if (shift || !required) return shift;
+  const today = parseDateOnly(shopDate());
+  const finished = await tx.shift.findUnique({
+    where: { counterId_businessDate: { counterId, businessDate: today } },
+  });
+  if (finished) {
+    await audit(tx, { userId }, { action: 'shift.reopen', entity: 'shift', entityId: finished.id });
+    return tx.shift.update({
+      where: { id: finished.id },
+      data: { status: 'OPEN', closedAt: null, closedById: null },
     });
-    if (!existingToday) {
-      const counter = await tx.counter.findUniqueOrThrow({ where: { id: counterId } });
-      const no = await nextNumber(tx, 'DAY_END', { counterCode: counter.code });
-      shift = await tx.shift.create({
-        data: {
-          no,
-          counterId: counter.id,
-          locationId: counter.locationId,
-          businessDate: parseDateOnly(today),
-          openingFloat: D(0),
-          openedById: openedById ?? counter.id,
-        },
-      });
-      return shift;
-    }
-    throw new DomainError(
-      'INVALID_STATE',
-      'The day end for today is already done on this counter.',
-    );
   }
-  if (dateOnly(shift.businessDate) !== shopDate()) {
-    throw new DomainError(
-      'INVALID_STATE',
-      'Finish the last day end before billing today.',
-      undefined,
-      {
-        needDayEnd: true,
-        shiftId: shift.id,
-      },
-    );
-  }
-  return shift;
+  const counter = await tx.counter.findUniqueOrThrow({ where: { id: counterId } });
+  return tx.shift.create({
+    data: {
+      no: await nextNumber(tx, 'DAY_END', { counterCode: counter.code }),
+      counterId: counter.id,
+      locationId: counter.locationId,
+      businessDate: today,
+      openingFloat: D(0),
+      openedById: userId,
+    },
+  });
 }
 
 function roundNet(net: Decimal, step: string): Decimal {

@@ -54,6 +54,7 @@ export const navItems: NavItem[] = [
   },
   { to: '/admin', label: 'Dashboard', section: 'Admin', perms: ['dashboard.view'] },
   { to: '/admin/values', label: 'Value manager', section: 'Admin', perms: ['values.edit'] },
+  { to: '/admin/cashiers', label: 'Cashiers', section: 'Admin', perms: ['cashiers.view'] },
   { to: '/admin/users', label: 'Users and roles', section: 'Admin', perms: ['users.view'] },
   { to: '/admin/settings', label: 'Settings', section: 'Admin', perms: ['settings.view'] },
   {

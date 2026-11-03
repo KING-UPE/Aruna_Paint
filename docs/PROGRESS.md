@@ -7,7 +7,7 @@ This file is for whoever continues the work: a person or a new Claude session. T
 
 Phase 1 ("go-live core") is mostly built and tested end to end. The shared rules, data model, server API, and screens for Billing, Stock and Admin all work against a real PostgreSQL database. What Phase 1 still lacks is the shop-install work: the Windows installer, automatic updates, data import from the old system, Sinhala receipts, and the restore wizard. Two-way cloud sync and the online panel are built (see Foundation). The rest of Phase 2 (reports, closing, reorder) and Phase 3 have not started, but the database tables for most of them already exist.
 
-Test status on 30 Oct 2026: `pnpm typecheck` is clean; 87 shared unit tests, 109 server integration tests (`test/sync.test.ts` runs a shop app and a cloud app side by side) and 11 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
+Test status on 3 Nov 2026: `pnpm typecheck` is clean; 89 shared unit tests, 111 server integration tests (`test/sync.test.ts` runs a shop app and a cloud app side by side) and 11 Playwright keyboard e2e tests all pass. The tests follow the owner's later changes on `main` (see "Owner's changes the tests now follow" below).
 
 ## Phase 1 checklist (plan § "Build phases and go-live")
 
@@ -39,6 +39,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ⬜ Automatic updates (signed release feed, download, backup first, migrate, health check, roll back).
 - ⬜ Data import: Excel templates for suppliers, products and opening stock; a go-live stock count.
 - ✅ Settings (shop, receipt, billing, closing, alerts, backup, cloud), number formats (letters allowed), counters with printer settings.
+- ✅ **Cashier management** (Admin → Cashiers, `modules/users/cashiers.ts`, permission `cashiers.*`, Admins and the Super Admin by default): add a cashier (always the Cashier role, with a new password due at first sign-in), change the name, reset the password or PIN, switch off or on, delete. Only accounts whose one role is Cashier can be touched there; every other account stays with the Super Admin in Users and roles. A cashier with history (bills, days) is switched off instead of deleted, so old records keep the name. Migration `20261103090000_admin_cashier_management` adds the permissions to an Admin role the Super Admin customized.
 - ✅ **Test mode, per user** (the Super Admin switches single accounts with the flask button in Users and roles; Settings → Test mode lists who is testing and has "Refresh test copy"; `core/testmode.ts`, `core/dbscope.ts`, `POST /api/users/:id/test-mode`, `/api/test-mode`):
   - Users in test mode work on a copy of the data (`<db>_testmode`) while everyone else keeps working on the real data at the same time. Each request picks its database: `deps.db` is a proxy (`scopedDb`) that reads the request's scope from `AsyncLocalStorage`, and the session hook moves test-mode users to the copy. Signing in, the lock and the user's own account (`/api/auth/*`) always stay real. A Super Admin can't be put in test mode.
   - The copy is built by the server itself, with no `pg_dump`: a new database, the same migration files a shop install runs (`core/sqlsplit.ts` splits them), then every row copied in one consistent snapshot (foreign keys off during the load, back on after). Logins and the sync queue are not copied. The first user switched on gets a fresh copy; others join it; "Refresh test copy" starts again from the real data.
@@ -53,9 +54,9 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Products and sub-products: auto 5-digit codes, old codes kept, box-to-piece buying, mix paint item created for loose-sale paints (several sizes can link to one), code renames that cascade to sub and MP codes after confirmation, price changes for one or all sub-products with price history.
 - ✅ Renaming a product (code, name or receipt name), or renaming one sub-product, also updates old bills, quotations and held bills (`sale_lines` code, name and print name). Amounts never change. Each rename is logged as `product.rename`. The Super Admin sees "old → new" under "Name and code changes" on the product page (`GET /api/products/:id/renames`).
 - ✅ Purchases (GRN): draft or post; server-side line maths; Rs 1 match against the supplier invoice total; duplicate-invoice warning; automatic sub-product rules 1–7 (match, reuse at zero stock, new code when anything differs); paid now; edit while stock is unmoved (reopen); Admin reversal; keyboard grid; inline new item.
-- ✅ **The sales discount is never above the purchase discount**, not even on a draft (`computeLines` in `purchases/service.ts` refuses drafts too; posting and price changes already did). The GRN screen keeps Enter on a cell that breaks a price rule, lists every issue of the line under it and shows the limit ("max 200.00"); the price dialog shows it as well.
+- ✅ **The sales discount is never above the purchase discount**, not even on a draft (`computeLines` in `purchases/service.ts` refuses drafts too; posting and price changes already did). The GRN screen keeps Enter on a cell that breaks a price rule, lists every issue of the line under it and shows the limit as a percent of the R-price ("max 36%" for a 36% discount: `maxSalesDiscountPercent`); the price dialog shows it as well. **Sales disc (%) sits right after Discount** (the shop's request, so the two are typed together on long lists).
 - ✅ The GRN supplier and sales rep boxes offer "+ Add supplier" (the supplier form opens with the typed name, and its similar-name warning offers to use that supplier instead) and "+ Add rep" (`POST /api/suppliers/:id/reps`). The item cell's "+ Add item" opens the product form with the typed name, or the code if it is all digits.
-- ✅ Stock view with filters (category, brand, supplier, location, low, out, expiring, inactive), product detail, bin card, zero-stock sub-products hidden.
+- ✅ Stock view with filters (category, brand, supplier, location, low, out, expiring, inactive), product detail, bin card, zero-stock sub-products hidden. **Sales price column:** the price of the batches in stock, "2,470.00 – 2,565.00" when they differ.
 - ✅ Mix paint transfers at weighted-average cost; PIN flow when a cashier opens a can at the counter. Price per liter: the one typed, or the Admin's price for the whole can ÷ liters (`adminCanPrice`), or the current price; the very first can takes its own sales price ÷ liters. Never below the new average cost (`assertMixPrice`, plain-words `BELOW_COST` message).
 - ✅ Location transfers (API, plus "Move 1 from Store?" in billing). There is no stand-alone transfer screen yet.
 - ✅ Adjustments (API; write-offs need an Admin). There is no adjustment screen yet; only the API and tests.
@@ -64,7 +65,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Invoices and quotations (F4), wholesale (F6), customer name with suggestions (F3).
 - ✅ Multi-price pop-up (inline picker), FIFO split across batches, typing a sub code skips the pop-up.
 - ✅ Loose sales (`1.5L` or `0.375`), open a can with a Stock Manager or Admin PIN, price per liter changed with an Admin PIN.
-- ✅ Discount rules (at most the purchase discount, never below cost, never above the R-price, wholesale takes the W-price), cash payment with change, the "Print receipt?" prompt, drawer kick.
+- ✅ Discount rules (at most the purchase discount, never below cost, never above the R-price, wholesale takes the W-price), cash payment with change, the "Print receipt?" prompt. **No cash drawer** (the shop uses none): no drawer kick on receipts or refunds, and "No" prints nothing.
 - ✅ Hold (F7) and recall (F8); bill history (F9) with P reprint, R return, C convert, V void. A held bill is deleted with its bin button or the Delete key in the F8 list, after a confirmation (Enter confirms, Esc keeps it).
 - ✅ **Nothing rung up disappears** (closing cheating holes):
   - **Deleting a held bill** (F8: bin button or Delete) needs a typed reason. The bill is kept as status `DELETED` with who, when and why (`sales.deleted_at`, `deleted_by_id`, `delete_reason`), and its lines go into the audit log.
@@ -73,7 +74,6 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
   - **Every hold is logged** (`sale.hold`). Holding a recalled bill again logs what it had before (`sale.hold_again`), and paying a recalled bill logs the lines it was held with (`sale.complete` → `before.held`).
   - **Lines taken off before payment:** lines removed or quantities lowered, and a bill left unpaid when the screen closes (sent with `sendBeacon`), are logged as `bill.lines_removed` through `POST /api/sales/removed-lines`.
   - **Dashboard "Things to check"** counts, for the range: voids, held bills and quotations deleted, lines taken off bills, returns, reprints, days closed automatically, test mode switches and mix paint prices changed at the counter.
-  - **Still open, the owner's call:** day end no longer counts the cash in the drawer (the owner's "Simplify Day End" change), so a cash shortage isn't flagged.
 - ✅ **A resting mouse no longer picks a suggestion.** Lists (item suggestions, batch picker, held bills, dropdowns) follow the mouse only when it moves, so a list opening under a still pointer can't change what Enter takes.
 - ✅ **Same item, same line:** adding the same batch at the same discount (or the same loose paint at the same price per liter) adds to that line's qty (`mergeLines` in `billing/bill.ts`). A different batch, discount or price stays a separate line. Changing a line's discount to match another line of the same batch merges them. Lines are compared on their own discounts, never on "No discount".
 - ✅ **Arrow keys between buttons** (`lib/arrowNav.ts`): in every dialog (Yes/No on "Print receipt?", confirm boxes, PIN prompt…), the billing header and toolbar, and the main menu. ←↑ go to the previous button and →↓ to the next. Text boxes, lists, dropdowns and radio groups keep their own arrow keys.
@@ -81,7 +81,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 - ✅ Receipts: 80 mm ESC/POS with "You saved Rs X", reprint stamps, return notes, the day-end report. Drivers: network 9100, shared Windows printer, file (testing), none.
 - 🟡 Sinhala receipts: the setting exists but receipts always print in English. Printing Sinhala as a raster image is not built.
 - ✅ Returns: refund = what was paid; restock to the same batch, or to the Damaged location; loose paint blocked; old-system bills need an Admin.
-- ✅ Day end: opening float, cash in/out with reasons, expected cash, then a backup. Printing is optional: "Finish day" or "Finish & print report", and any recent day end can be printed later from its row (`POST /api/shifts/:id/print`).
+- ✅ **Day end needs no finishing** (the shop's request: no Finish day button, no cash drawer, and finishing a day stopped that counter's billing until the next day). The day opens with its first bill (or when billing opens) and closes by itself on the counter's first use on a later date. Day end shows today's sales, refunds and net, with "Print today's report"; any recent day prints from its row (`POST /api/shifts/:id/print`, which closes nothing). The opening float, cash in/out and cash count are gone (`/api/shifts/open`, `/current/cash` and `/current/close` were removed); a day finished by hand before the update opens again on the next bill (`shift.reopen`). Backups come from the nightly run.
 - ✅ **A day left open closes by itself** when its counter next opens on a later date (`autoCloseShift`, logged as `shift.auto_close`, counted on the dashboard). A forgotten day end no longer blocks the next day's billing.
 
 ### HRM and commission (added by the owner on `main`)
@@ -124,7 +124,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
 ### Owner's changes the tests now follow
 These came in with the owner's own work on `main`; the tests were updated to match them:
 - A loose-sale paint's mix item is named "… (Mix Paint)", so loose bill lines read "White Emulsion (Mix Paint), loose". Mix items also show in billing suggestions and can be sold by their MP code.
-- The day starts by itself (zero float) on a counter's first bill; after that day's day end the counter takes no more bills that day.
+- The day starts by itself on a counter's first bill and never stops it from billing; it closes itself the next day.
 - A PC that logs in without a counter code works as the first active counter, so "Log in at a counter" only happens when no counter exists.
 - Staff land on the Main menu (`/menu`); "Open Billing Screen" opens billing. The billing footer reads "Today: Rs … · N bills".
 - Sales discounts can be percentages; the billing discount box shows the batch default as a percent (the seed uses 5%, so the e2e mock-up bill totals Rs 6,365.00).
@@ -140,7 +140,7 @@ These were my calls; confirm them with the owner if any matters:
 4. **Converting a quotation keeps the quoted net price until the validity date**, even above the counter discount cap. A lower current price wins, and it never sells below cost; if it would, the cashier is told to quote again. Batches are re-picked oldest first.
 5. **Admins don't create GRNs**, because the GRN screen shows cost and Admins must not see cost. They can view purchases (cost fields hidden) and reverse them. A person who does both gets both roles ticked.
 6. **Any negative adjustment counts as a write-off and needs an Admin**, MP wastage included.
-7. **One day end per counter per date.** The day opens by itself on the first bill and, if nobody did the day end, closes by itself when the counter is next used on a later date (no cash count; the dashboard shows it).
+7. **One day end per counter per date, closed only by itself.** The day opens on the first bill and closes when the counter is next used on a later date (the dashboard counts those). There is no cash count: the shop uses no cash drawer.
 8. **Cash rounding** setting: none by default; Rs 1, 5 or 10 are possible, stored as a rounding adjustment on the bill.
 9. **Reprints** are numbered from #2; the original print is copy #1.
 10. **PINs are stored as HMAC-SHA256** with the server's `PIN_SECRET`, so a PIN alone can identify the user (they are unique). Losing `PIN_SECRET` means resetting every PIN.

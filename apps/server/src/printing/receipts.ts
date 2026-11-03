@@ -65,7 +65,6 @@ export function renderSaleReceipt(
   settings: Settings,
   opts: {
     reprint?: { copyNo: number; at: Date; user: string };
-    openDrawer: boolean;
     hour12?: boolean;
   },
 ): Buffer {
@@ -132,13 +131,7 @@ export function renderSaleReceipt(
       .align('left');
   }
   p.cut();
-  if (opts.openDrawer) p.openDrawer();
   return p.build();
-}
-
-/** Just the drawer kick, for "Print receipt? No". */
-export function drawerOnly(): Buffer {
-  return new EscPos().openDrawer().build();
 }
 
 export function renderReturnReceipt(
@@ -171,28 +164,22 @@ export function renderReturnReceipt(
   p.bold(true)
     .pair('REFUND', `Rs ${formatMoney(ret.refundTotal)}`)
     .bold(false);
-  p.cut().openDrawer();
+  p.cut();
   return p.build();
 }
 
 export function renderDayEnd(
   s: {
     no: string;
+    status: string;
     counter: string;
     businessDate: string;
     openedBy: string;
     closedBy: string;
-    openingFloat: string;
     billCount: number;
     cashSales: string;
     cashRefunds: string;
-    cashIn: string;
-    cashOut: string;
-    expectedCash: string;
-    countedCash: string;
-    difference: string;
-    denominations: Record<string, number>;
-    movements: { kind: string; amount: string; reason: string; note: string }[];
+    returnCount: number;
   },
   settings: Settings,
 ): Buffer {
@@ -200,27 +187,14 @@ export function renderDayEnd(
   header(p, settings);
   p.bold(true).line(`DAY END ${s.no}`).bold(false);
   p.pair(`Counter ${s.counter}`, formatDate(s.businessDate));
-  p.pair(`Opened: ${s.openedBy}`, `Closed: ${s.closedBy}`);
+  p.pair(`Opened: ${s.openedBy}`, s.status === 'OPEN' ? 'Still open' : `Closed: ${s.closedBy}`);
   p.rule();
-  p.pair('Opening float', formatMoney(s.openingFloat));
-  p.pair(`Cash sales (${s.billCount} bills)`, formatMoney(s.cashSales));
-  p.pair('Refunds', `-${formatMoney(s.cashRefunds)}`);
-  p.pair('Cash in', formatMoney(s.cashIn));
-  p.pair('Cash out', `-${formatMoney(s.cashOut)}`);
-  for (const m of s.movements)
-    p.line(
-      `  ${m.kind === 'IN' ? '+' : '-'}${formatMoney(m.amount)} ${m.reason} ${m.note}`.slice(
-        0,
-        p.width,
-      ),
-    );
+  p.pair(`Sales (${s.billCount} bills)`, formatMoney(s.cashSales));
+  p.pair(`Refunds (${s.returnCount})`, `-${formatMoney(s.cashRefunds)}`);
   p.rule();
-  p.bold(true).pair('Expected cash', formatMoney(s.expectedCash)).bold(false);
-  for (const [note, count] of Object.entries(s.denominations)) {
-    if (count) p.pair(`  ${note} x ${count}`, formatMoney(D(note).times(count)));
-  }
-  p.pair('Counted cash', formatMoney(s.countedCash));
-  p.bold(true).pair('Difference', formatMoney(s.difference)).bold(false);
+  p.bold(true)
+    .pair('NET SALES', formatMoney(D(s.cashSales).minus(D(s.cashRefunds))))
+    .bold(false);
   p.cut();
   return p.build();
 }

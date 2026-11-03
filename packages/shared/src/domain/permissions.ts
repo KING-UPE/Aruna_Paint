@@ -74,6 +74,8 @@ export const MODULES = {
     superAdminOnly: true,
     actions: ALL,
   },
+  // Admins manage cashier accounts (the shop's request); other accounts stay with the Super Admin.
+  cashiers: { label: 'Cashier management', section: 'admin', actions: ['view', 'create', 'edit'] },
   users: { label: 'Users and roles', section: 'admin', superAdminOnly: true, actions: ALL },
   settings: {
     label: 'Settings',
@@ -196,6 +198,7 @@ export const BUILT_IN_ROLE_PERMISSIONS: Record<BuiltInRole, Permission[]> = {
     commission: 'all',
     values: 'all',
     audit_log: 'all',
+    cashiers: 'all',
   }).concat(['cloud.access']),
   // Suppliers, purchases, products with each item's cost, profit and margin, mix-paint transfers,
   // reorder, stock and supplier reports. Write-offs need an Admin.

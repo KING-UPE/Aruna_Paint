@@ -18,11 +18,13 @@ import {
   updateRole,
   updateUser,
 } from './service';
+import { cashierRoutes } from './cashiers';
 
-/** Users and roles are for the Super Admin only. */
+/** Users and roles are for the Super Admin only; cashier accounts also for Admins (cashiers.ts). */
 export async function userRoutes(app: FastifyInstance) {
   const { db, config } = app.deps;
   const idParam = (p: unknown) => idSchema.parse((p as { id: string }).id);
+  await cashierRoutes(app);
 
   app.get('/api/users', { preHandler: perm('users.view') }, async () => ({
     items: await listUsers(db),

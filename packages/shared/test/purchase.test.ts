@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computePurchaseLine,
   computePurchaseTotals,
+  maxSalesDiscountPercent,
   subProductMatches,
   supplierTotalMatches,
   validatePurchaseLine,
@@ -73,6 +74,33 @@ describe('purchase line (plan worked example)', () => {
     const t = computePurchaseLine({ ...input, salesPrice: '1950' });
     expect(t.salesDiscount.toFixed(2)).toBe('50.00');
     expect(t.margin.toFixed(2)).toBe('450.00');
+  });
+});
+
+describe('the most sales discount, as the GRN screen shows it', () => {
+  // The shop's example: Value Rs 1,000, Discount 36%, R-price Rs 1,000. The purchase discount is
+  // Rs 360, so the sales discount may be up to 36%, the same as the purchase discount.
+  const line = { value: '1000', qty: '10', discount: { type: 'PERCENT' as const, value: '36' } };
+  it('a 36% discount allows a 36% sales discount, not 360', () => {
+    expect(maxSalesDiscountPercent(computePurchaseLine(line))?.toString()).toBe('36');
+    const at36 = { ...line, salesDiscount: { type: 'PERCENT' as const, value: '36' } };
+    expect(validatePurchaseLine(at36)).toEqual([]);
+    const at37 = { ...line, salesDiscount: { type: 'PERCENT' as const, value: '37' } };
+    expect(validatePurchaseLine(at37)[0]?.message).toBe(
+      'Sales discount cannot be more than the purchase discount (max 36%, Rs 360.00).',
+    );
+  });
+  it('is the same money when the R-price is higher, so a smaller percent', () => {
+    expect(
+      maxSalesDiscountPercent(computePurchaseLine({ ...line, rPrice: '1200' }))?.toString(),
+    ).toBe('30');
+    // Rounded down, so the figure shown always passes.
+    const third = { value: '300', qty: '1', discount: { type: 'AMOUNT' as const, value: '100' } };
+    const max = maxSalesDiscountPercent(computePurchaseLine(third))!;
+    expect(max.toString()).toBe('33.33');
+    expect(
+      validatePurchaseLine({ ...third, salesDiscount: { type: 'PERCENT', value: max.toString() } }),
+    ).toEqual([]);
   });
 });
 

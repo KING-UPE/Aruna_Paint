@@ -13,6 +13,7 @@ import {
   Sliders,
   Truck,
   User,
+  UserCog,
   Users,
   X,
 } from 'lucide-react';
@@ -83,7 +84,7 @@ export function MenuDialog({ open, onClose }: { open: boolean; onClose: () => vo
                 <FileText size={16} className="text-muted" />
                 <div>
                   <div>Day End</div>
-                  <div className="text-xs text-muted">Close day & cash drawer</div>
+                  <div className="text-xs text-muted">Today's sales and report</div>
                 </div>
               </button>
             )}
@@ -193,6 +194,19 @@ export function MenuDialog({ open, onClose }: { open: boolean; onClose: () => vo
                   <div>
                     <div>Dashboard</div>
                     <div className="text-xs text-muted">Metrics & overview</div>
+                  </div>
+                </button>
+              )}
+              {can('cashiers.view') && (
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('/admin/cashiers')}
+                  className="flex items-center gap-2.5 rounded-lg border border-border bg-surface px-3 py-2 text-left text-sm font-medium hover:border-accent hover:bg-accent-soft"
+                >
+                  <UserCog size={16} className="text-muted" />
+                  <div>
+                    <div>Cashiers</div>
+                    <div className="text-xs text-muted">Passwords, PINs, accounts</div>
                   </div>
                 </button>
               )}

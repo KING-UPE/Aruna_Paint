@@ -86,7 +86,7 @@ export interface BillingItem {
 export interface BillingStatus {
   counter: { id: string; code: string; name: string } | null;
   today: { total: string; bills: number };
-  shift: { id: string; no: string; businessDate: string; needDayEnd: boolean } | null;
+  shift: { id: string; no: string; businessDate: string } | null;
   nextNumbers: { INVOICE: string; QUOTATION: string };
   sync: { linked: boolean; pending: number; lastSyncedAt: string | null };
   serverTime: string;
@@ -230,6 +230,9 @@ export interface ProductSummary {
 export interface StockListItem extends ProductSummary {
   stock: string;
   subProductsInStock: number;
+  /** Of the batches in stock; a range when they differ. Null before the first purchase. */
+  salesPriceMin: string | null;
+  salesPriceMax: string | null;
   lowStock: boolean;
   outOfStock: boolean;
 }
