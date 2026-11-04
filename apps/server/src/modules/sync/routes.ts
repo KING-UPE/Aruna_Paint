@@ -6,7 +6,7 @@ import { ownerSession, SESSION_COOKIE, SHOP_COOKIE } from '../../auth/session';
 import { scopeShop, useShopData, withShopData } from '../../core/dbscope';
 import { TableCatalog, type RowChange } from '../../core/syncapply';
 import { applyPush, checkNodeKey, undoOnCloud, type PushBody } from './cloud';
-import { ownerAfterPush, ownerFromCookie, setUpOwner } from './owner';
+import { ownerAfterPush, ownerFromCookie } from './owner';
 
 const RECENT = 50;
 
@@ -85,7 +85,7 @@ export async function syncRoutes(app: FastifyInstance) {
 
     // The online panel's sign-in page: which shops there are, and which one this browser chose.
     app.get('/api/cloud/shops', { config: { public: true } }, async (req) => {
-      // The owner is signed in to every shop at once.
+      // An owner (the Super Admin) is signed in to every shop at once.
       const owner = Boolean(await ownerFromCookie(req, shops.control, config.syncKey));
       return {
         items: (await shops.list()).map((n) => ({
@@ -96,12 +96,6 @@ export async function syncRoutes(app: FastifyInstance) {
         })),
         current: scopeShop(),
       };
-    });
-
-    // Once: the owner account, proven with the shop key, then copied to every shop.
-    app.post('/api/cloud/owner', { config: { public: true } }, async (req) => {
-      const owner = await setUpOwner(shops, config, req.body);
-      return { username: owner.username };
     });
 
     // The Super Admin takes a shop off the panel (one linked by mistake, or a PC set up again).

@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify';
 import { createSession } from '../../auth/session';
 import { scopeShop } from '../../core/dbscope';
 import { needsSetup, runSetup } from './service';
-import { getOwner } from '../sync/owner';
 
 export async function setupRoutes(app: FastifyInstance) {
   const { db, config, settings } = app.deps;
@@ -19,8 +18,6 @@ export async function setupRoutes(app: FastifyInstance) {
         mode: config.mode,
         shops: shops.map((s) => ({ id: s.id, name: s.name, lastSeenAt: s.lastSeenAt })),
         currentShop: current,
-        // The owner signs in once for every shop; set up once, with the shop key.
-        ownerSetUp: Boolean(await getOwner(app.deps.shops.control)),
         // The chosen shop's colour theme.
         appearance: await settings.get('appearance'),
       };

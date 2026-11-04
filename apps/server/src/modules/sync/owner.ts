@@ -1,41 +1,46 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { DomainError, nameKey, passwordSchema, pinSchema } from '@aruna/shared';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { z } from 'zod';
 import type { Db } from '../../db';
-import { hashPassword, pinHmac } from '../../auth/crypto';
 import { audit } from '../../core/audit';
 import type { CloudShops } from '../../core/shops';
 import { recordCloudChange } from './cloud';
 
 /**
- * The owner: one account for every shop (the owner's request). It lives in the cloud's own
- * database, signs in once on the online panel and sees every shop, new ones included, and is
- * copied to each shop as a Super Admin, so the same username, password and PIN work at every
- * shop's PCs. A password changed online or at any shop reaches every shop.
+ * The owner is the Super Admin (the owner's request: no separate account). A Super Admin who signs
+ * in on the online panel with their own username and password becomes an owner: they see every
+ * shop, new ones included, with that one sign-in, and their account is copied to each shop as a
+ * Super Admin, so the same username and password work at every shop's PCs. A password changed
+ * online or at any shop reaches every shop. Owners are kept in the cloud's own database.
  */
 export interface Owner {
   username: string;
   usernameKey: string;
   fullName: string;
   passwordHash: string;
+  /** Only a PIN set online goes to the shops (shops never send PINs up). */
   pinHmac: string | null;
   /** Goes up with every password change, so sign-ins with the old one end. */
   version: number;
   updatedAt: string;
 }
 
-const STATE = 'owner';
+const STATE = 'owners';
 export const OWNER_COOKIE = 'aruna_owner';
 const COOKIE_DAYS = 30;
 
-export async function getOwner(control: Db): Promise<Owner | null> {
+export async function getOwners(control: Db): Promise<Owner[]> {
   const row = await control.syncState.findUnique({ where: { key: STATE } });
-  return (row?.value as unknown as Owner | undefined) ?? null;
+  return Object.values((row?.value as unknown as Record<string, Owner> | undefined) ?? {});
+}
+
+export async function getOwner(control: Db, usernameKey: string): Promise<Owner | null> {
+  return (await getOwners(control)).find((o) => o.usernameKey === usernameKey) ?? null;
 }
 
 async function saveOwner(control: Db, owner: Owner) {
-  const value = owner as unknown as object;
+  const all = Object.fromEntries((await getOwners(control)).map((o) => [o.usernameKey, o]));
+  all[owner.usernameKey] = owner;
+  const value = all as unknown as object;
   await control.syncState.upsert({
     where: { key: STATE },
     create: { key: STATE, value },
@@ -46,45 +51,41 @@ async function saveOwner(control: Db, owner: Owner) {
 const same = (a: string, b: string) =>
   timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
 
-export const ownerSetupSchema = z.object({
-  /** The cloud's shop key (SYNC_KEY): only whoever set up the cloud knows it. */
-  shopKey: z.string().min(1),
-  username: z
-    .string()
-    .min(3)
-    .max(40)
-    .regex(/^[A-Za-z0-9._-]+$/, { message: 'Use letters, digits and . _ - only.' }),
-  fullName: z.string().min(1).max(120),
-  password: passwordSchema,
-  pin: pinSchema.optional().nullable(),
-});
-
-/** Once: the owner account, proven with the shop key. Then it is copied to every shop. */
-export async function setUpOwner(
+/**
+ * A Super Admin signed in on the panel at `shopId`: they become (or stay) an owner, with the
+ * password they use there, and their account goes to every other shop.
+ */
+export async function becomeOwner(
   shops: CloudShops,
-  config: { syncKey: string; pinSecret: string },
-  raw: unknown,
+  shopId: string,
+  user: { username: string; usernameKey: string; fullName: string; passwordHash: string },
 ): Promise<Owner> {
-  const input = ownerSetupSchema.parse(raw);
-  if (await getOwner(shops.control))
-    throw new DomainError('INVALID_STATE', 'The owner account is already set up.');
-  if (!config.syncKey || !same(input.shopKey, config.syncKey))
-    throw new DomainError('UNAUTHENTICATED', 'Wrong shop key.', 'shopKey');
-  const owner: Owner = {
-    username: input.username,
-    usernameKey: nameKey(input.username),
-    fullName: input.fullName,
-    passwordHash: await hashPassword(input.password),
-    pinHmac: input.pin ? pinHmac(input.pin, config.pinSecret) : null,
-    version: 1,
-    updatedAt: new Date().toISOString(),
-  };
-  await saveOwner(shops.control, owner);
-  await provisionAll(shops, owner);
+  const owner = await getOwner(shops.control, user.usernameKey);
+  if (!owner) {
+    const created: Owner = {
+      username: user.username,
+      usernameKey: user.usernameKey,
+      fullName: user.fullName,
+      passwordHash: user.passwordHash,
+      pinHmac: null,
+      version: 1,
+      updatedAt: new Date().toISOString(),
+    };
+    await saveOwner(shops.control, created);
+    await provisionAll(shops, created, shopId);
+    return created;
+  }
+  if (owner.passwordHash !== user.passwordHash || owner.fullName !== user.fullName)
+    return updateOwner(
+      shops,
+      owner,
+      { passwordHash: user.passwordHash, fullName: user.fullName },
+      shopId,
+    );
   return owner;
 }
 
-/** A new password (and name) for the owner, to reach every shop but `from`, which has it. */
+/** A new password (and name) for an owner, to reach every shop but `from`, which has it. */
 export async function updateOwner(
   shops: CloudShops,
   owner: Owner,
@@ -144,8 +145,8 @@ export async function ownerFromCookie(
   if (!payload || !sig || !same(sig, sign(syncKey, payload))) return null;
   const [key, version, exp] = Buffer.from(payload, 'base64url').toString().split('|');
   if (!exp || Number(exp) < Date.now()) return null;
-  const owner = await getOwner(control);
-  if (!owner || owner.usernameKey !== key || String(owner.version) !== version) return null;
+  const owner = key ? await getOwner(control, key) : null;
+  if (!owner || String(owner.version) !== version) return null;
   return owner;
 }
 
@@ -171,9 +172,10 @@ export async function provisionOwner(
   });
   if (existing && !existing.roles.some((r) => r.role.code === 'SUPER_ADMIN'))
     return `At this shop the username "${owner.username}" belongs to someone else. Rename that account at the shop first.`;
-  // A PIN is unique at each shop: the owner's goes on only where nobody else has it.
-  let pin = owner.pinHmac;
-  if (pin) {
+  // A PIN is unique at each shop: one set online goes on only where nobody else has it; else
+  // the shop keeps the owner's own PIN there.
+  let pin = owner.pinHmac ?? existing?.pinHmac ?? null;
+  if (pin && pin !== existing?.pinHmac) {
     const holder = await db.user.findUnique({ where: { pinHmac: pin } });
     if (holder && holder.id !== existing?.id) pin = existing?.pinHmac ?? null;
   }
@@ -229,26 +231,25 @@ export async function provisionAll(shops: CloudShops, owner: Owner, except?: str
 }
 
 /**
- * After a shop's push: a password the owner changed at that shop becomes the owner's password
- * everywhere, and a shop new to the panel gets the owner's account.
+ * After a shop's push: a password an owner changed at that shop becomes their password
+ * everywhere, and a shop new to the panel gets the owners' accounts.
  */
 export async function ownerAfterPush(
   shops: CloudShops,
   shopId: string,
   changes: { table: string; data: Record<string, unknown> | null }[],
 ) {
-  let owner = await getOwner(shops.control);
-  if (!owner) return;
-  const mine = changes
-    .filter((c) => c.table === 'users' && c.data?.username_key === owner!.usernameKey)
-    .pop()?.data;
-  if (mine && typeof mine.password_hash === 'string' && mine.password_hash !== owner.passwordHash) {
-    owner = await updateOwner(
-      shops,
-      owner,
-      { passwordHash: mine.password_hash, fullName: String(mine.full_name ?? owner.fullName) },
-      shopId,
-    );
+  for (let owner of await getOwners(shops.control)) {
+    const mine = changes
+      .filter((c) => c.table === 'users' && c.data?.username_key === owner.usernameKey)
+      .pop()?.data;
+    if (mine && typeof mine.password_hash === 'string' && mine.password_hash !== owner.passwordHash)
+      owner = await updateOwner(
+        shops,
+        owner,
+        { passwordHash: mine.password_hash, fullName: String(mine.full_name ?? owner.fullName) },
+        shopId,
+      );
+    await provisionOwner(shops, shopId, owner);
   }
-  await provisionOwner(shops, shopId, owner);
 }

@@ -22,6 +22,7 @@ import { loadUserPermissions } from './permissions';
 import { clearSessionCookie, createSession, SHOP_COOKIE } from './session';
 import {
   clearOwnerCookie,
+  becomeOwner,
   getOwner,
   provisionOwner,
   setOwnerCookie,
@@ -48,16 +49,12 @@ export async function authRoutes(app: FastifyInstance) {
       if (!body.shopId || !(await app.deps.shops.open(body.shopId)))
         throw new DomainError('VALIDATION', 'Choose the shop first.', 'shopId');
       useShopData(body.shopId);
-      // The owner signs in once for every shop: their account at this shop is made right first.
-      const owner = await getOwner(app.deps.shops.control);
-      if (
-        owner &&
-        nameKey(body.username) === owner.usernameKey &&
-        (await verifyPassword(body.password, owner.passwordHash))
-      ) {
+      // An owner (a Super Admin who signed in here before) opens every shop with their one
+      // password: their account at this shop is made right first.
+      const owner = await getOwner(app.deps.shops.control, nameKey(body.username));
+      if (owner && (await verifyPassword(body.password, owner.passwordHash))) {
         const problem = await provisionOwner(app.deps.shops, body.shopId, owner);
         if (problem) throw new DomainError('INVALID_STATE', problem);
-        setOwnerCookie(reply, req, config.syncKey, owner);
       }
       reply.setCookie(SHOP_COOKIE, body.shopId, {
         path: '/',
@@ -84,9 +81,15 @@ export async function authRoutes(app: FastifyInstance) {
     }
     if (app.deps.config.mode === 'cloud') {
       // Only those given "Open the online panel" (Admins and the Super Admin by default).
-      const { permissions } = await loadUserPermissions(db, user.id);
+      const { permissions, roleCodes } = await loadUserPermissions(db, user.id);
       if (!permissions.has('cloud.access'))
         throw new DomainError('FORBIDDEN', 'You are not allowed to open the online panel.');
+      // The Super Admin is the owner: this one sign-in opens every shop, and their account goes
+      // to every shop with this password.
+      if (roleCodes.includes('SUPER_ADMIN') && app.deps.shops) {
+        const owner = await becomeOwner(app.deps.shops, scopeShop()!, user);
+        setOwnerCookie(reply, req, config.syncKey, owner);
+      }
     }
     await createSession(app, reply, req, user.id);
     await db.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
@@ -249,7 +252,7 @@ export async function authRoutes(app: FastifyInstance) {
       }, TX_OPTIONS);
       // Online, the owner's new password goes to every shop, and their sign-in stays open.
       const shops = app.deps.shops;
-      const owner = shops ? await getOwner(shops.control) : null;
+      const owner = shops ? await getOwner(shops.control, user.usernameKey) : null;
       if (shops && owner && user.usernameKey === owner.usernameKey) {
         const changed = await db.user.findUniqueOrThrow({ where: { id: user.id } });
         const next = await updateOwner(
