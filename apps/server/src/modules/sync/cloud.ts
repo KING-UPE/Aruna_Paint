@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { DomainError } from '@aruna/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db, Tx } from '../../db';
+import { scopeShop } from '../../core/dbscope';
 import { uuidv7 } from '../../lib/ids';
 import { mirrorChange, TableCatalog, type RowChange } from '../../core/syncapply';
 import { ONLINE_CHANGES, SHOP_REQUESTS } from './online';
@@ -32,7 +33,7 @@ function shopOnlySetting(req: FastifyRequest) {
 }
 
 /** Online changes run one at a time, so each one's captured rows are its own. */
-function lock() {
+function makeLock() {
   let tail = Promise.resolve();
   return () => {
     let release!: () => void;
@@ -43,6 +44,15 @@ function lock() {
   };
 }
 
+// One lock per shop's copy: each copy's captured rows are its own, and a change on one shop
+// (the owner's password) can update the others meanwhile.
+const locks = new Map<string, ReturnType<typeof makeLock>>();
+function acquire(shopId: string) {
+  let lock = locks.get(shopId);
+  if (!lock) locks.set(shopId, (lock = makeLock()));
+  return lock();
+}
+
 async function pins(db: Db) {
   const rows = await db.user.findMany({ select: { id: true, pinHmac: true } });
   return new Map(rows.map((r) => [r.id, r.pinHmac]));
@@ -51,7 +61,6 @@ async function pins(db: Db) {
 /** Cloud mode: the gate on writes, and turning each online change into a command for the shop. */
 export function registerCloudCapture(app: FastifyInstance) {
   const { db } = app.deps;
-  const acquire = lock();
 
   app.addHook('onRequest', async (req, reply) => {
     if (!req.url.startsWith('/api/') || req.method === 'GET' || req.method === 'HEAD') return;
@@ -82,7 +91,7 @@ export function registerCloudCapture(app: FastifyInstance) {
     }
     if (!ONLINE_CHANGES.has(key) || shopOnlySetting(req))
       throw new DomainError('FORBIDDEN', 'This can only be done at the shop.');
-    const release = await acquire();
+    const release = await acquire(scopeShop() ?? '');
     let released = false;
     req.syncRelease = () => {
       if (!released) release();
@@ -105,41 +114,11 @@ export function registerCloudCapture(app: FastifyInstance) {
     const mark = req.syncMark;
     req.syncMark = undefined;
     try {
-      const rows = await db.syncOutbox.findMany({
-        where: { id: { gt: mark } },
-        orderBy: { id: 'asc' },
+      await saveCommand(db, mark, req.syncPins ?? new Map(), {
+        byId: req.ctx?.user.id ?? null,
+        byName: req.ctx?.user.fullName ?? '',
+        route: routeKey(req),
       });
-      if (!rows.length) return payload;
-      const changes: RowChange[] = rows.map((r) => ({
-        table: r.tableName,
-        op: r.op as RowChange['op'],
-        pk: r.pk as Record<string, unknown>,
-        data: (r.data as Record<string, unknown> | null) ?? null,
-        old: (r.old as Record<string, unknown> | null) ?? null,
-      }));
-      // A PIN never leaves the shop, except one set here on purpose: it goes down with the change.
-      const after = await pins(db);
-      for (const ch of changes) {
-        if (ch.table !== 'users' || !ch.data) continue;
-        const id = String(ch.pk.id);
-        if (after.get(id) !== req.syncPins?.get(id)) ch.data.pin_hmac = after.get(id) ?? null;
-      }
-      const summary = changes
-        .filter((c) => c.table === 'audit_logs' && c.data)
-        .map((c) => String(c.data!.action))
-        .join(', ');
-      await db.syncCommand.create({
-        data: {
-          id: uuidv7(),
-          createdById: req.ctx?.user.id ?? null,
-          createdByName: req.ctx?.user.fullName ?? '',
-          route: routeKey(req),
-          summary,
-          changes: changes as unknown as object,
-        },
-      });
-      // The cloud's own capture is only for this; nothing else reads it.
-      await db.syncOutbox.deleteMany({ where: { id: { lte: rows[rows.length - 1]!.id } } });
       return payload;
     } finally {
       req.syncRelease?.();
@@ -147,6 +126,75 @@ export function registerCloudCapture(app: FastifyInstance) {
   });
   // In case the answer never got that far.
   app.addHook('onResponse', async (req) => req.syncRelease?.());
+}
+
+/**
+ * The rows captured on a shop's copy since `mark` become one online change for the shop. A PIN
+ * never leaves the shop, except one set online on purpose: it goes down with the change.
+ */
+async function saveCommand(
+  db: Db,
+  mark: bigint,
+  pinsBefore: Map<string, string | null>,
+  by: { byId: string | null; byName: string; route: string },
+) {
+  const rows = await db.syncOutbox.findMany({
+    where: { id: { gt: mark } },
+    orderBy: { id: 'asc' },
+  });
+  if (!rows.length) return;
+  const changes: RowChange[] = rows.map((r) => ({
+    table: r.tableName,
+    op: r.op as RowChange['op'],
+    pk: r.pk as Record<string, unknown>,
+    data: (r.data as Record<string, unknown> | null) ?? null,
+    old: (r.old as Record<string, unknown> | null) ?? null,
+  }));
+  const after = await pins(db);
+  for (const ch of changes) {
+    if (ch.table !== 'users' || !ch.data) continue;
+    const id = String(ch.pk.id);
+    if (after.get(id) !== pinsBefore.get(id)) ch.data.pin_hmac = after.get(id) ?? null;
+  }
+  const summary = changes
+    .filter((c) => c.table === 'audit_logs' && c.data)
+    .map((c) => String(c.data!.action))
+    .join(', ');
+  await db.syncCommand.create({
+    data: {
+      id: uuidv7(),
+      createdById: by.byId,
+      createdByName: by.byName,
+      route: by.route,
+      summary,
+      changes: changes as unknown as object,
+    },
+  });
+  // The cloud's own capture is only for this; nothing else reads it.
+  await db.syncOutbox.deleteMany({ where: { id: { lte: rows[rows.length - 1]!.id } } });
+}
+
+/**
+ * Writes the cloud makes on a shop's copy by itself (the owner's account): captured like an online
+ * change and sent to the shop as one.
+ */
+export async function recordCloudChange(
+  shopId: string,
+  db: Db,
+  by: { byId: string | null; byName: string; route: string },
+  write: () => Promise<void>,
+) {
+  const release = await acquire(shopId);
+  try {
+    const [mark] = await db.$queryRaw<
+      { id: bigint | null }[]
+    >`SELECT max(id) AS id FROM sync_outbox`;
+    const before = await pins(db);
+    await write();
+    await saveCommand(db, mark?.id ?? 0n, before, by);
+  } finally {
+    release();
+  }
 }
 
 /** Shop servers sign their sync calls with the cloud's SYNC_KEY. */

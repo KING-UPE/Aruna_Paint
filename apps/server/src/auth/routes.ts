@@ -17,9 +17,16 @@ import { actorOf } from '../core/context';
 import { TX_OPTIONS } from '../db';
 import { requireApproval } from './approvals';
 import { hashPassword, normalizeRecoveryCode, pinHmac, sha256, verifyPassword } from './crypto';
-import { useShopData } from '../core/dbscope';
+import { scopeShop, useShopData } from '../core/dbscope';
 import { loadUserPermissions } from './permissions';
 import { clearSessionCookie, createSession, SHOP_COOKIE } from './session';
+import {
+  clearOwnerCookie,
+  getOwner,
+  provisionOwner,
+  setOwnerCookie,
+  updateOwner,
+} from '../modules/sync/owner';
 
 const loginSchema = z.object({
   username: z.string().min(1).max(60),
@@ -41,6 +48,17 @@ export async function authRoutes(app: FastifyInstance) {
       if (!body.shopId || !(await app.deps.shops.open(body.shopId)))
         throw new DomainError('VALIDATION', 'Choose the shop first.', 'shopId');
       useShopData(body.shopId);
+      // The owner signs in once for every shop: their account at this shop is made right first.
+      const owner = await getOwner(app.deps.shops.control);
+      if (
+        owner &&
+        nameKey(body.username) === owner.usernameKey &&
+        (await verifyPassword(body.password, owner.passwordHash))
+      ) {
+        const problem = await provisionOwner(app.deps.shops, body.shopId, owner);
+        if (problem) throw new DomainError('INVALID_STATE', problem);
+        setOwnerCookie(reply, req, config.syncKey, owner);
+      }
       reply.setCookie(SHOP_COOKIE, body.shopId, {
         path: '/',
         httpOnly: true,
@@ -94,6 +112,8 @@ export async function authRoutes(app: FastifyInstance) {
         entityId: req.ctx.user.id,
       });
       clearSessionCookie(reply, req);
+      // Online, the owner signs out of every shop at once.
+      if (app.deps.shops) clearOwnerCookie(reply);
       return { ok: true };
     },
   );
@@ -191,35 +211,56 @@ export async function authRoutes(app: FastifyInstance) {
   );
 
   /** A reset password must be changed at next login. */
-  app.post('/api/auth/change-password', { config: { allowPasswordChange: true } }, async (req) => {
-    const body = z
-      .object({ currentPassword: z.string().min(1), newPassword: passwordSchema })
-      .parse(req.body);
-    const user = await db.user.findUniqueOrThrow({ where: { id: req.ctx.user.id } });
-    if (!(await verifyPassword(body.currentPassword, user.passwordHash))) {
-      throw new DomainError('VALIDATION', 'The current password is not right.', 'currentPassword');
-    }
-    if (body.currentPassword === body.newPassword) {
-      throw new DomainError('VALIDATION', 'Choose a new password.', 'newPassword');
-    }
-    await db.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: user.id },
-        data: { passwordHash: await hashPassword(body.newPassword), mustChangePassword: false },
-      });
-      // Log out the user's other sessions.
-      await tx.session.updateMany({
-        where: { userId: user.id, id: { not: req.ctx.sessionId }, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-      await audit(tx, actorOf(req.ctx), {
-        action: 'password.change',
-        entity: 'user',
-        entityId: user.id,
-      });
-    }, TX_OPTIONS);
-    return { ok: true };
-  });
+  app.post(
+    '/api/auth/change-password',
+    { config: { allowPasswordChange: true } },
+    async (req, reply) => {
+      const body = z
+        .object({ currentPassword: z.string().min(1), newPassword: passwordSchema })
+        .parse(req.body);
+      const user = await db.user.findUniqueOrThrow({ where: { id: req.ctx.user.id } });
+      if (!(await verifyPassword(body.currentPassword, user.passwordHash))) {
+        throw new DomainError(
+          'VALIDATION',
+          'The current password is not right.',
+          'currentPassword',
+        );
+      }
+      if (body.currentPassword === body.newPassword) {
+        throw new DomainError('VALIDATION', 'Choose a new password.', 'newPassword');
+      }
+      await db.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: user.id },
+          data: { passwordHash: await hashPassword(body.newPassword), mustChangePassword: false },
+        });
+        // Log out the user's other sessions.
+        await tx.session.updateMany({
+          where: { userId: user.id, id: { not: req.ctx.sessionId }, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        await audit(tx, actorOf(req.ctx), {
+          action: 'password.change',
+          entity: 'user',
+          entityId: user.id,
+        });
+      }, TX_OPTIONS);
+      // Online, the owner's new password goes to every shop, and their sign-in stays open.
+      const shops = app.deps.shops;
+      const owner = shops ? await getOwner(shops.control) : null;
+      if (shops && owner && user.usernameKey === owner.usernameKey) {
+        const changed = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+        const next = await updateOwner(
+          shops,
+          owner,
+          { passwordHash: changed.passwordHash },
+          scopeShop() ?? undefined,
+        );
+        setOwnerCookie(reply, req, config.syncKey, next);
+      }
+      return { ok: true };
+    },
+  );
 
   /** A forgotten Super Admin password is reset with one of the printed recovery codes. */
   app.post('/api/auth/recover', { config: { public: true } }, async (req) => {

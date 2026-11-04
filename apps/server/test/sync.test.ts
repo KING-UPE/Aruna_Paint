@@ -395,6 +395,155 @@ describe('online panel for several shops', () => {
     ).not.toBeNull();
   });
 
+  it('the owner signs in once and opens every shop; the account works at every shop and its password follows', async () => {
+    const panel = () => new Client(cloudApp);
+    const details = {
+      username: 'boss',
+      fullName: 'Shop Owner',
+      password: 'owner-pass-1',
+      pin: '8642',
+    };
+    // Set up once, with the shop key.
+    expect((await panel().post('/api/cloud/owner', { ...details, shopKey: 'wrong' })).status).toBe(
+      401,
+    );
+    expect((await panel().post('/api/cloud/owner', { ...details, shopKey: KEY })).status).toBe(200);
+    expect((await panel().post('/api/cloud/owner', { ...details, shopKey: KEY })).status).toBe(409);
+    expect((await panel().get('/api/setup/status')).body.ownerSetUp).toBe(true);
+
+    // One sign-in: every shop opens without another.
+    const boss = panel();
+    const login = await boss.post('/api/auth/login', {
+      username: 'boss',
+      password: 'owner-pass-1',
+      shopId: await nodeId(shopA),
+    });
+    expect(login.status).toBe(200);
+    expect((await boss.get('/api/auth/me')).body.roles).toEqual(['SUPER_ADMIN']);
+    const listed = (await boss.get('/api/cloud/shops')).body.items;
+    expect(listed.every((x: { signedIn: boolean }) => x.signedIn)).toBe(true);
+    expect((await boss.post('/api/cloud/switch', { shopId: await nodeId(shopB) })).body).toEqual({
+      signedIn: true,
+    });
+    const atB = (await boss.get('/api/auth/me')).body;
+    expect(atB.user.username).toBe('boss');
+    expect(atB.settings.shopName).toBe('Aruna Paint Kurunegala');
+    // The owner manages each shop: here, a new Admin for shop B.
+    const roles = (await boss.get('/api/roles')).body.items;
+    const adminRole = roles.find((r: { code: string }) => r.code === 'ADMIN').id;
+    expect(
+      (
+        await boss.post('/api/users', {
+          username: 'kamal',
+          fullName: 'Kamal',
+          password: 'password123',
+          roleIds: [adminRole],
+        })
+      ).status,
+    ).toBe(200);
+
+    // The account reaches each shop: the same username and password work at the shop's PCs.
+    await sync(shopA);
+    await sync(shopB);
+    for (const shop of [shopA, shopB]) {
+      const atShop = new Client(shop);
+      expect(
+        (await atShop.post('/api/auth/login', { username: 'boss', password: 'owner-pass-1' }))
+          .status,
+      ).toBe(200);
+      expect((await atShop.get('/api/auth/me')).body.roles).toEqual(['SUPER_ADMIN']);
+    }
+    expect(await shopB.deps.db.user.count({ where: { username: 'kamal' } })).toBe(1);
+
+    // A password changed online goes to every shop.
+    expect(
+      (
+        await boss.post('/api/auth/change-password', {
+          currentPassword: 'owner-pass-1',
+          newPassword: 'owner-pass-2',
+        })
+      ).status,
+    ).toBe(200);
+    expect((await boss.get('/api/auth/me')).status).toBe(200); // still signed in
+    await sync(shopA);
+    await sync(shopB);
+    for (const shop of [shopA, shopB])
+      expect(
+        (
+          await new Client(shop).post('/api/auth/login', {
+            username: 'boss',
+            password: 'owner-pass-2',
+          })
+        ).status,
+      ).toBe(200);
+
+    // A password changed at a shop does too.
+    const atA = new Client(shopA);
+    await atA.post('/api/auth/login', { username: 'boss', password: 'owner-pass-2' });
+    expect(
+      (
+        await atA.post('/api/auth/change-password', {
+          currentPassword: 'owner-pass-2',
+          newPassword: 'owner-pass-3',
+        })
+      ).status,
+    ).toBe(200);
+    await sync(shopA);
+    await sync(shopB);
+    expect(
+      (
+        await new Client(shopB).post('/api/auth/login', {
+          username: 'boss',
+          password: 'owner-pass-3',
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await panel().post('/api/auth/login', {
+          username: 'boss',
+          password: 'owner-pass-3',
+          shopId: await nodeId(shopB),
+        })
+      ).status,
+    ).toBe(200);
+
+    // A shop new to the panel opens for the owner too.
+    await shopB.deps.db.$executeRawUnsafe('DELETE FROM sync_outbox');
+    await shopB.deps.db.$executeRawUnsafe('DELETE FROM sync_state');
+    await sync(shopB);
+    const fresh = panel();
+    await fresh.post('/api/auth/login', {
+      username: 'boss',
+      password: 'owner-pass-3',
+      shopId: await nodeId(shopA),
+    });
+    expect((await fresh.post('/api/cloud/switch', { shopId: await nodeId(shopB) })).body).toEqual({
+      signedIn: true,
+    });
+  });
+
+  it("the owner's username is never taken from someone else at a shop", async () => {
+    // At shop A, "cashier" is a cashier: an owner with that username isn't put over it.
+    await new Client(cloudApp).post('/api/cloud/owner', {
+      username: 'cashier',
+      fullName: 'Owner',
+      password: 'owner-pass-1',
+      shopKey: KEY,
+    });
+    const r = await new Client(cloudApp).post('/api/auth/login', {
+      username: 'cashier',
+      password: 'owner-pass-1',
+      shopId: await nodeId(shopA),
+    });
+    expect(r.status).toBe(409);
+    expect(r.body.error.message).toMatch(/belongs to someone else/);
+    const cashier = await cloudCopy(shopA, (db) =>
+      db.user.findFirstOrThrow({ where: { username: 'cashier' } }),
+    );
+    expect(cashier.fullName).toBe('Cashier');
+  });
+
   it('different fields changed at each end are both kept; "Keep shop version" puts the panel back', async () => {
     const id = a.ids.cashier!;
     await link(shopA, 'a-wrong-key');

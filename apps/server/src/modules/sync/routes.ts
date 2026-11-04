@@ -2,10 +2,11 @@ import { DomainError, idSchema, shopDate } from '@aruna/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { perm, superAdminOnly } from '../../auth/guard';
-import { SESSION_COOKIE, SHOP_COOKIE } from '../../auth/session';
+import { ownerSession, SESSION_COOKIE, SHOP_COOKIE } from '../../auth/session';
 import { scopeShop, useShopData, withShopData } from '../../core/dbscope';
 import { TableCatalog, type RowChange } from '../../core/syncapply';
 import { applyPush, checkNodeKey, undoOnCloud, type PushBody } from './cloud';
+import { ownerAfterPush, ownerFromCookie, setUpOwner } from './owner';
 
 const RECENT = 50;
 
@@ -36,7 +37,10 @@ export async function syncRoutes(app: FastifyInstance) {
       async (req) => {
         const body = req.body as PushBody;
         const nodeId = await asShop(req, body.name);
-        return applyPush(db, shops.control, catalog, nodeId, body);
+        const result = await applyPush(db, shops.control, catalog, nodeId, body);
+        // The owner's account: a password changed at this shop goes everywhere; a new shop gets it.
+        await ownerAfterPush(shops, nodeId, body.changes).catch(() => undefined);
+        return result;
       },
     );
 
@@ -80,15 +84,25 @@ export async function syncRoutes(app: FastifyInstance) {
     });
 
     // The online panel's sign-in page: which shops there are, and which one this browser chose.
-    app.get('/api/cloud/shops', { config: { public: true } }, async (req) => ({
-      items: (await shops.list()).map((n) => ({
-        id: n.id,
-        name: n.name,
-        lastSeenAt: n.lastSeenAt,
-        signedIn: Boolean(req.cookies[`${SESSION_COOKIE}_${n.id}`]),
-      })),
-      current: scopeShop(),
-    }));
+    app.get('/api/cloud/shops', { config: { public: true } }, async (req) => {
+      // The owner is signed in to every shop at once.
+      const owner = Boolean(await ownerFromCookie(req, shops.control, config.syncKey));
+      return {
+        items: (await shops.list()).map((n) => ({
+          id: n.id,
+          name: n.name,
+          lastSeenAt: n.lastSeenAt,
+          signedIn: owner || Boolean(req.cookies[`${SESSION_COOKIE}_${n.id}`]),
+        })),
+        current: scopeShop(),
+      };
+    });
+
+    // Once: the owner account, proven with the shop key, then copied to every shop.
+    app.post('/api/cloud/owner', { config: { public: true } }, async (req) => {
+      const owner = await setUpOwner(shops, config, req.body);
+      return { username: owner.username };
+    });
 
     // The Super Admin takes a shop off the panel (one linked by mistake, or a PC set up again).
     app.delete('/api/cloud/shops/:id', { preHandler: superAdminOnly() }, async (req) => {
@@ -111,7 +125,10 @@ export async function syncRoutes(app: FastifyInstance) {
         secure: req.protocol === 'https',
         maxAge: 365 * 86_400,
       });
-      return { signedIn: Boolean(req.cookies[`${SESSION_COOKIE}_${shopId}`]) };
+      if (req.cookies[`${SESSION_COOKIE}_${shopId}`]) return { signedIn: true };
+      // The owner needs no sign-in at any shop: one starts for them there.
+      useShopData(shopId);
+      return { signedIn: Boolean(await ownerSession(app, req, reply)) };
     });
   }
 

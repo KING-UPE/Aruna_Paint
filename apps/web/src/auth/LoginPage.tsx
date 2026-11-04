@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
 import { Input, Select } from '@/components/ui/input';
-import { api, errorMessage } from '@/lib/api';
+import { api, ApiError, errorMessage } from '@/lib/api';
 
 export function AuthShell({
   children,
@@ -46,6 +46,7 @@ export function LoginPage() {
         waitingForShop?: boolean;
         shops?: { id: string; name: string; lastSeenAt: string | null }[];
         currentShop?: string | null;
+        ownerSetUp?: boolean;
       }>('/api/setup/status'),
     staleTime: Infinity,
   });
@@ -59,6 +60,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [recover, setRecover] = useState(false);
+  const [ownerSetup, setOwnerSetup] = useState(false);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -75,6 +77,15 @@ export function LoginPage() {
   };
 
   if (recover) return <RecoverPage onDone={() => setRecover(false)} />;
+  if (ownerSetup)
+    return (
+      <OwnerSetupPage
+        onDone={() => {
+          setOwnerSetup(false);
+          void qc.invalidateQueries({ queryKey: ['setup-status'] });
+        }}
+      />
+    );
 
   return (
     <AuthShell
@@ -86,7 +97,7 @@ export function LoginPage() {
           <p className="rounded-[8px] bg-surface-2 px-3 py-2 text-sm text-muted">
             {setup.data?.waitingForShop
               ? 'The online panel is waiting for the shop’s first sync. Link the shop in its Settings → Cloud mirror, then sign in here with your shop username and password.'
-              : 'The online panel: see each shop as of its last sync. Sign in with your username and password at that shop.'}
+              : 'The online panel: see each shop as of its last sync. The owner signs in once for every shop; others sign in with their username and password at that shop.'}
           </p>
         ) : null}
         {cloud && shops.length ? (
@@ -129,6 +140,15 @@ export function LoginPage() {
         <Button type="submit" variant="primary" disabled={busy || !username || !password}>
           Log in
         </Button>
+        {cloud && setup.data?.ownerSetUp === false ? (
+          <button
+            type="button"
+            className="text-left text-sm text-muted underline-offset-2 hover:underline"
+            onClick={() => setOwnerSetup(true)}
+          >
+            Set up the owner account (one sign-in for every shop)
+          </button>
+        ) : null}
         {/* A recovery code resets the password at the shop, where it counts. */}
         {!cloud ? (
           <button
@@ -190,6 +210,112 @@ function RecoverPage({ onDone }: { onDone: () => void }) {
         <Button type="button" variant="ghost" onClick={onDone}>
           Back to login
         </Button>
+      </form>
+    </AuthShell>
+  );
+}
+
+/**
+ * Online, once: the owner account, one sign-in for every shop. The shop key (SYNC_KEY on the
+ * server) proves it is the person who set up the online panel.
+ */
+function OwnerSetupPage({ onDone }: { onDone: () => void }) {
+  const [form, setForm] = useState({
+    shopKey: '',
+    username: '',
+    fullName: '',
+    password: '',
+    pin: '',
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm({ ...form, [k]: e.target.value });
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setErrors({});
+    setError('');
+    try {
+      await api.post('/api/cloud/owner', { ...form, pin: form.pin.trim() || null });
+      onDone();
+    } catch (err) {
+      if (err instanceof ApiError && err.field) setErrors({ [err.field]: err.message });
+      else setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AuthShell
+      title="The owner account"
+      subtitle="One sign-in that opens every shop, new ones too. It is also made a Super Admin at every shop, so the same username, password and PIN work on the shops' PCs."
+    >
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <Field
+          label="Shop key"
+          hint="The SYNC_KEY set on the server; every shop uses it too."
+          error={errors.shopKey}
+          htmlFor="shopKey"
+        >
+          <Input
+            id="shopKey"
+            type="password"
+            autoFocus
+            value={form.shopKey}
+            onChange={set('shopKey')}
+          />
+        </Field>
+        <Field
+          label="Username"
+          hint="If a shop already has a Super Admin with this username, that account becomes the owner's."
+          error={errors.username}
+          htmlFor="ownerUsername"
+        >
+          <Input id="ownerUsername" value={form.username} onChange={set('username')} />
+        </Field>
+        <Field label="Full name" error={errors.fullName} htmlFor="ownerName">
+          <Input id="ownerName" value={form.fullName} onChange={set('fullName')} />
+        </Field>
+        <Field
+          label="Password"
+          hint="At least 8 characters."
+          error={errors.password}
+          htmlFor="ownerPassword"
+        >
+          <Input
+            id="ownerPassword"
+            type="password"
+            autoComplete="new-password"
+            value={form.password}
+            onChange={set('password')}
+          />
+        </Field>
+        <Field label="PIN (optional)" hint="4 to 6 digits." error={errors.pin} htmlFor="ownerPin">
+          <Input
+            id="ownerPin"
+            type="password"
+            inputMode="numeric"
+            value={form.pin}
+            onChange={set('pin')}
+          />
+        </Field>
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+        <Button type="submit" variant="primary" disabled={busy}>
+          {busy ? 'Setting up…' : 'Set up the owner'}
+        </Button>
+        <button
+          type="button"
+          className="text-left text-sm text-muted underline-offset-2 hover:underline"
+          onClick={onDone}
+        >
+          Back to sign-in
+        </button>
       </form>
     </AuthShell>
   );

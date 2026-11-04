@@ -4,6 +4,7 @@ import type { RequestContext } from '../core/context';
 import { inTestData, scopeShop, useShopData, useTestData } from '../core/dbscope';
 import { newToken, sha256 } from './crypto';
 import { loadUserPermissions } from './permissions';
+import { ownerFromCookie, provisionOwner } from '../modules/sync/owner';
 
 export const SESSION_COOKIE = 'aruna_sid';
 
@@ -34,7 +35,10 @@ export function registerSessionHook(app: FastifyInstance): void {
     if (app.deps.shops) await useChosenShop(app, req);
     if (config.public) return;
 
-    const token = sessionToken(req);
+    let token = sessionToken(req);
+    // Online: the owner signed in once opens every shop, new ones included.
+    if (!token && app.deps.shops && scopeShop())
+      token = (await ownerSession(app, req, reply)) ?? undefined;
     if (!token) throw new DomainError('UNAUTHENTICATED', 'Please log in.');
     const { db, settings } = app.deps;
     const session = await db.session.findUnique({
@@ -130,7 +134,7 @@ export async function createSession(
   reply: FastifyReply,
   req: FastifyRequest,
   userId: string,
-): Promise<void> {
+): Promise<string> {
   const token = newToken();
   const days = app.deps.config.sessionDays;
   const expiresAt = new Date(Date.now() + days * 86_400_000);
@@ -150,6 +154,27 @@ export async function createSession(
     secure: req.protocol === 'https',
     expires: expiresAt,
   });
+  return token;
+}
+
+/**
+ * The owner's sign-in on the panel opens the shop being looked at: its account there is made
+ * right if needed, and a sign-in for that shop starts. Null when this browser has no owner sign-in.
+ */
+export async function ownerSession(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  reply: FastifyReply,
+): Promise<string | null> {
+  const shops = app.deps.shops;
+  const shop = scopeShop();
+  if (!shops || !shop) return null;
+  const owner = await ownerFromCookie(req, shops.control, app.deps.config.syncKey);
+  if (!owner) return null;
+  const problem = await provisionOwner(shops, shop, owner);
+  if (problem) throw new DomainError('INVALID_STATE', problem);
+  const user = await app.deps.db.user.findUnique({ where: { usernameKey: owner.usernameKey } });
+  return user ? createSession(app, reply, req, user.id) : null;
 }
 
 export function clearSessionCookie(reply: FastifyReply, req: FastifyRequest): void {

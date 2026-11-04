@@ -95,6 +95,8 @@ const ACTIONS: Record<string, string> = {
   'counter.create': 'New counter',
   'counter.update': 'Counter changed',
   'backup.manual': 'Backup asked for',
+  'owner.create': 'Owner account added',
+  'owner.update': 'Owner account updated',
   'testmode.refresh': 'Fresh test copy asked for',
 };
 
