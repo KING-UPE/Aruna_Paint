@@ -129,19 +129,16 @@ export interface Shop {
 
 /**
  * Sets up a shop the way the first-run wizard does, then registers one user per built-in role.
- * Cashiers log in at counters C1 and C2.
+ * Every PC is the same (no counters); two cashiers work at once.
  */
 export async function setupShop(app: FastifyInstance): Promise<Shop> {
   await resetDb(app);
   const { recoveryCodes } = await runSetup(app.deps.db, app.deps.config, {
     shop: { shopName: 'Pannala Aruna Paint Center', address: 'Pannala', phone: '0371234567' },
     admin: { username: 'owner', fullName: 'Owner', password: PASSWORD, pin: PINS.superAdmin },
-    counterCode: 'C1',
   });
   const db = app.deps.db;
   const shop = await db.location.findFirstOrThrow({ where: { kind: 'SHOP' } });
-  await db.counter.create({ data: { code: 'C2', name: 'Counter 2', locationId: shop.id } });
-  await db.counter.update({ where: { code: 'C1' }, data: { printer: { driver: 'none' } } });
 
   const sa = new Client(app);
   await login(sa, 'owner');
@@ -173,14 +170,14 @@ export async function setupShop(app: FastifyInstance): Promise<Shop> {
   const stock = new Client(app);
   await login(stock, 'stock');
   const cashier = new Client(app);
-  await login(cashier, 'cashier', 'C1');
+  await login(cashier, 'cashier');
   const cashier2 = new Client(app);
-  await login(cashier2, 'cashier2', 'C2');
+  await login(cashier2, 'cashier2');
   return { sa, admin, stock, cashier, cashier2, recoveryCodes, ids };
 }
 
-export async function login(client: Client, username: string, counterCode?: string) {
-  const r = await client.post('/api/auth/login', { username, password: PASSWORD, counterCode });
+export async function login(client: Client, username: string) {
+  const r = await client.post('/api/auth/login', { username, password: PASSWORD });
   if (r.status !== 200) throw new Error(`login ${username}: ${JSON.stringify(r.body)}`);
   return r;
 }
@@ -190,4 +187,14 @@ export async function valueId(client: Client, list: string, name: string): Promi
   const item = r.body.items.find((i: { name: string }) => i.name === name);
   if (!item) throw new Error(`no ${list} value ${name}`);
   return item.id;
+}
+
+/** The shop's one receipt printer (Settings → Receipt printer). */
+export async function setPrinter(app: FastifyInstance, value: Record<string, unknown>) {
+  await app.deps.db.setting.upsert({
+    where: { key: 'printer' },
+    create: { key: 'printer', value: value as object },
+    update: { value: value as object },
+  });
+  app.deps.settings.invalidate();
 }

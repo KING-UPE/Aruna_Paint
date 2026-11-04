@@ -169,9 +169,7 @@ describe('number formats', () => {
   it('renders the starting formats', () => {
     expect(renderNumber('INV-{NNNNNN}', { date, seq: 4512 })).toBe('INV-004512');
     expect(renderNumber('GRN-{YYYY}-{NNNNN}', { date, seq: 125 })).toBe('GRN-2026-00125');
-    expect(renderNumber('DE-{YYYY}{MM}{DD}-{COUNTER}', { date, counter: 'C1' })).toBe(
-      'DE-20261024-C1',
-    );
+    expect(renderNumber('DE-{YYYY}{MM}{DD}', { date })).toBe('DE-20261024');
     expect(renderNumber('A{YY}-INV-{NNNN}', { date, seq: 125 })).toBe('A26-INV-0125');
   });
   it('a yearly format counts per year', () => {
@@ -187,7 +185,9 @@ describe('number formats', () => {
     expect(validateNumberFormat('INVOICE', 'INV-NNNNNN')).not.toEqual([]);
     expect(validateNumberFormat('INVOICE', 'INV-{NNN}-{NNN}')).not.toEqual([]);
     expect(validateNumberFormat('INVOICE', 'INV-{XX}{NNN}')).not.toEqual([]);
-    expect(validateNumberFormat('DAY_END', 'DE-{YYYY}{MM}{DD}-{COUNTER}')).toEqual([]);
+    expect(validateNumberFormat('DAY_END', 'DE-{YYYY}{MM}{DD}')).toEqual([]);
+    // No counters any more: every PC is the same.
+    expect(validateNumberFormat('DAY_END', 'DE-{YYYY}{MM}{DD}-{COUNTER}')).not.toEqual([]);
   });
 });
 

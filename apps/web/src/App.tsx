@@ -94,7 +94,7 @@ function Session() {
   // Live updates come from the shop server; the online panel (on Vercel) refreshes on a timer.
   useEffect(() => (me.mode === 'shop' ? connectLive(qc) : undefined), [qc, me.mode]);
   const home =
-    me.counter && can('billing.view', 'quotations.view')
+    me.mode === 'shop' && can('billing.view', 'quotations.view')
       ? '/billing'
       : (firstAllowed('Stock', can) ??
         firstAllowed('Admin', can) ??

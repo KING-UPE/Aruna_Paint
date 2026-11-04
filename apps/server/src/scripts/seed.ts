@@ -3,7 +3,7 @@
  * from two GRNs and mix paint ready to sell loose. Run on an empty database: `pnpm db:seed`.
  *
  * Logins (password "password123"): owner (Super Admin, PIN 1111), admin (2222),
- * stock (3333), cashier (4444). Counter C1 is set up for billing.
+ * stock (3333), cashier (4444). Every PC bills the same way (no counters).
  */
 import { computePurchaseLine, computePurchaseTotals, shopDate } from '@aruna/shared';
 import type { FastifyInstance } from 'fastify';
@@ -48,10 +48,8 @@ async function main() {
       phone: '037 224 5566',
     },
     admin: { username: 'owner', fullName: 'Owner', password: PASSWORD, pin: '1111' },
-    counterCode: 'C1',
   });
   const shopId = (await db.location.findFirstOrThrow({ where: { kind: 'SHOP' } })).id;
-  await db.counter.create({ data: { code: 'C2', name: 'Counter 2', locationId: shopId } });
 
   const owner = new Session(app);
   await owner.call('POST', '/api/auth/login', { username: 'owner', password: PASSWORD });
@@ -186,7 +184,7 @@ async function main() {
 
   console.log('Seeded the demo shop.');
   console.log('Logins (password "password123"): owner/1111, admin/2222, stock/3333, cashier/4444.');
-  console.log('Open the billing screen with ?counter=C1. Recovery codes for owner:');
+  console.log('Recovery codes for owner:');
   for (const c of recoveryCodes) console.log(`  ${c}`);
   await app.close();
 }

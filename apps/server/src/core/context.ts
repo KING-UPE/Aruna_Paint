@@ -11,8 +11,7 @@ export interface RequestContext {
   };
   roleCodes: string[];
   permissions: PermissionSet;
-  counter: { id: string; code: string; name: string; locationId: string } | null;
-  /** The counter's location, or the main shop for PCs that aren't counters. */
+  /** The shop's location: bills and returns move its stock. Every PC is the same (no counters). */
   locationId: string;
   ip: string;
   /** This user works on the test copy (set by the Super Admin). */
@@ -22,10 +21,9 @@ export interface RequestContext {
 /** For jobs that run without a person (nightly backup, scheduled alerts). */
 export interface ActorRef {
   userId: string | null;
-  counterId?: string | null;
   ip?: string;
 }
 
 export function actorOf(ctx: RequestContext): ActorRef {
-  return { userId: ctx.user.id, counterId: ctx.counter?.id ?? null, ip: ctx.ip };
+  return { userId: ctx.user.id, ip: ctx.ip };
 }

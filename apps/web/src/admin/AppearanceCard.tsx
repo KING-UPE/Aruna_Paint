@@ -96,8 +96,7 @@ export function AppearanceCard({ saved }: { saved: AppearanceSettings }) {
         <div>
           <CardTitle>Colour theme</CardTitle>
           <p className="mt-0.5 text-sm text-muted">
-            For every screen and counter in the shop. Green, amber and red always mean done, warning
-            and error.
+            For every screen in the shop. Green, amber and red always mean done, warning and error.
           </p>
         </div>
         <div className="flex shrink-0 gap-2">

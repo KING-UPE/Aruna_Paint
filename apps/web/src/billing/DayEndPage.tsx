@@ -12,17 +12,16 @@ import { api, errorMessage } from '@/lib/api';
 import type { ShiftSummary } from '@/lib/types';
 
 /**
- * Day End: today's sales, completed bills and net total on this counter. Days need no finishing
- * (the shop asked for no Finish day button) and there is no cash drawer: a day opens with its
- * first bill and closes by itself when the counter starts the next day. The report prints when
- * asked, today's or any recent day's, as often as needed.
+ * Day End: the shop's sales today, with each user's bills and refunds (every PC is the same, so
+ * sales are told apart by who made them). Days need no finishing (the shop asked for no Finish
+ * day button) and there is no cash drawer: a day opens with its first bill and closes by itself
+ * when the next day starts. The report prints when asked, today's or any recent day's.
  */
 export function DayEndPage() {
-  const { me, can } = useAuth();
+  const { can } = useAuth();
   const current = useQuery({
     queryKey: ['shift-current'],
     queryFn: () => api.get<{ shift: ShiftSummary | null }>('/api/shifts/current'),
-    enabled: Boolean(me.counter),
   });
   const today = useQuery({
     queryKey: ['shifts-today', 'recent'],
@@ -35,7 +34,8 @@ export function DayEndPage() {
         `/api/shifts/${s.id}/print`,
       );
       if (r.print.printed) toast.success(`Day end ${s.no} sent to the printer.`);
-      else toast.warning(`Not printed: ${r.print.error ?? 'no printer is set for this counter'}.`);
+      else
+        toast.warning(`Not printed: ${r.print.error ?? 'no receipt printer is set in Settings'}.`);
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -49,9 +49,9 @@ export function DayEndPage() {
         description={`${formatDate(new Date())} · the day opens with the first bill and closes by itself when the next day starts`}
       />
 
-      {me.counter && !current.isLoading && !shift ? (
+      {!current.isLoading && !shift ? (
         <Card>
-          <CardBody className="text-muted">No bills yet today on this counter.</CardBody>
+          <CardBody className="text-muted">No bills yet today.</CardBody>
         </Card>
       ) : null}
 
@@ -100,6 +100,41 @@ export function DayEndPage() {
                 Rs {formatMoney(D(shift.cashSales).minus(D(shift.cashRefunds)))}
               </dd>
             </dl>
+
+            {shift.byUser.length ? (
+              <table className="w-full text-sm">
+                <thead className="text-left text-muted">
+                  <tr className="border-b border-border">
+                    <th className="py-2 font-medium">User</th>
+                    <th className="num py-2 font-medium">Bills</th>
+                    <th className="num py-2 font-medium">Sales</th>
+                    <th className="num py-2 font-medium">Refunds</th>
+                    <th className="num py-2 font-medium">Net</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shift.byUser.map((u) => (
+                    <tr key={u.userId} className="border-b border-border/60">
+                      <td className="py-2 font-medium">{u.name}</td>
+                      <td className="num py-2">{u.bills}</td>
+                      <td className="num py-2">
+                        <Money value={u.sales} />
+                      </td>
+                      <td className="num py-2">
+                        {Number(u.refunds) > 0 ? (
+                          <span className="text-danger">-Rs {formatMoney(u.refunds)}</span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="num py-2 font-semibold">
+                        <Money value={u.net} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
 
             <Button
               size="lg"

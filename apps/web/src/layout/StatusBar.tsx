@@ -69,7 +69,7 @@ export function SyncStatus({
   );
 }
 
-/** Bottom bar: date, live time, this counter's sales today, sync status, counter and version. */
+/** Bottom bar: date, live time, your sales today, sync status and version. */
 export function StatusBar({ billing }: { billing?: BillingStatus | undefined }) {
   const { me } = useAuth();
   const now = useClock();
@@ -91,7 +91,7 @@ export function StatusBar({ billing }: { billing?: BillingStatus | undefined }) 
       </span>
       {billing ? (
         <span className="font-medium text-text">
-          Today: {formatRs(billing.today.total)} · {billing.today.bills} bills
+          Your sales today: {formatRs(billing.today.total)} · {billing.today.bills} bills
         </span>
       ) : null}
       {skew > 120_000 ? (

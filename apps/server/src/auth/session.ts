@@ -39,7 +39,7 @@ export function registerSessionHook(app: FastifyInstance): void {
     const { db, settings } = app.deps;
     const session = await db.session.findUnique({
       where: { tokenHash: sha256(token) },
-      include: { user: true, counter: true },
+      include: { user: true },
     });
     const now = new Date();
     if (!session || session.revokedAt || session.expiresAt < now || !session.user.active) {
@@ -80,19 +80,6 @@ export function registerSessionHook(app: FastifyInstance): void {
         onlinePermissions(permissions.toArray(), roleCodes.includes('SUPER_ADMIN')),
       );
     }
-    let counter = session.counter;
-    if (!counter) {
-      counter = await db.counter.findFirst({
-        where: { active: true },
-        orderBy: { code: 'asc' },
-      });
-      if (counter) {
-        await db.session
-          .update({ where: { id: session.id }, data: { counterId: counter.id } })
-          .catch(() => {});
-      }
-    }
-    const shop = counter ? null : await defaultLocationId(app);
     req.ctx = {
       sessionId: session.id,
       user: {
@@ -103,15 +90,7 @@ export function registerSessionHook(app: FastifyInstance): void {
       },
       roleCodes,
       permissions,
-      counter: counter
-        ? {
-            id: counter.id,
-            code: counter.code,
-            name: counter.name,
-            locationId: counter.locationId,
-          }
-        : null,
-      locationId: counter?.locationId ?? shop!,
+      locationId: await defaultLocationId(app),
       ip: req.ip,
       testMode: session.user.testMode,
     };
@@ -128,7 +107,7 @@ export function registerSessionHook(app: FastifyInstance): void {
 // every shop there has its own.
 const cachedShopIds = new Map<string, string>();
 
-/** The first active shop; PCs that aren't counters work there. */
+/** The first active shop location: every PC works there. */
 export async function defaultLocationId(app: FastifyInstance): Promise<string> {
   const key = scopeShop() ? null : inTestData() ? ':test' : ':real';
   const hit = key ? cachedShopIds.get(key) : undefined;
@@ -151,15 +130,7 @@ export async function createSession(
   reply: FastifyReply,
   req: FastifyRequest,
   userId: string,
-  counterId: string | null,
 ): Promise<void> {
-  if (!counterId) {
-    const defaultCounter = await app.deps.db.counter.findFirst({
-      where: { active: true },
-      orderBy: { code: 'asc' },
-    });
-    counterId = defaultCounter?.id ?? null;
-  }
   const token = newToken();
   const days = app.deps.config.sessionDays;
   const expiresAt = new Date(Date.now() + days * 86_400_000);
@@ -167,7 +138,6 @@ export async function createSession(
     data: {
       tokenHash: sha256(token),
       userId,
-      counterId,
       ip: req.ip,
       userAgent: String(req.headers['user-agent'] ?? '').slice(0, 300),
       expiresAt,

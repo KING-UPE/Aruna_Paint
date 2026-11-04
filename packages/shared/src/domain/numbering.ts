@@ -22,8 +22,7 @@ export type DocType = (typeof DOC_TYPES)[number];
 
 /**
  * Starting formats. Tokens are in braces so letters stay literal:
- * {NNNN} sequence padded to the number of N, {YYYY} {YY} {MM} {DD} date, {COUNTER} counter code,
- * {LOC} location code. The Super Admin can change every format, letters included.
+ * {NNNN} sequence padded to the number of N, {YYYY} {YY} {MM} {DD} date, {LOC} location code. The Super Admin can change every format, letters included.
  */
 export const DEFAULT_NUMBER_FORMATS: Record<DocType, string> = {
   SUPPLIER: 'SUP-{NNNN}',
@@ -38,7 +37,8 @@ export const DEFAULT_NUMBER_FORMATS: Record<DocType, string> = {
   ADJUSTMENT: 'ADJ-{NNNNNN}',
   STOCK_COUNT: 'SC-{NNNNNN}',
   REORDER: 'RO-{NNNNNN}',
-  DAY_END: 'DE-{YYYY}{MM}{DD}-{COUNTER}',
+  // One day end per date for the whole shop (no counters: every PC is the same).
+  DAY_END: 'DE-{YYYY}{MM}{DD}',
 };
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
@@ -62,7 +62,6 @@ const SEQ = /^N+$/;
 
 export interface NumberContext {
   date: Date;
-  counter?: string;
   location?: string;
 }
 
@@ -103,12 +102,12 @@ export function validateNumberFormat(docType: DocType, format: string): string[]
     if (SEQ.test(t)) {
       seqCount++;
       if (t.length > 10) problems.push('A number can have at most 10 digits.');
-    } else if (!['YYYY', 'YY', 'MM', 'DD', 'COUNTER', 'LOC'].includes(t)) {
+    } else if (!['YYYY', 'YY', 'MM', 'DD', 'LOC'].includes(t)) {
       problems.push(`Unknown token {${t}}.`);
     }
   }
   if (docType === 'DAY_END') {
-    if (!format.includes('{COUNTER}')) problems.push('A day end number needs {COUNTER}.');
+    if (seqCount) problems.push('A day end number is the date; it has no number token.');
     if (!(format.includes('{DD}') && format.includes('{MM}')))
       problems.push('A day end number needs the date.');
   } else if (seqCount !== 1) {
@@ -130,8 +129,6 @@ function renderTokens(format: string, ctx: NumberContext, seq: (width: number) =
         return mm;
       case 'DD':
         return dd;
-      case 'COUNTER':
-        return ctx.counter ?? '';
       case 'LOC':
         return ctx.location ?? '';
       default:

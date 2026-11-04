@@ -86,41 +86,35 @@ export async function salesRoutes(app: FastifyInstance) {
     },
   );
 
-  /** The bottom bar: this counter's sales today, next numbers and the day's state. */
+  /** The bottom bar: your own sales today, the next numbers and the shop's day. */
   app.get(
     '/api/billing/status',
     { preHandler: perm('billing.view', 'quotations.view') },
     async (req) => {
-      const counter = req.ctx.counter;
       const today = shopDate();
       const todayRange = dayRange(today, today)!;
-      // Opening billing starts today's day; one left open from an earlier date closes first.
-      const shift = counter
-        ? await db.$transaction(
-            (tx) => openShiftFor(tx, counter.id, true, req.ctx.user.id),
-            TX_OPTIONS,
-          )
-        : null;
+      // Opening billing starts the shop's day; one left open from an earlier date closes first.
+      const shift = await db.$transaction(
+        (tx) => openShiftFor(tx, req.ctx.locationId, true, req.ctx.user.id),
+        TX_OPTIONS,
+      );
       const [agg, pending, nextInvoice, nextQuotation, cloud] = await Promise.all([
-        counter
-          ? db.sale.aggregate({
-              where: {
-                counterId: counter.id,
-                kind: 'INVOICE',
-                status: 'COMPLETED',
-                completedAt: todayRange,
-              },
-              _sum: { netTotal: true },
-              _count: true,
-            })
-          : null,
+        db.sale.aggregate({
+          where: {
+            cashierId: req.ctx.user.id,
+            kind: 'INVOICE',
+            status: 'COMPLETED',
+            completedAt: todayRange,
+          },
+          _sum: { netTotal: true },
+          _count: true,
+        }),
         db.syncOutbox.count({ where: { sentAt: null } }),
-        peekNumber(db, 'INVOICE', { counterCode: counter?.code }),
-        peekNumber(db, 'QUOTATION', { counterCode: counter?.code }),
+        peekNumber(db, 'INVOICE', {}),
+        peekNumber(db, 'QUOTATION', {}),
         settings.get('cloud'),
       ]);
       return {
-        counter,
         today: { total: (agg?._sum.netTotal ?? 0).toString(), bills: agg?._count ?? 0 },
         shift: shift
           ? {
@@ -151,11 +145,8 @@ export async function salesRoutes(app: FastifyInstance) {
       );
       if (result.kind === 'INVOICE')
         events.publish({ type: 'stock', subProductIds: result.subProductIds });
-      events.publish({ type: 'sale', counterId: req.ctx.counter!.id });
-      const print = await printSale(app, result.id, {
-        print: body.print !== false,
-        counterId: req.ctx.counter!.id,
-      });
+      events.publish({ type: 'sale', userId: req.ctx.user.id });
+      const print = await printSale(app, result.id, { print: body.print !== false });
       return { ...result, print };
     },
   );
@@ -237,7 +228,6 @@ export async function salesRoutes(app: FastifyInstance) {
       ...(q.q ? { no: { contains: q.q.trim(), mode: 'insensitive' } } : {}),
       ...(q.customer ? { customerName: { contains: q.customer.trim(), mode: 'insensitive' } } : {}),
       ...(q.cashierId ? { cashierId: q.cashierId } : {}),
-      ...(q.counterId ? { counterId: q.counterId } : {}),
       ...(q.amount ? { netTotal: q.amount } : {}),
       ...(dayRange(q.from, q.to)
         ? deletedView
@@ -253,7 +243,6 @@ export async function salesRoutes(app: FastifyInstance) {
         where,
         include: {
           cashier: { select: { fullName: true } },
-          counter: { select: { code: true } },
           convertedTo: { select: { no: true } },
           convertedFrom: { select: { no: true } },
           deletedBy: { select: { fullName: true } },
@@ -276,7 +265,6 @@ export async function salesRoutes(app: FastifyInstance) {
         status: s.status,
         completedAt: s.completedAt,
         cashier: s.cashier.fullName,
-        counter: s.counter.code,
         wholesale: s.wholesale,
         customerName: s.customerName,
         itemCount: s.itemCount,
@@ -308,7 +296,6 @@ export async function salesRoutes(app: FastifyInstance) {
           include: { priceApprover: { select: { fullName: true } } },
         },
         cashier: { select: { fullName: true } },
-        counter: { select: { code: true } },
         voidedBy: { select: { fullName: true } },
         voidApprover: { select: { fullName: true } },
         voidReason: { select: { name: true } },
@@ -333,7 +320,6 @@ export async function salesRoutes(app: FastifyInstance) {
       validUntil: dateOnly(s.validUntil),
       completedAt: s.completedAt,
       cashier: s.cashier.fullName,
-      counter: s.counter.code,
       itemCount: s.itemCount,
       totalQty: s.totalQty.toFixed(3),
       gross: s.gross.toFixed(2),
@@ -417,7 +403,6 @@ export async function salesRoutes(app: FastifyInstance) {
       const reprint = await db.$transaction((tx) => recordReprint(tx, req.ctx, id), TX_OPTIONS);
       const print = await printSale(app, id, {
         print: true,
-        counterId: req.ctx.counter?.id ?? null,
         reprint: { copyNo: reprint.copyNo, at: reprint.at, user: req.ctx.user.fullName },
       });
       return { copyNo: reprint.copyNo, print };
@@ -436,10 +421,7 @@ export async function salesRoutes(app: FastifyInstance) {
         TX_OPTIONS,
       );
       events.publish({ type: 'stock', subProductIds: result.subProductIds });
-      const print = await printSale(app, result.id, {
-        print: body.print,
-        counterId: req.ctx.counter!.id,
-      });
+      const print = await printSale(app, result.id, { print: body.print });
       return { ...result, print };
     },
   );
@@ -452,9 +434,7 @@ export async function salesRoutes(app: FastifyInstance) {
     );
     events.publish({ type: 'stock', subProductIds: result.subProductIds });
     const shouldPrint = (req.body as { print?: boolean }).print !== false;
-    const print = shouldPrint
-      ? await printReturn(app, req.ctx.counter?.id ?? null, result.receipt)
-      : { printed: false };
+    const print = shouldPrint ? await printReturn(app, result.receipt) : { printed: false };
     return { id: result.id, no: result.no, refundTotal: result.refundTotal, print };
   });
 

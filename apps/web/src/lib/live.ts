@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 
 /**
  * Listens to the server's live events (a sale or purchase anywhere) and refreshes the lists that
- * show stock, so counters never show stale stock. Reconnects after a drop.
+ * show stock, so no PC shows stale stock. Reconnects after a drop.
  */
 export function connectLive(queryClient: QueryClient): () => void {
   let socket: WebSocket | null = null;

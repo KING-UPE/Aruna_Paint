@@ -4,10 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { api, ApiError, errorMessage } from '@/lib/api';
-import { setCounterCode } from '@/lib/counter';
 import { AuthShell } from './LoginPage';
 
-/** First-run wizard: shop details, the Super Admin account and recovery codes, counter C1. */
+/** First-run wizard: shop details, the Super Admin account and recovery codes. */
 export function SetupPage() {
   const qc = useQueryClient();
   const [form, setForm] = useState({
@@ -18,7 +17,6 @@ export function SetupPage() {
     fullName: '',
     password: '',
     pin: '',
-    counterCode: 'C1',
   });
   const [codes, setCodes] = useState<string[] | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -31,7 +29,7 @@ export function SetupPage() {
     setErrors({});
     setError('');
     try {
-      const r = await api.post<{ recoveryCodes: string[]; counterCode: string }>('/api/setup', {
+      const r = await api.post<{ recoveryCodes: string[] }>('/api/setup', {
         shop: { shopName: form.shopName, address: form.address, phone: form.phone },
         admin: {
           username: form.username,
@@ -39,9 +37,7 @@ export function SetupPage() {
           password: form.password,
           pin: form.pin,
         },
-        counterCode: form.counterCode,
       });
-      setCounterCode(r.counterCode);
       setCodes(r.recoveryCodes);
     } catch (err) {
       if (err instanceof ApiError && err.field)

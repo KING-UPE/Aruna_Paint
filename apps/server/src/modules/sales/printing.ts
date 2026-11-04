@@ -5,15 +5,14 @@ import { dateOnly } from '../../lib/json';
 
 /**
  * Prints after the bill is saved when the cashier answers Yes to "Print receipt?". The shop uses
- * no cash drawer, so nothing opens one. A printer problem never undoes the sale; the cashier can
- * reprint from history.
+ * no cash drawer, so nothing opens one. Every PC prints on the shop's one receipt printer. A
+ * printer problem never undoes the sale; the cashier can reprint from history.
  */
 export async function printSale(
   app: FastifyInstance,
   saleId: string,
   opts: {
     print: boolean;
-    counterId: string | null;
     reprint?: { copyNo: number; at: Date; user: string };
   },
 ): Promise<PrintResult> {
@@ -22,7 +21,6 @@ export async function printSale(
     where: { id: saleId },
     include: { lines: { orderBy: { lineNo: 'asc' } }, cashier: { select: { fullName: true } } },
   });
-  const counterId = opts.counterId ?? sale.counterId;
   if (!opts.print) return { printed: false };
   const all = await settings.getAll();
   const buf = renderSaleReceipt(
@@ -60,7 +58,6 @@ export async function printSale(
     },
   );
   const result = await printer.print(
-    counterId,
     buf,
     `${sale.no}${opts.reprint ? `-copy${opts.reprint.copyNo}` : ''}`,
   );
@@ -71,12 +68,10 @@ export async function printSale(
 
 export async function printReturn(
   app: FastifyInstance,
-  counterId: string | null,
   receipt: Parameters<typeof renderReturnReceipt>[0],
 ): Promise<PrintResult> {
   const all = await app.deps.settings.getAll();
   return app.deps.printer.print(
-    counterId,
     renderReturnReceipt(receipt, all, all.billing.timeFormat === '12h'),
     receipt.no,
   );

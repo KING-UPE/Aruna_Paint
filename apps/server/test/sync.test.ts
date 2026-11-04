@@ -196,7 +196,7 @@ describe('online panel for several shops', () => {
       'Pannala Aruna Paint Center',
     );
     expect(nodes[0]).toMatchObject({ today: { bills: 0, total: '0.00' } });
-    expect(nodes[0].counters.map((c: { code: string }) => c.code)).toEqual(['C1', 'C2']);
+    expect(nodes[0]).toHaveProperty('lastBillAt', null);
     // Billing, stock, products and suppliers stay at the shop.
     const shopOnly = 'This can only be done at the shop.';
     expect((await owner.post('/api/sales', { lines: [] })).body.error.message).toBe(shopOnly);
@@ -286,14 +286,9 @@ describe('online panel for several shops', () => {
   });
 
   it('everything only the Super Admin may do can be done online, and reaches the shop', async () => {
-    // Counters and their printers.
-    const add = await owner.post('/api/counters', {
-      code: 'C9',
-      name: 'Counter 9',
-      locationId: (await shopA.deps.db.location.findFirstOrThrow({ where: { kind: 'SHOP' } })).id,
-      printer: { driver: 'network', host: '192.168.1.50', port: 9100 },
-    });
-    expect(add.status).toBe(200);
+    // The shop's receipt printer.
+    const printer = { driver: 'network', host: '192.168.1.50', port: 9100, share: '', path: '' };
+    expect((await owner.put('/api/settings/printer', printer)).status).toBe(200);
     // The HRM month start and one month's figures.
     expect((await owner.put('/api/hrm/month-start', { day: 25 })).status).toBe(200);
     const month = await owner.put('/api/hrm/month/2026-10', {
@@ -317,9 +312,8 @@ describe('online panel for several shops', () => {
     expect((await admin.put('/api/settings/backup', backup)).status).toBe(403);
 
     await sync(shopA);
-    const counter = await shopA.deps.db.counter.findUniqueOrThrow({ where: { code: 'C9' } });
-    expect(counter.printer).toMatchObject({ host: '192.168.1.50' });
     const shopSettings = (await a.sa.get('/api/settings')).body;
+    expect(shopSettings.printer).toMatchObject({ driver: 'network', host: '192.168.1.50' });
     expect(shopSettings.backup.nightlyAt).toBe('23:15');
     expect(shopSettings.closing.monthStartDay).toBe(25);
     expect(shopSettings.hrm.monthlyOverrides['2026-10']).toMatchObject({ shopRent: 45000 });

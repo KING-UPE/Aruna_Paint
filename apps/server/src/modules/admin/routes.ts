@@ -20,29 +20,6 @@ import { audit } from '../../core/audit';
 import { actorOf } from '../../core/context';
 import { TX_OPTIONS } from '../../db';
 
-const printerSchema = z.discriminatedUnion('driver', [
-  z.object({ driver: z.literal('none') }),
-  z.object({
-    driver: z.literal('network'),
-    host: z.string().min(1),
-    port: z.number().int().default(9100),
-  }),
-  z.object({ driver: z.literal('file'), path: z.string().default('') }),
-  z.object({ driver: z.literal('windows-share'), share: z.string().min(1) }),
-]);
-
-const counterSchema = z.object({
-  code: z
-    .string()
-    .min(1)
-    .max(10)
-    .regex(/^[A-Za-z0-9]+$/),
-  name: z.string().min(1).max(60),
-  locationId: idSchema,
-  printer: printerSchema.default({ driver: 'none' }),
-  active: z.boolean().default(true),
-});
-
 export async function adminRoutes(app: FastifyInstance) {
   const { db, settings, events } = app.deps;
 
@@ -87,7 +64,6 @@ export async function adminRoutes(app: FastifyInstance) {
           example: renderNumber(format, {
             date: new Date(),
             seq: 1,
-            counter: 'C1',
             location: 'SHOP',
           }),
         };
@@ -121,60 +97,6 @@ export async function adminRoutes(app: FastifyInstance) {
         });
       }, TX_OPTIONS);
       return { ok: true };
-    },
-  );
-
-  // ---- Counters ----
-  // Signed-in users need the list to pick a counter on a billing PC.
-  app.get('/api/counters', async () => ({
-    items: await db.counter.findMany({ include: { location: true }, orderBy: { code: 'asc' } }),
-  }));
-
-  app.post('/api/counters', { preHandler: [shopOnly(), perm('settings.edit')] }, async (req) => {
-    const input = counterSchema.parse(req.body);
-    return db.$transaction(async (tx) => {
-      const c = await tx.counter.create({
-        data: {
-          ...input,
-          code: codeKey(input.code),
-          printer: input.printer as Prisma.InputJsonValue,
-        },
-      });
-      await audit(tx, actorOf(req.ctx), {
-        action: 'counter.create',
-        entity: 'counter',
-        entityId: c.id,
-        after: c,
-      });
-      return c;
-    }, TX_OPTIONS);
-  });
-
-  app.patch(
-    '/api/counters/:id',
-    { preHandler: [shopOnly(), perm('settings.edit')] },
-    async (req) => {
-      const id = idSchema.parse((req.params as { id: string }).id);
-      const input = counterSchema.partial().parse(req.body);
-      return db.$transaction(async (tx) => {
-        const before = await tx.counter.findUniqueOrThrow({ where: { id } });
-        const c = await tx.counter.update({
-          where: { id },
-          data: {
-            ...input,
-            code: input.code ? codeKey(input.code) : undefined,
-            printer: input.printer ? (input.printer as Prisma.InputJsonValue) : undefined,
-          },
-        });
-        await audit(tx, actorOf(req.ctx), {
-          action: 'counter.update',
-          entity: 'counter',
-          entityId: id,
-          before,
-          after: c,
-        });
-        return c;
-      }, TX_OPTIONS);
     },
   );
 

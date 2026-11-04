@@ -2,7 +2,6 @@ import {
   APPROVALS,
   DomainError,
   SHORTCUT_SCREENS,
-  codeKey,
   nameKey,
   normalizeCombo,
   passwordSchema,
@@ -25,6 +24,7 @@ import { clearSessionCookie, createSession, SHOP_COOKIE } from './session';
 const loginSchema = z.object({
   username: z.string().min(1).max(60),
   password: z.string().min(1).max(200),
+  /** Sent by screens from before counters were removed; ignored. */
   counterCode: z.string().max(20).optional().nullable(),
   /** Online panel: which shop to sign in to. */
   shopId: z.string().max(40).optional().nullable(),
@@ -70,25 +70,11 @@ export async function authRoutes(app: FastifyInstance) {
       if (!permissions.has('cloud.access'))
         throw new DomainError('FORBIDDEN', 'You are not allowed to open the online panel.');
     }
-    let counterId: string | null = null;
-    if (body.counterCode) {
-      const counter = await db.counter.findUnique({ where: { code: codeKey(body.counterCode) } });
-      if (counter && counter.active) {
-        counterId = counter.id;
-      }
-    }
-    if (!counterId) {
-      const defaultCounter = await db.counter.findFirst({
-        where: { active: true },
-        orderBy: { code: 'asc' },
-      });
-      counterId = defaultCounter?.id ?? null;
-    }
-    await createSession(app, reply, req, user.id, counterId);
+    await createSession(app, reply, req, user.id);
     await db.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     await audit(
       db,
-      { userId: user.id, counterId, ip: req.ip },
+      { userId: user.id, ip: req.ip },
       { action: 'login', entity: 'user', entityId: user.id },
     );
     return { ok: true, mustChangePassword: user.mustChangePassword };
@@ -140,7 +126,7 @@ export async function authRoutes(app: FastifyInstance) {
     });
     await audit(
       db,
-      { userId: user.id, counterId: req.ctx.counter?.id, ip: req.ip },
+      { userId: user.id, ip: req.ip },
       {
         action: switched ? 'login.pin_switch' : 'unlock.pin',
         entity: 'user',
@@ -334,7 +320,6 @@ export async function authRoutes(app: FastifyInstance) {
       user: ctx.user,
       roles: ctx.roleCodes,
       permissions: ctx.permissions.toArray(),
-      counter: ctx.counter,
       location: location ? { id: location.id, code: location.code, name: location.name } : null,
       locked: session.lockedAt !== null,
       shortcuts,

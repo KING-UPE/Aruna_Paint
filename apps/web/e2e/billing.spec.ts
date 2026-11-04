@@ -1,19 +1,20 @@
 import { expect, test, type Page } from '@playwright/test';
 
-async function loginAtCounter(page: Page, username: string) {
-  await page.goto('/?counter=C1');
+/** Any PC: every PC bills the same way (no counter to pick). */
+async function loginToBill(page: Page, username: string) {
+  await page.goto('/');
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password').fill('password123');
   await page.keyboard.press('Enter');
   // Staff land on the main menu; the billing screen opens from there.
   await page.getByRole('button', { name: /Open Billing Screen/ }).press('Enter');
   await expect(page.getByRole('table', { name: 'Bill lines' })).toBeVisible();
-  // Wait until the counter's day is loaded (it starts by itself), so no typed key is lost.
-  await expect(page.getByText(/^Today: Rs/)).toBeVisible();
+  // Wait until the shop's day is loaded (it starts by itself), so no typed key is lost.
+  await expect(page.getByText(/^Your sales today: Rs/)).toBeVisible();
 }
 
 test('a cashier rings up the plan mock-up bill without the mouse', async ({ page }) => {
-  await loginAtCounter(page, 'cashier');
+  await loginToBill(page, 'cashier');
 
   // The day starts by itself with the first bill; no opening float is asked for.
   await expect(page.getByRole('dialog')).toBeHidden();
@@ -71,7 +72,7 @@ test('a cashier rings up the plan mock-up bill without the mouse', async ({ page
 });
 
 test('hold, recall and bill history keys', async ({ page }) => {
-  await loginAtCounter(page, 'cashier');
+  await loginToBill(page, 'cashier');
 
   await page.keyboard.press('F2');
   await expect(page.getByRole('textbox', { name: 'Item code' })).toBeFocused();
@@ -116,7 +117,7 @@ test('hold, recall and bill history keys', async ({ page }) => {
 test('No discount (Alt+N) bills every line at full price and can be turned off again', async ({
   page,
 }) => {
-  await loginAtCounter(page, 'cashier');
+  await loginToBill(page, 'cashier');
   const net = page.locator('[aria-live="polite"]', { hasText: /^Rs / });
 
   // Thinner 4L with its 5% default discount: Rs 2,470.00.
@@ -162,7 +163,7 @@ test('No discount (Alt+N) bills every line at full price and can be turned off a
 test('the same item at the same discount joins its line; arrows move between Yes and No', async ({
   page,
 }) => {
-  await loginAtCounter(page, 'cashier');
+  await loginToBill(page, 'cashier');
   const lines = page.getByRole('table', { name: 'Bill lines' });
   for (const qty of ['2', '3']) {
     await page.keyboard.press('F2');
@@ -197,7 +198,7 @@ test('the same item at the same discount joins its line; arrows move between Yes
 test('a held bill is deleted with a reason and stays in history under Deleted', async ({
   page,
 }) => {
-  await loginAtCounter(page, 'cashier');
+  await loginToBill(page, 'cashier');
   await page.keyboard.press('F2');
   await expect(page.getByRole('textbox', { name: 'Item code' })).toBeFocused();
   await page.keyboard.type('putty');
@@ -238,7 +239,7 @@ test('a held bill is deleted with a reason and stays in history under Deleted', 
 });
 
 test('a quotation is deleted from bill history with D and a reason', async ({ page }) => {
-  await loginAtCounter(page, 'cashier');
+  await loginToBill(page, 'cashier');
   await page.keyboard.press('F4');
   await expect(page.getByRole('button', { name: /QUOTATION/ })).toBeVisible();
   await page.keyboard.press('F2');
@@ -273,7 +274,7 @@ test('a quotation is deleted from bill history with D and a reason', async ({ pa
 });
 
 test('a resting mouse never changes which suggestion Enter takes', async ({ page }) => {
-  await loginAtCounter(page, 'cashier');
+  await loginToBill(page, 'cashier');
   const lines = page.getByRole('table', { name: 'Bill lines' });
   await page.keyboard.press('F2');
   await page.keyboard.type('10003');

@@ -27,7 +27,6 @@ export async function audit(tx: Tx, actor: ActorRef, entry: AuditEntry): Promise
         entry.before === undefined ? undefined : (toJson(entry.before) as Prisma.InputJsonValue),
       after: entry.after === undefined ? undefined : (toJson(entry.after) as Prisma.InputJsonValue),
       note: entry.note ?? '',
-      counterId: actor.counterId ?? null,
       ip: actor.ip ?? '',
     },
   });

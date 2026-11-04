@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { api, errorMessage } from '@/lib/api';
 import type { Me } from '@/lib/types';
 
-/** The idle lock. Any user's PIN unlocks it and switches the counter to that user. */
+/** The idle lock. Any user's PIN unlocks it and switches this PC to that user. */
 export function LockScreen({ me }: { me: Me }) {
   const qc = useQueryClient();
   const [pin, setPin] = useState('');

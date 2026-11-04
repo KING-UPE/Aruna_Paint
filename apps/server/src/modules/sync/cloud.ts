@@ -166,7 +166,9 @@ export interface PushBody {
   name: string;
   version: string;
   waiting: number;
-  counters: { code: string; name: string; lastBillAt: string | null }[];
+  /** The shop's latest bill (older shop servers sent it per counter). */
+  lastBillAt?: string | null;
+  counters?: { lastBillAt: string | null }[];
   changes: (RowChange & { id: string })[];
 }
 
@@ -228,7 +230,16 @@ export async function applyPush(
       name: body.name,
       version: body.version,
       waiting: Math.max(0, body.waiting - body.changes.length),
-      info: { counters: body.counters, ...(errors.length ? { errors } : {}) },
+      info: {
+        lastBillAt:
+          body.lastBillAt ??
+          (body.counters ?? [])
+            .map((c) => c.lastBillAt ?? '')
+            .sort()
+            .pop() ??
+          null,
+        ...(errors.length ? { errors } : {}),
+      },
       lastSeenAt: new Date(),
       ...(body.changes.length ? { lastPushAt: new Date(), lastChangeId: last } : {}),
     },

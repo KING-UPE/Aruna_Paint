@@ -91,7 +91,7 @@ export function KeymapProvider({
         handler(e);
         return;
       }
-      // The counter app blocks keys the browser reserves, to prevent accidents.
+      // The POS blocks keys the browser reserves, to prevent accidents.
       if (
         combo === 'F5' ||
         combo === 'Ctrl+R' ||

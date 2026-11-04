@@ -172,7 +172,8 @@ export function renderDayEnd(
   s: {
     no: string;
     status: string;
-    counter: string;
+    /** Days from before counters were removed. */
+    counter: string | null;
     businessDate: string;
     openedBy: string;
     closedBy: string;
@@ -180,13 +181,14 @@ export function renderDayEnd(
     cashSales: string;
     cashRefunds: string;
     returnCount: number;
+    byUser: { name: string; bills: number; sales: string; refunds: string; net: string }[];
   },
   settings: Settings,
 ): Buffer {
   const p = new EscPos(settings.receipt.lineWidth);
   header(p, settings);
   p.bold(true).line(`DAY END ${s.no}`).bold(false);
-  p.pair(`Counter ${s.counter}`, formatDate(s.businessDate));
+  p.pair(s.counter ? `Counter ${s.counter}` : 'Whole shop', formatDate(s.businessDate));
   p.pair(`Opened: ${s.openedBy}`, s.status === 'OPEN' ? 'Still open' : `Closed: ${s.closedBy}`);
   p.rule();
   p.pair(`Sales (${s.billCount} bills)`, formatMoney(s.cashSales));
@@ -195,6 +197,14 @@ export function renderDayEnd(
   p.bold(true)
     .pair('NET SALES', formatMoney(D(s.cashSales).minus(D(s.cashRefunds))))
     .bold(false);
+  if (s.byUser.length) {
+    p.rule();
+    for (const u of s.byUser) {
+      p.pair(`${u.name} (${u.bills} bills)`.slice(0, p.width - 12), formatMoney(u.net));
+      if (Number(u.refunds) > 0)
+        p.line(`  sales ${formatMoney(u.sales)}, refunds -${formatMoney(u.refunds)}`);
+    }
+  }
   p.cut();
   return p.build();
 }

@@ -74,7 +74,7 @@ async function daily(tx: Tx | Db, r: DateRange) {
 
 /**
  * Everything the dashboard charts: totals against the period before, sales per day, per hour
- * and per weekday, the best-selling products and categories, counters, cashiers, stock health
+ * and per weekday, the best-selling products and categories, cashiers, stock health
  * and supplier dues. Profit is only for those who may see cost totals.
  */
 export async function dashboard(
@@ -91,7 +91,7 @@ export async function dashboard(
   const { current, previous } = dashboardRanges(opts.range, today, opts.monthStartDay);
   const cur = inRange(current);
 
-  const [now, before, days, prevDays, hours, weekdays, products, categories, counters, cashiers] =
+  const [now, before, days, prevDays, hours, weekdays, products, categories, cashiers] =
     await Promise.all([
       totals(tx, current),
       totals(tx, previous),
@@ -118,10 +118,6 @@ export async function dashboard(
           LEFT JOIN categories c ON c.id = p.category_id
          WHERE ${PAID} AND ${cur}
          GROUP BY 1 ORDER BY SUM(l.amount) DESC`,
-      tx.$queryRaw<{ code: string; name: string; sales: string; bills: number }[]>`
-        SELECT c.code, c.name, SUM(s.net_total)::text AS sales, COUNT(*)::int AS bills
-          FROM sales s JOIN counters c ON c.id = s.counter_id
-         WHERE ${PAID} AND ${cur} GROUP BY c.id ORDER BY c.code`,
       tx.$queryRaw<{ name: string; sales: string; bills: number }[]>`
         SELECT u.full_name AS name, SUM(s.net_total)::text AS sales, COUNT(*)::int AS bills
           FROM sales s JOIN users u ON u.id = s.cashier_id
@@ -309,7 +305,6 @@ export async function dashboard(
       unit: p.unit,
     })),
     categories: topCats,
-    counters: counters.map((c) => ({ ...c, sales: money(c.sales).toFixed(2) })),
     cashiers: cashiers.map((c) => ({ ...c, sales: money(c.sales).toFixed(2) })),
     stock: stock ?? { out: 0, low: 0, ok: 0 },
     watch,

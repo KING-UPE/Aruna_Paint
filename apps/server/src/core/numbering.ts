@@ -16,7 +16,6 @@ function marked(docType: DocType, no: string): string {
 
 export interface NumberingContext {
   date?: Date;
-  counterCode?: string;
   locationCode?: string;
 }
 
@@ -39,7 +38,6 @@ export async function nextNumber(
   const format = await getFormat(tx, docType);
   const nctx = {
     date: ctx.date ?? new Date(),
-    counter: ctx.counterCode,
     location: ctx.locationCode,
   };
   if (!formatHasSequence(format)) return marked(docType, renderNumber(format, nctx));
@@ -67,7 +65,6 @@ export async function peekNumber(
   const format = await getFormat(tx, docType);
   const nctx = {
     date: ctx.date ?? new Date(),
-    counter: ctx.counterCode,
     location: ctx.locationCode,
   };
   if (!formatHasSequence(format)) return marked(docType, renderNumber(format, nctx));

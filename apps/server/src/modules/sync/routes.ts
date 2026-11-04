@@ -139,7 +139,7 @@ export async function syncRoutes(app: FastifyInstance) {
               lastPushAt: n.lastPushAt,
               waiting: n.waiting,
               version: n.version,
-              counters: (n.info as { counters?: unknown[] } | null)?.counters ?? [],
+              lastBillAt: (n.info as { lastBillAt?: string | null } | null)?.lastBillAt ?? null,
               today: {
                 bills: today?._count ?? 0,
                 total: today?._sum.netTotal?.toFixed(2) ?? '0.00',

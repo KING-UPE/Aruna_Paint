@@ -5,7 +5,7 @@ import { actorOf, type RequestContext } from '../../core/context';
 import { nextNumber } from '../../core/numbering';
 import { moveStock } from '../../core/stock';
 import { requireApproval } from '../../auth/approvals';
-import { openShiftFor, requireCounter } from './service';
+import { openShiftFor } from './service';
 
 /**
  * Returns: no time limit; Cashiers, Admins and the Super Admin process them without approval.
@@ -16,8 +16,7 @@ import { openShiftFor, requireCounter } from './service';
  */
 export async function createReturn(tx: Tx, ctx: RequestContext, pinSecret: string, raw: unknown) {
   const input = saleReturnSchema.parse(raw);
-  const counter = requireCounter(ctx);
-  const shift = await openShiftFor(tx, counter.id, true, ctx.user.id);
+  const shift = await openShiftFor(tx, ctx.locationId, true, ctx.user.id);
   const damaged = await tx.location.findFirst({ where: { kind: 'DAMAGED', active: true } });
   if (!damaged) throw new DomainError('INVALID_STATE', 'The Damaged location is missing.');
   const reasons = await tx.reason.findMany({
@@ -158,8 +157,7 @@ export async function createReturn(tx: Tx, ctx: RequestContext, pinSecret: strin
       no,
       saleId: sale?.id ?? null,
       oldBillRef: input.oldBillRef,
-      locationId: counter.locationId,
-      counterId: counter.id,
+      locationId: ctx.locationId,
       shiftId: shift?.id ?? null,
       cashierId: ctx.user.id,
       approverId: approverId && approverId !== ctx.user.id ? approverId : null,
@@ -183,7 +181,7 @@ export async function createReturn(tx: Tx, ctx: RequestContext, pinSecret: strin
     await moveStock(tx, {
       subProductId: line.subProductId,
       locationId:
-        line.disposition === 'DAMAGED' ? damaged.id : (sale?.locationId ?? counter.locationId),
+        line.disposition === 'DAMAGED' ? damaged.id : (sale?.locationId ?? ctx.locationId),
       qty: line.qty,
       type: 'SALE_RETURN',
       unitCost: line.unitCost,

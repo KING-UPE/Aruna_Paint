@@ -65,7 +65,6 @@ export function BillingScreen() {
     queryKey: ['billing-status'],
     queryFn: () => api.get<BillingStatus>('/api/billing/status', { passive: true }),
     refetchInterval: 30_000,
-    enabled: Boolean(me.counter),
   });
 
   const priced = useMemo(
@@ -340,7 +339,7 @@ export function BillingScreen() {
       );
       if (print && !r.print.printed)
         toast.warning(
-          `Not printed: ${r.print.error ?? 'no printer is set for this counter'}. Reprint from history (F9).`,
+          `Not printed: ${r.print.error ?? 'no receipt printer is set in Settings'}. Reprint from history (F9).`,
         );
       setDialog(null);
       resetBill();
@@ -450,12 +449,12 @@ export function BillingScreen() {
 
   const moveFromStore = async (item: BillingItem) => {
     const from = item.elsewhere[0];
-    if (!from || !me.counter) return;
+    if (!from || !me.location) return;
     try {
       await api.post('/api/transfers', {
         fromLocationId: from.locationId,
-        toLocationId: me.counter.locationId,
-        note: 'Moved at the counter',
+        toLocationId: me.location.id,
+        note: 'Moved while billing',
         lines: [{ subProductId: from.subProductId, qty: '1' }],
       });
       toast.success(`Moved 1 ${item.unit.name} of ${item.name} from ${from.location}.`);

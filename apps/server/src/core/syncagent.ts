@@ -189,16 +189,14 @@ export class SyncAgent {
 
   private async push() {
     const shop = await this.settings.get('shop');
-    const counters = await this.db.$queryRaw<
-      { code: string; name: string; lastBillAt: Date | null }[]
-    >`
-      SELECT c.code, c.name, max(s.completed_at) AS "lastBillAt"
-        FROM counters c LEFT JOIN sales s ON s.counter_id = c.id AND s.status = 'COMPLETED'
-       WHERE c.active GROUP BY c.code, c.name ORDER BY c.code`;
+    const last = await this.db.sale.aggregate({
+      where: { status: 'COMPLETED' },
+      _max: { completedAt: true },
+    });
     const info = {
       name: shop.shopName,
       version: this.version,
-      counters: counters.map((c) => ({ ...c, lastBillAt: c.lastBillAt?.toISOString() ?? null })),
+      lastBillAt: last._max.completedAt?.toISOString() ?? null,
     };
     for (let round = 0; round < 40; round++) {
       const rows = await this.db.syncOutbox.findMany({

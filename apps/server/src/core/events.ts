@@ -5,7 +5,8 @@
 export type LiveEvent =
   | { type: 'stock'; subProductIds: string[] }
   | { type: 'products' }
-  | { type: 'sale'; counterId: string }
+  /** A bill was made (by this user); day end and the status bar refresh. */
+  | { type: 'sale'; userId: string }
   | { type: 'settings' }
   /** A user was switched to or from test mode, or the copy was remade: screens reload. */
   | { type: 'testmode' };

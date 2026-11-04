@@ -69,7 +69,7 @@ export async function buildApp(
     config,
     settings,
     events,
-    printer: overrides.printer ?? new PrintService(db, config, inTestData),
+    printer: overrides.printer ?? new PrintService(settings, config, inTestData),
     backups: overrides.backups ?? new BackupService(db, config, settings, inTestData),
     testMode,
     // The shop server syncs with the cloud; the cloud only answers.

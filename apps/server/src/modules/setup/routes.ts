@@ -33,8 +33,7 @@ export async function setupRoutes(app: FastifyInstance) {
   /** First-run wizard. Works only while no user exists. */
   app.post('/api/setup', { config: { public: true } }, async (req, reply) => {
     const result = await runSetup(db, config, req.body as never);
-    const counter = await db.counter.findFirst({ orderBy: { createdAt: 'asc' } });
-    await createSession(app, reply, req, result.adminId, counter?.id ?? null);
-    return { recoveryCodes: result.recoveryCodes, counterCode: counter?.code ?? null };
+    await createSession(app, reply, req, result.adminId);
+    return { recoveryCodes: result.recoveryCodes };
   });
 }

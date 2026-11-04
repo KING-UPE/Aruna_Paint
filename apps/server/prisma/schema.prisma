@@ -265,7 +265,7 @@ model Location {
   @@map("locations")
 }
 
-/// A billing PC. Its code (C1, C2) goes into day end numbers and the status bar.
+/// Billing PCs from before every PC became the same; kept so old bills and days keep their history.
 model Counter {
   id         String   @id @default(uuid(7)) @db.Uuid
   code       String   @unique
@@ -1024,7 +1024,8 @@ model Sale {
   kind               SaleKind
   status             SaleStatus
   locationId         String     @map("location_id") @db.Uuid
-  counterId          String     @map("counter_id") @db.Uuid
+  /// Bills from before counters were removed keep theirs; new bills have none.
+  counterId          String?    @map("counter_id") @db.Uuid
   shiftId            String?    @map("shift_id") @db.Uuid
   cashierId          String     @map("cashier_id") @db.Uuid
   wholesale          Boolean    @default(false)
@@ -1059,7 +1060,7 @@ model Sale {
   updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   location      Location     @relation(fields: [locationId], references: [id])
-  counter       Counter      @relation(fields: [counterId], references: [id])
+  counter       Counter?     @relation(fields: [counterId], references: [id])
   shift         Shift?       @relation(fields: [shiftId], references: [id])
   cashier       User         @relation("SaleCashier", fields: [cashierId], references: [id])
   voidedBy      User?        @relation("SaleVoidedBy", fields: [voidedById], references: [id])
@@ -1132,7 +1133,7 @@ model SaleReturn {
   saleId      String?          @map("sale_id") @db.Uuid
   oldBillRef  String           @default("") @map("old_bill_ref")
   locationId  String           @map("location_id") @db.Uuid
-  counterId   String           @map("counter_id") @db.Uuid
+  counterId   String?          @map("counter_id") @db.Uuid
   shiftId     String?          @map("shift_id") @db.Uuid
   cashierId   String           @map("cashier_id") @db.Uuid
   approverId  String?          @map("approver_id") @db.Uuid
@@ -1141,7 +1142,7 @@ model SaleReturn {
   createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   sale        Sale?            @relation(fields: [saleId], references: [id])
   location    Location         @relation(fields: [locationId], references: [id])
-  counter     Counter          @relation(fields: [counterId], references: [id])
+  counter     Counter?         @relation(fields: [counterId], references: [id])
   shift       Shift?           @relation(fields: [shiftId], references: [id])
   cashier     User             @relation("SaleReturnCashier", fields: [cashierId], references: [id])
   approver    User?            @relation("SaleReturnApprover", fields: [approverId], references: [id])
@@ -1195,7 +1196,8 @@ enum ShiftStatus {
 model Shift {
   id            String         @id @default(uuid(7)) @db.Uuid
   no            String         @unique
-  counterId     String         @map("counter_id") @db.Uuid
+  /// Days from before counters were removed keep theirs; the shop's days have none.
+  counterId     String?        @map("counter_id") @db.Uuid
   locationId    String         @map("location_id") @db.Uuid
   businessDate  DateTime       @map("business_date") @db.Date
   status        ShiftStatus    @default(OPEN)
@@ -1214,7 +1216,7 @@ model Shift {
   closedById    String?        @map("closed_by_id") @db.Uuid
   closedAt      DateTime?      @map("closed_at") @db.Timestamptz(3)
   note          String         @default("")
-  counter       Counter        @relation(fields: [counterId], references: [id])
+  counter       Counter?       @relation(fields: [counterId], references: [id])
   location      Location       @relation(fields: [locationId], references: [id])
   openedBy      User           @relation("ShiftOpenedBy", fields: [openedById], references: [id])
   closedBy      User?          @relation("ShiftClosedBy", fields: [closedById], references: [id])
@@ -1222,7 +1224,7 @@ model Shift {
   returns       SaleReturn[]
   cashMovements CashMovement[]
 
-  @@unique([counterId, businessDate])
+  @@index([businessDate])
   @@map("shifts")
 }
 

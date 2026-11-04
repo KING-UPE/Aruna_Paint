@@ -56,7 +56,7 @@ export function MenuPage() {
         </div>
       </div>
 
-      {/* Main Billing Counter Banner if allowed */}
+      {/* Billing banner, if allowed */}
       {can('billing.view', 'quotations.view') && (
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border-2 border-accent bg-accent-soft/40 p-5">
           <div className="flex items-center gap-3.5">

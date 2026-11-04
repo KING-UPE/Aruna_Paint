@@ -4,7 +4,6 @@ import {
   DEFAULT_NUMBER_FORMATS,
   DEFAULT_SETTINGS,
   DomainError,
-  codeKey,
   nameKey,
   passwordSchema,
   pinSchema,
@@ -39,7 +38,6 @@ export const setupSchema = z.object({
     password: passwordSchema,
     pin: pinSchema,
   }),
-  counterCode: z.string().min(1).max(10).default('C1'),
 });
 export type SetupInput = z.input<typeof setupSchema>;
 
@@ -96,14 +94,6 @@ export async function runSetup(db: Db, config: AppConfig, rawInput: SetupInput) 
         sortOrder: 99,
       },
     });
-    await tx.counter.create({
-      data: {
-        code: codeKey(input.counterCode),
-        name: `Counter ${input.counterCode.replace(/\D/g, '') || '1'}`,
-        locationId: shop.id,
-      },
-    });
-
     for (const [i, u] of STARTING_LISTS.units.entries()) {
       await tx.unit.create({
         data: {

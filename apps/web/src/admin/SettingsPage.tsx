@@ -1,5 +1,5 @@
 import type { AppearanceSettings } from '@aruna/shared';
-import { DatabaseBackup, Plus } from 'lucide-react';
+import { DatabaseBackup } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -8,7 +8,6 @@ import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
 import { Input, Select, Textarea } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/misc';
-import { useValues } from '@/components/values';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/auth/AuthProvider';
 import { AppearanceCard } from './AppearanceCard';
@@ -201,7 +200,33 @@ export function SettingsPage() {
           text('cloud', 'shopKey', 'Shop key'),
         ])}
       <NumberFormats />
-      <Counters />
+      {section('printer', 'Receipt printer', [
+        <Field
+          key="driver"
+          label="Printer"
+          hint="Every PC prints receipts and day end reports on this one printer."
+        >
+          <Select
+            value={String(draft.printer?.driver ?? 'none')}
+            onChange={(e) => set('printer', 'driver', e.target.value)}
+          >
+            <option value="none">None</option>
+            <option value="network">Network printer (port 9100)</option>
+            <option value="windows-share">Shared Windows printer</option>
+            <option value="file">File (testing)</option>
+          </Select>
+        </Field>,
+        ...(draft.printer?.driver === 'network'
+          ? [
+              text('printer', 'host', 'Printer address', 'Such as 192.168.1.50.'),
+              number('printer', 'port', 'Port', '9100 for most thermal printers.'),
+            ]
+          : draft.printer?.driver === 'windows-share'
+            ? [text('printer', 'share', 'Share name', "The printer's share name on the server PC.")]
+            : draft.printer?.driver === 'file'
+              ? [text('printer', 'path', 'Folder', 'Empty uses the server data folder.')]
+              : []),
+      ])}
     </div>
   );
 }
@@ -221,7 +246,7 @@ function NumberFormats() {
       <CardHeader>
         <CardTitle>Number formats</CardTitle>
         <span className="text-sm text-muted">
-          {'{NNNN}'} number · {'{YYYY} {MM} {DD}'} date · {'{COUNTER}'} · {'{LOC}'}; letters allowed
+          {'{NNNN}'} number · {'{YYYY} {MM} {DD}'} date · {'{LOC}'}; letters allowed
         </span>
       </CardHeader>
       <CardBody className="grid gap-2 md:grid-cols-2">
@@ -252,165 +277,6 @@ function NumberFormats() {
               Save
             </Button>
           </form>
-        ))}
-      </CardBody>
-    </Card>
-  );
-}
-
-interface CounterRow {
-  id: string;
-  code: string;
-  name: string;
-  locationId: string;
-  active: boolean;
-  printer: { driver: string; host?: string; port?: number; path?: string; share?: string };
-}
-
-/** Billing PCs and their 80 mm printers. */
-function Counters() {
-  const qc = useQueryClient();
-  const q = useQuery({
-    queryKey: ['counters'],
-    queryFn: () => api.get<{ items: CounterRow[] }>('/api/counters'),
-  });
-  const locations = useValues('locations');
-  const save = async (c: CounterRow) => {
-    try {
-      const printer =
-        c.printer.driver === 'network'
-          ? { driver: 'network', host: c.printer.host ?? '', port: Number(c.printer.port ?? 9100) }
-          : c.printer.driver === 'windows-share'
-            ? { driver: 'windows-share', share: c.printer.share ?? '' }
-            : c.printer.driver === 'file'
-              ? { driver: 'file', path: c.printer.path ?? '' }
-              : { driver: 'none' };
-      if (c.id)
-        await api.patch(`/api/counters/${c.id}`, {
-          code: c.code,
-          name: c.name,
-          locationId: c.locationId,
-          active: c.active,
-          printer,
-        });
-      else
-        await api.post('/api/counters', {
-          code: c.code,
-          name: c.name,
-          locationId: c.locationId,
-          printer,
-        });
-      toast.success(`${c.name} saved.`);
-      await qc.invalidateQueries({ queryKey: ['counters'] });
-    } catch (err) {
-      toast.error(errorMessage(err));
-    }
-  };
-  const [rows, setRows] = useState<CounterRow[] | null>(null);
-  useEffect(() => {
-    if (q.data)
-      setRows(q.data.items.map((c) => ({ ...c, printer: c.printer ?? { driver: 'none' } })));
-  }, [q.data]);
-  const upd = (i: number, patch: Partial<CounterRow>) =>
-    setRows((r) => r!.map((x, j) => (j === i ? { ...x, ...patch } : x)));
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Counters and printers</CardTitle>
-        <Button
-          size="sm"
-          icon={<Plus size={16} />}
-          onClick={() =>
-            setRows([
-              ...(rows ?? []),
-              {
-                id: '',
-                code: `C${(rows?.length ?? 0) + 1}`,
-                name: `Counter ${(rows?.length ?? 0) + 1}`,
-                locationId: locations.data?.items[0]?.id ?? '',
-                active: true,
-                printer: { driver: 'none' },
-              },
-            ])
-          }
-        >
-          + Counter
-        </Button>
-      </CardHeader>
-      <CardBody className="flex flex-col gap-3">
-        <p className="text-sm text-muted">
-          Open the POS on a billing PC as http://server:3000/?counter=C1 so it remembers its
-          counter.
-        </p>
-        {(rows ?? []).map((c, i) => (
-          <div
-            key={c.id || i}
-            className="grid items-end gap-2 md:grid-cols-[80px_1fr_160px_160px_1fr_auto]"
-          >
-            <Field label="Code">
-              <Input value={c.code} onChange={(e) => upd(i, { code: e.target.value })} />
-            </Field>
-            <Field label="Name">
-              <Input value={c.name} onChange={(e) => upd(i, { name: e.target.value })} />
-            </Field>
-            <Field label="Location">
-              <Select value={c.locationId} onChange={(e) => upd(i, { locationId: e.target.value })}>
-                {(locations.data?.items ?? [])
-                  .filter((l) => l.kind !== 'DAMAGED')
-                  .map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-              </Select>
-            </Field>
-            <Field label="Printer">
-              <Select
-                value={c.printer.driver}
-                onChange={(e) => upd(i, { printer: { ...c.printer, driver: e.target.value } })}
-              >
-                <option value="none">None</option>
-                <option value="network">Network (port 9100)</option>
-                <option value="windows-share">Shared Windows printer</option>
-                <option value="file">File (testing)</option>
-              </Select>
-            </Field>
-            <Field
-              label={
-                c.printer.driver === 'network'
-                  ? 'Printer address'
-                  : c.printer.driver === 'windows-share'
-                    ? 'Share name'
-                    : c.printer.driver === 'file'
-                      ? 'Folder'
-                      : ' '
-              }
-            >
-              <Input
-                disabled={c.printer.driver === 'none'}
-                value={
-                  c.printer.driver === 'network'
-                    ? (c.printer.host ?? '')
-                    : c.printer.driver === 'windows-share'
-                      ? (c.printer.share ?? '')
-                      : (c.printer.path ?? '')
-                }
-                onChange={(e) =>
-                  upd(i, {
-                    printer:
-                      c.printer.driver === 'network'
-                        ? { ...c.printer, host: e.target.value }
-                        : c.printer.driver === 'windows-share'
-                          ? { ...c.printer, share: e.target.value }
-                          : { ...c.printer, path: e.target.value },
-                  })
-                }
-              />
-            </Field>
-            <Button className="mb-0" onClick={() => void save(c)}>
-              Save
-            </Button>
-          </div>
         ))}
       </CardBody>
     </Card>

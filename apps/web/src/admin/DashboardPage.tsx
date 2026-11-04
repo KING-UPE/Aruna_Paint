@@ -82,7 +82,6 @@ interface Dashboard {
     unit: string;
   }[];
   categories: { name: string; sales: string }[];
-  counters: { code: string; name: string; sales: string; bills: number }[];
   cashiers: { name: string; sales: string; bills: number }[];
   stock: { ok: number; low: number; out: number };
   supplierDues: { total: string; top: { id: string; name: string; balance: string }[] } | null;
@@ -142,7 +141,7 @@ function savedRange(): DashboardRange {
 
 /**
  * The owner's view of the shop: sales over time against the period before, the busy hours and
- * days, what sells, stock health, supplier dues and the counters. One date range at the top
+ * days, what sells, stock health, supplier dues and the cashiers. One date range at the top
  * scopes every chart.
  */
 export function DashboardPage() {
@@ -539,30 +538,6 @@ export function DashboardPage() {
             }))}
           />
         </ChartCard>
-        <ChartCard
-          title="Counters"
-          subtitle="Sales in the range; today's day shown beside each"
-          busy={busy}
-          table={
-            <SimpleTable
-              head={['Counter', 'Bills', 'Sales']}
-              rows={(d?.counters ?? []).map((c) => [c.name, c.bills, rs(c.sales)])}
-            />
-          }
-        >
-          <BarList
-            empty="No sales in this range yet."
-            items={(d?.counters ?? []).map((c) => {
-              const s = (shifts.data?.items ?? []).find((x) => x.counter.code === c.code);
-              return {
-                key: c.code,
-                label: `${c.name}${s ? (s.status === 'OPEN' ? ' · open today' : ' · day end done') : ''}`,
-                value: n(c.sales),
-                note: `${c.bills} bills`,
-              };
-            })}
-          />
-        </ChartCard>
         <Card>
           <CardHeader>
             <CardTitle>Alerts</CardTitle>
@@ -931,7 +906,7 @@ function SalesCard({
 
 /**
  * What an owner checks for mistakes or cheating in the range: bills voided, held bills and
- * quotations deleted, returns, reprints and mix paint prices changed at the counter. Deleted
+ * quotations deleted, returns, reprints and mix paint prices changed while billing. Deleted
  * ones are kept in bill history under Deleted, with who and why.
  */
 function WatchCard({ w }: { w: Dashboard['watch'] }) {
@@ -991,7 +966,7 @@ function WatchCard({ w }: { w: Dashboard['watch'] }) {
     },
     {
       key: 'prices',
-      label: 'Mix paint prices changed at the counter',
+      label: 'Mix paint prices changed while billing',
       icon: <Tags size={16} />,
       count: w.priceOverrides,
     },

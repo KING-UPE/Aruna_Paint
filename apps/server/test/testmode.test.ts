@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { withTestData } from '../src/core/dbscope';
 import { findPgTool } from '../src/core/pgtools';
-import { Client, createTestApp, setupShop, type Shop } from './helpers';
+import { Client, createTestApp, setPrinter, setupShop, type Shop } from './helpers';
 import { createCatalog, postGrn, subProducts, type Catalog } from './fixtures';
 
 let app: FastifyInstance;
@@ -26,10 +26,7 @@ beforeEach(async () => {
   await postGrn(shop, cat.supplierA, [{ productId: cat.thinner, value: '2600', qty: '10' }]);
   thinner = (await subProducts(shop, cat.thinner))[0]!.id;
   await rm(dir, { recursive: true, force: true });
-  await app.deps.db.counter.update({
-    where: { code: 'C1' },
-    data: { printer: { driver: 'file', path: dir } },
-  });
+  await setPrinter(app, { driver: 'file', path: dir });
 });
 
 const sell = (c: Client, qty: string) =>
@@ -65,8 +62,7 @@ describe('test mode, per user', () => {
     expect(test.body.no).toBe('TEST-INV-000001');
     const txt = await readFile(`${dir}/TEST-INV-000001.txt`, 'utf8');
     expect(txt).toContain('TEST MODE - NOT A REAL BILL');
-    const c1 = await app.deps.db.counter.findUniqueOrThrow({ where: { code: 'C1' } });
-    expect(app.deps.printer.lastJobs.get(c1.id)!.includes(DRAWER_KICK)).toBe(false);
+    expect(app.deps.printer.lastJob!.includes(DRAWER_KICK)).toBe(false);
 
     // At the same time cashier 2 sells for real.
     const real = await sell(shop.cashier2, '1');

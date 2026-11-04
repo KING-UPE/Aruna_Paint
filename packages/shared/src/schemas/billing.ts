@@ -136,7 +136,6 @@ export const billHistoryQuerySchema = paginationSchema.extend({
   from: dateSchema.optional(),
   to: dateSchema.optional(),
   cashierId: idSchema.optional(),
-  counterId: idSchema.optional(),
   customer: z.string().optional(),
   amount: moneySchema.optional(),
 });

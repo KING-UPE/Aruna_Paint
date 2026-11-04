@@ -1,7 +1,7 @@
 import { readdir, readFile, rm } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Client, createTestApp, login, PINS, setupShop, valueId, type Shop } from './helpers';
+import { createTestApp, PINS, setPrinter, setupShop, valueId, type Shop } from './helpers';
 import { createCatalog, postGrn, subProducts, type Catalog } from './fixtures';
 
 let app: FastifyInstance;
@@ -93,10 +93,7 @@ describe('a sale, start to finish', () => {
   it('prints the 80 mm receipt with totals, change and savings, and never opens a cash drawer', async () => {
     const dir = '/tmp/aruna-test-receipts';
     await rm(dir, { recursive: true, force: true });
-    await app.deps.db.counter.update({
-      where: { code: 'C1' },
-      data: { printer: { driver: 'file', path: dir } },
-    });
+    await setPrinter(app, { driver: 'file', path: dir });
     const r = await shop.cashier.post('/api/sales', {
       lines: mockupLines(),
       cashGiven: '7000',
@@ -137,37 +134,39 @@ describe('a sale, start to finish', () => {
     expect(short.body.error.field).toBe('cashGiven');
   });
 
-  it('the day opens by itself on the first bill and the counter keeps billing all day', async () => {
-    // A counter with no day started yet gets one with a zero float on its first bill.
-    const counters = (await shop.sa.get('/api/counters')).body.items;
-    const c3 = await shop.sa.post('/api/counters', {
-      code: 'C3',
-      name: 'Counter 3',
-      locationId: counters[0].locationId,
-    });
-    expect(c3.status).toBe(200);
-    const third = new Client(app);
-    await login(third, 'cashier', 'C3');
-    const first = await third.post('/api/sales', {
+  it('one day for the whole shop opens with the first bill on any PC and never stops billing', async () => {
+    // Every PC is the same: two cashiers bill into the same day, with no counter set up.
+    const first = await shop.cashier.post('/api/sales', {
       lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
     });
     expect(first.status).toBe(200);
-    const day = (await third.get('/api/shifts/current')).body;
-    expect(day.shift).toMatchObject({ openingFloat: '0.00' });
+    const second = await shop.cashier2.post('/api/sales', {
+      lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
+    });
+    expect(second.status).toBe(200);
+    const day = (await shop.admin.get('/api/shifts/current')).body.shift;
+    expect(day).toMatchObject({ status: 'OPEN', billCount: 2, counter: null });
+    expect(day.no).toMatch(/^DE-\d{8}$/);
+    expect(day.byUser.map((u: { name: string }) => u.name).sort()).toEqual(['Cashier', 'Cashier2']);
+    // Each bill is recorded under the user who made it.
+    const bills = await app.deps.db.sale.findMany({ where: { shiftId: day.id } });
+    expect(bills.every((b) => b.counterId === null)).toBe(true);
+    expect(new Set(bills.map((b) => b.cashierId)).size).toBe(2);
 
-    // No Finish day any more: the routes are gone.
-    expect((await third.post('/api/shifts/current/close', {})).status).toBe(404);
-    expect((await third.post('/api/shifts/open', { openingFloat: '0' })).status).toBe(404);
+    // No Finish day, counters or opening float any more: the routes are gone.
+    expect((await shop.cashier.post('/api/shifts/current/close', {})).status).toBe(404);
+    expect((await shop.cashier.post('/api/shifts/open', { openingFloat: '0' })).status).toBe(404);
+    expect((await shop.sa.get('/api/counters')).status).toBe(404);
     // A day finished by hand before that update opens again on the next bill.
-    await app.deps.db.shift.update({ where: { id: day.shift.id }, data: { status: 'CLOSED' } });
-    const again = await third.post('/api/sales', {
+    await app.deps.db.shift.update({ where: { id: day.id }, data: { status: 'CLOSED' } });
+    const again = await shop.cashier.post('/api/sales', {
       lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
     });
     expect(again.status).toBe(200);
-    expect((await third.get('/api/shifts/current')).body.shift).toMatchObject({
-      id: day.shift.id,
+    expect((await shop.admin.get('/api/shifts/current')).body.shift).toMatchObject({
+      id: day.id,
       status: 'OPEN',
-      billCount: 2,
+      billCount: 3,
     });
   });
 
@@ -178,7 +177,7 @@ describe('a sale, start to finish', () => {
     expect(first.status).toBe(200);
     // Pretend the open day was yesterday (nobody did the day end).
     const open = await app.deps.db.shift.findFirstOrThrow({
-      where: { status: 'OPEN', counter: { code: 'C1' } },
+      where: { status: 'OPEN', counterId: null },
     });
     const yesterday = new Date(
       Date.parse(`${open.businessDate.toISOString().slice(0, 10)}T00:00:00Z`) - 86_400_000,
@@ -210,9 +209,10 @@ describe('a sale, start to finish', () => {
     expect((await shop.cashier.get('/api/shifts/current')).body.shift.status).toBe('OPEN');
   });
 
-  it('a PC logged in without a counter code bills on the first counter', async () => {
+  it('any PC bills at the shop location, with no counter to set up', async () => {
     const me = (await shop.admin.get('/api/auth/me')).body;
-    expect(me.counter?.code).toBe('C1');
+    expect(me.counter).toBeUndefined();
+    expect(me.location.name).toBe('Shop');
     const r = await shop.admin.post('/api/sales', {
       lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
     });
@@ -335,7 +335,7 @@ describe('loose paint', () => {
   });
 });
 
-describe('two counters', () => {
+describe('two cashiers at once', () => {
   it("can't sell the last can twice", async () => {
     const reason = await valueId(shop.admin, 'reasons', 'Damaged');
     await shop.admin.post('/api/adjustments', {
@@ -606,7 +606,8 @@ describe('dashboard', () => {
     expect(d.daily).toHaveLength(7);
     expect(d.daily.at(-1)).toMatchObject({ date: d.today, sales: '6325.00', bills: 1 });
     expect(d.topProducts[0]).toMatchObject({ name: 'Thinner 4L', sales: '4900.00' });
-    expect(d.counters).toEqual([expect.objectContaining({ code: 'C1', sales: '6325.00' })]);
+    expect(d.counters).toBeUndefined();
+    expect(d.cashiers).toEqual([expect.objectContaining({ name: 'Cashier', sales: '6325.00' })]);
     expect(d.hourly.reduce((n: number, h: { bills: number }) => n + h.bills, 0)).toBe(1);
 
     const forAdmin = (await shop.admin.get('/api/dashboard?range=today')).body;
@@ -747,26 +748,26 @@ describe('day end', () => {
       billCount: 1,
       cashSales: '6325.00',
       cashRefunds: '450.00',
-      openingFloat: '0.00',
+      net: '5875.00',
     });
-    expect(current.no).toMatch(/^DE-\d{8}-C1$/);
+    expect(current).not.toHaveProperty('openingFloat');
+    expect(current.no).toMatch(/^DE-\d{8}$/);
     // Cash in and out of a drawer is gone too.
     expect((await shop.cashier.post('/api/shifts/current/cash', { kind: 'OUT' })).status).toBe(404);
   });
 
-  it("cashiers see their own counter's day; Admins see every counter", async () => {
-    // Opening the billing screen starts each counter's day.
-    for (const c of [shop.cashier, shop.cashier2]) await c.get('/api/billing/status');
-    expect(
-      (await shop.cashier.get('/api/shifts')).body.items.map(
-        (s: { counter: { code: string } }) => s.counter.code,
-      ),
-    ).toEqual(['C1']);
-    expect(
-      (await shop.admin.get('/api/shifts')).body.items
-        .map((s: { counter: { code: string } }) => s.counter.code)
-        .sort(),
-    ).toEqual(['C1', 'C2']);
+  it("one day for the shop; a cashier sees the totals and their own line, Admins see everyone's", async () => {
+    for (const c of [shop.cashier, shop.cashier2])
+      await c.post('/api/sales', { lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }] });
+    const forCashier = (await shop.cashier.get('/api/shifts')).body.items;
+    expect(forCashier).toHaveLength(1);
+    expect(forCashier[0]).toMatchObject({ billCount: 2, counter: null });
+    expect(forCashier[0].byUser.map((u: { name: string }) => u.name)).toEqual(['Cashier']);
+    const forAdmin = (await shop.admin.get('/api/shifts')).body.items;
+    expect(forAdmin[0].byUser.map((u: { name: string }) => u.name).sort()).toEqual([
+      'Cashier',
+      'Cashier2',
+    ]);
   });
 });
 

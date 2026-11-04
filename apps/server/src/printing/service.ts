@@ -1,4 +1,4 @@
-import type { Db } from '../db';
+import type { SettingsService } from '../core/settings';
 import type { AppConfig } from '../config';
 import { sendToPrinter, type PrinterConfig } from './drivers';
 import { stampTest } from './escpos';
@@ -9,36 +9,41 @@ export interface PrintResult {
 }
 
 /**
- * Sends documents to a counter's printer. Printing happens after the bill is saved; a printer
- * problem never undoes a sale, it is reported back so the cashier can reprint.
+ * Sends documents to the shop's receipt printer (Settings → Receipt printer; every PC prints on
+ * it). Printing happens after the bill is saved; a printer problem never undoes a sale, it is
+ * reported back so the cashier can reprint.
  */
 export class PrintService {
-  /** Last job per counter, for tests and the "file" driver preview. */
-  readonly lastJobs = new Map<string, Buffer>();
+  /** The last job sent, for tests and the "file" driver preview. */
+  lastJob: Buffer | null = null;
 
   constructor(
-    private readonly db: Db,
+    private readonly settings: SettingsService,
     private readonly config: AppConfig,
-    /** Test mode: every slip says TEST and the cash drawer stays shut. */
+    /** Test mode: every slip says TEST. */
     private readonly testMode: () => boolean = () => false,
   ) {}
 
-  async printerFor(counterId: string | null | undefined): Promise<PrinterConfig> {
-    if (!counterId) return { driver: 'none' };
-    const counter = await this.db.counter.findUnique({ where: { id: counterId } });
-    return (counter?.printer as PrinterConfig | undefined) ?? { driver: 'none' };
+  async printer(): Promise<PrinterConfig> {
+    const p = await this.settings.get('printer');
+    switch (p.driver) {
+      case 'network':
+        return { driver: 'network', host: p.host, port: p.port };
+      case 'windows-share':
+        return { driver: 'windows-share', share: p.share };
+      case 'file':
+        return { driver: 'file', path: p.path };
+      default:
+        return { driver: 'none' };
+    }
   }
 
-  async print(
-    counterId: string | null | undefined,
-    data: Buffer,
-    name: string,
-  ): Promise<PrintResult> {
+  async print(data: Buffer, name: string): Promise<PrintResult> {
     if (this.testMode()) data = stampTest(data);
-    this.lastJobs.set(counterId ?? 'none', data);
+    this.lastJob = data;
     if (!data.length) return { printed: false };
     try {
-      const printer = await this.printerFor(counterId);
+      const printer = await this.printer();
       await sendToPrinter(printer, data, {
         dataDir: this.config.dataDir,
         name: name.replace(/[^\w.-]/g, '_'),

@@ -1,7 +1,8 @@
 # The shop server PC
 
-One PC in the shop runs the server and the database; the billing counters and the other PCs open
-the screens from it over the shop network. There is no installer or automatic update yet (they are
+One PC in the shop runs the server and the database; every other PC opens the screens from it over
+the shop network. All PCs are the same: there are no counters, and every bill and change is
+recorded under the user who signed in. There is no installer or automatic update yet (they are
 on the plan's list), so the steps below are done by hand, in a terminal in the project folder.
 
 ## Once: setting it up
@@ -20,8 +21,8 @@ pnpm --filter @aruna/server db:deploy
 pnpm shop:start
 ```
 
-The first visit to `http://<server-pc>:3000` runs the first-run wizard. Each billing PC opens
-`http://<server-pc>:3000/?counter=C1` (C2 for the second counter) once; it remembers its counter.
+The first visit to `http://<server-pc>:3000` runs the first-run wizard. Every other PC opens the same
+address. Receipts print on the one printer set in Settings → Receipt printer.
 
 ## Every day: starting it
 

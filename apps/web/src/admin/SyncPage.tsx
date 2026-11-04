@@ -45,7 +45,8 @@ interface Machine {
   lastPushAt: string | null;
   waiting: number;
   version: string;
-  counters: { code: string; name: string; lastBillAt: string | null }[];
+  /** The shop's latest bill. */
+  lastBillAt: string | null;
 }
 
 type Status =
@@ -154,7 +155,7 @@ const tableName = (t: string) => TABLES[t] ?? t.replace(/_/g, ' ');
 
 /**
  * Cloud sync. At the shop: is this server linked and online, when it last synced, what waits.
- * Online: each shop server and its counters with their last sync. At both: the changes made
+ * Online: each shop server with its last sync and last bill. At both: the changes made
  * online and what the shop did with them; a conflict waits for the Super Admin.
  */
 export function SyncPage() {
@@ -229,7 +230,7 @@ export function SyncPage() {
         description={
           s.mode === 'shop'
             ? 'The shop works fully offline. Its changes go up to the cloud when the internet is on, and changes made online come down.'
-            : 'Everything here is the shop as of its last sync. Only the Super Admin changes things online (users, permissions, settings, counters, backups, HRM figures), and they reach the shop when it next connects.'
+            : 'Everything here is the shop as of its last sync. Only the Super Admin changes things online (users, permissions, settings, the printer, backups, HRM figures), and they reach the shop when it next connects.'
         }
       >
         {s.mode === 'shop' && s.agent.linked ? (
@@ -296,7 +297,7 @@ export function SyncPage() {
                   <th className="px-4 py-2.5 font-medium">Last sync</th>
                   <th className="px-4 py-2.5 font-medium">Today</th>
                   <th className="px-4 py-2.5 font-medium">Waiting at the shop</th>
-                  <th className="px-4 py-2.5 font-medium">Counters (last bill)</th>
+                  <th className="px-4 py-2.5 font-medium">Last bill</th>
                   <th className="px-4 py-2.5 font-medium">Version</th>
                   <th className="px-4 py-2.5" />
                 </tr>
@@ -332,15 +333,8 @@ export function SyncPage() {
                         {n.today.bills} bills · Rs {formatMoney(n.today.total)}
                       </td>
                       <td className="num px-4 py-2.5">{n.waiting}</td>
-                      <td className="px-4 py-2.5">
-                        {n.counters.map((c) => (
-                          <div key={c.code}>
-                            {c.code} · {c.name}:{' '}
-                            <span className="text-muted">
-                              {c.lastBillAt ? formatDateTime(c.lastBillAt) : 'no bills yet'}
-                            </span>
-                          </div>
-                        ))}
+                      <td className="px-4 py-2.5 text-muted">
+                        {n.lastBillAt ? formatDateTime(n.lastBillAt) : 'No bills yet'}
                       </td>
                       <td className="px-4 py-2.5 text-muted">v{n.version}</td>
                       <td className="px-4 py-2.5 text-right">

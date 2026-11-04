@@ -98,7 +98,7 @@ export function HistoryPanel({
       if (r.print.printed) toast.success(`Reprint #${r.copyNo} of ${s.no} sent to the printer.`);
       else
         toast.warning(
-          `Reprint #${r.copyNo} logged. ${r.print.error ?? 'No printer is set for this counter.'}`,
+          `Reprint #${r.copyNo} logged. ${r.print.error ?? 'No receipt printer is set in Settings.'}`,
         );
       refresh();
     } catch (err) {
@@ -112,7 +112,7 @@ export function HistoryPanel({
   };
   const conv = () => {
     const s = items.find((i) => i.id === detailId);
-    if (s?.kind === 'QUOTATION' && !s.convertedTo && can('billing.create') && me.counter)
+    if (s?.kind === 'QUOTATION' && !s.convertedTo && can('billing.create') && me.mode === 'shop')
       setConvertFor(s);
   };
   const voidIt = () => {

@@ -93,7 +93,6 @@ export async function userRoutes(app: FastifyInstance) {
     const userId = idParam(req.params);
     const sessions = await db.session.findMany({
       where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
-      include: { counter: true },
       orderBy: { lastActivityAt: 'desc' },
     });
     const logins = await db.auditLog.findMany({
@@ -104,7 +103,6 @@ export async function userRoutes(app: FastifyInstance) {
     return {
       sessions: sessions.map((s) => ({
         id: s.id,
-        counter: s.counter?.code ?? null,
         ip: s.ip,
         createdAt: s.createdAt,
         lastActivityAt: s.lastActivityAt,

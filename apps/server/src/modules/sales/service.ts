@@ -27,38 +27,31 @@ import { autoCloseShift } from '../shifts/service';
 import { dateOnly, parseDateOnly } from '../../lib/json';
 import { priceLines, type PricedLine, type QuotedPrice } from './pricing';
 
-export function requireCounter(ctx: RequestContext) {
-  if (!ctx.counter) {
-    throw new DomainError(
-      'INVALID_STATE',
-      'Billing runs on a counter PC. Log in at a counter.',
-      undefined,
-      { needCounter: true },
-    );
-  }
-  return ctx.counter;
-}
-
 /**
- * Bills attach to today's open day for the counter. The day opens by itself with the first bill,
- * and a day still open from an earlier date closes by itself first (no day end to remember). A
- * day finished by hand before the Finish day button was removed opens again, so a counter never
- * stops taking bills.
+ * Bills attach to the shop's open day. Every PC is the same (no counters): the day opens by itself
+ * with the first bill on any PC, and a day still open from an earlier date closes by itself first
+ * (no day end to remember). A day finished by hand before the Finish day button was removed opens
+ * again, so billing never stops.
  */
-export async function openShiftFor(tx: Tx, counterId: string, required: boolean, userId: string) {
-  let shift = await tx.shift.findFirst({
-    where: { counterId, status: 'OPEN' },
-    orderBy: { openedAt: 'desc' },
-  });
+export async function openShiftFor(tx: Tx, locationId: string, required: boolean, userId: string) {
+  const open = () =>
+    tx.shift.findFirst({
+      where: { counterId: null, status: 'OPEN' },
+      orderBy: { openedAt: 'desc' },
+    });
+  let shift = await open();
+  if (shift && dateOnly(shift.businessDate) === shopDate()) return shift;
+  if (!shift && !required) return null;
+  // One PC at a time opens the day, so two first bills can't make two days.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('aruna.shop_day'))`;
+  shift = await open();
   if (shift && dateOnly(shift.businessDate) !== shopDate()) {
     await autoCloseShift(tx, shift.id, userId);
     shift = null;
   }
   if (shift || !required) return shift;
   const today = parseDateOnly(shopDate());
-  const finished = await tx.shift.findUnique({
-    where: { counterId_businessDate: { counterId, businessDate: today } },
-  });
+  const finished = await tx.shift.findFirst({ where: { counterId: null, businessDate: today } });
   if (finished) {
     await audit(tx, { userId }, { action: 'shift.reopen', entity: 'shift', entityId: finished.id });
     return tx.shift.update({
@@ -66,12 +59,10 @@ export async function openShiftFor(tx: Tx, counterId: string, required: boolean,
       data: { status: 'OPEN', closedAt: null, closedById: null },
     });
   }
-  const counter = await tx.counter.findUniqueOrThrow({ where: { id: counterId } });
   return tx.shift.create({
     data: {
-      no: await nextNumber(tx, 'DAY_END', { counterCode: counter.code }),
-      counterId: counter.id,
-      locationId: counter.locationId,
+      no: await nextNumber(tx, 'DAY_END', {}),
+      locationId,
       businessDate: today,
       openingFloat: D(0),
       openedById: userId,
@@ -178,9 +169,8 @@ export async function completeSale(
   extra: { convertedFromId?: string; quoted?: (QuotedPrice | null)[] } = {},
 ) {
   const input = saleInputSchema.parse(raw);
-  const counter = requireCounter(ctx);
   const isInvoice = input.kind === 'INVOICE';
-  const shift = await openShiftFor(tx, counter.id, isInvoice, ctx.user.id);
+  const shift = await openShiftFor(tx, ctx.locationId, isInvoice, ctx.user.id);
   const priced = await priceLines(
     tx,
     input.lines as SaleLineInput[],
@@ -197,16 +187,10 @@ export async function completeSale(
   const build = buildTotals(priced, settings);
   const cash = isInvoice ? computeChange(build.netTotal, input.cashGiven ?? null) : null;
 
-  const location = await tx.location.findUniqueOrThrow({ where: { id: counter.locationId } });
+  const location = await tx.location.findUniqueOrThrow({ where: { id: ctx.locationId } });
   const docType = isInvoice ? 'INVOICE' : 'QUOTATION';
-  const no = await nextNumber(
-    tx,
-    docType,
-    { counterCode: counter.code, locationCode: location.code },
-    async (n) =>
-      Boolean(
-        await tx.sale.findFirst({ where: { kind: input.kind, no: n }, select: { id: true } }),
-      ),
+  const no = await nextNumber(tx, docType, { locationCode: location.code }, async (n) =>
+    Boolean(await tx.sale.findFirst({ where: { kind: input.kind, no: n }, select: { id: true } })),
   );
   const now = new Date();
   const validUntil = isInvoice
@@ -220,8 +204,7 @@ export async function completeSale(
       no,
       kind: input.kind,
       status: 'COMPLETED',
-      location: { connect: { id: counter.locationId } },
-      counter: { connect: { id: counter.id } },
+      location: { connect: { id: ctx.locationId } },
       ...(shift ? { shift: { connect: { id: shift.id } } } : {}),
       cashier: { connect: { id: ctx.user.id } },
       wholesale: input.wholesale,
@@ -286,7 +269,6 @@ export async function completeSale(
 /** F7 parks the current bill. Held bills don't reserve stock; it's checked again at payment. */
 export async function holdSale(tx: Tx, ctx: RequestContext, settings: Settings, raw: unknown) {
   const input = holdInputSchema.parse(raw);
-  const counter = requireCounter(ctx);
   const priced = await priceLines(tx, input.lines as SaleLineInput[], input.wholesale);
   const build = buildTotals(priced, settings);
   const before = input.heldSaleId ? await heldSnapshot(tx, input.heldSaleId) : null;
@@ -296,8 +278,7 @@ export async function holdSale(tx: Tx, ctx: RequestContext, settings: Settings, 
     data: {
       kind: input.kind,
       status: 'HELD',
-      location: { connect: { id: counter.locationId } },
-      counter: { connect: { id: counter.id } },
+      location: { connect: { id: ctx.locationId } },
       cashier: { connect: { id: ctx.user.id } },
       wholesale: input.wholesale,
       customerName: input.customerName,
@@ -349,7 +330,6 @@ export async function listHeld(tx: Tx, locationId: string) {
     where: { status: 'HELD', locationId },
     include: {
       cashier: { select: { fullName: true } },
-      counter: { select: { code: true } },
       lines: { orderBy: { lineNo: 'asc' } },
     },
     orderBy: { createdAt: 'desc' },
@@ -359,7 +339,6 @@ export async function listHeld(tx: Tx, locationId: string) {
     kind: s.kind,
     heldAt: s.createdAt,
     cashier: s.cashier.fullName,
-    counter: s.counter.code,
     wholesale: s.wholesale,
     customerName: s.customerName,
     customerPhone: s.customerPhone,
@@ -552,7 +531,6 @@ export async function convertQuotation(
   id: string,
   raw: { cashGiven?: string | null; print?: boolean },
 ) {
-  const counter = requireCounter(ctx);
   const q = await tx.sale.findUnique({
     where: { id },
     include: { lines: { orderBy: { lineNo: 'asc' } }, convertedTo: true },
@@ -590,7 +568,7 @@ export async function convertQuotation(
       SELECT sp.id, sp.code, b.qty::text AS available, sp.first_received_at,
              sp.r_price::text, sp.w_price::text, sp.sales_price::text, sp.sales_discount::text
         FROM sub_products sp JOIN stock_balances b ON b.sub_product_id = sp.id
-       WHERE sp.product_id = ${l.productId}::uuid AND b.location_id = ${counter.locationId}::uuid AND b.qty > 0 AND sp.active`;
+       WHERE sp.product_id = ${l.productId}::uuid AND b.location_id = ${ctx.locationId}::uuid AND b.qty > 0 AND sp.active`;
     const allocation = (() => {
       try {
         return allocateFifo(

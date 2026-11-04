@@ -35,7 +35,8 @@ describe('first-run setup', () => {
     });
     expect(r.status).toBe(200);
     expect(r.body.recoveryCodes).toHaveLength(8);
-    expect(r.body.counterCode).toBe('C1');
+    // No counter is set up: every PC is the same.
+    expect(await app.deps.db.counter.count()).toBe(0);
     const me = await c.get('/api/auth/me');
     expect(me.body.roles).toEqual(['SUPER_ADMIN']);
     expect(me.body.permissions).toContain('cost.totals');
@@ -76,19 +77,18 @@ describe('access', () => {
     expect((await shop.stock.post('/api/values/brands', { name: 'Dulux' })).status).toBe(200);
   });
 
-  it('a cashier logged in at a counter has that counter and its location', async () => {
+  it('every PC works at the shop location; there are no counters', async () => {
     const me = await shop.cashier.get('/api/auth/me');
-    expect(me.body.counter.code).toBe('C1');
+    expect(me.body.counter).toBeUndefined();
     expect(me.body.location.code).toBe('SHOP');
     expect(me.body.permissions).not.toContain('cost.item');
   });
 
-  it('PIN switches the user on the same counter and both are logged', async () => {
+  it('PIN switches the user on the same PC and both are logged', async () => {
     const r = await shop.cashier.post('/api/auth/pin', { pin: PINS.cashier2 });
     expect(r.body).toEqual({ ok: true, switched: true });
     const me = await shop.cashier.get('/api/auth/me');
     expect(me.body.user.username).toBe('cashier2');
-    expect(me.body.counter.code).toBe('C1');
     expect((await shop.cashier.post('/api/auth/pin', { pin: '9999' })).status).toBe(401);
   });
 

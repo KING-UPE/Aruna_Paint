@@ -15,7 +15,6 @@ export interface HeldBill {
   kind: 'INVOICE' | 'QUOTATION';
   heldAt: string;
   cashier: string;
-  counter: string;
   wholesale: boolean;
   customerName: string;
   customerPhone: string;
@@ -123,8 +122,7 @@ export function HeldBillsDialog({
                 )}
               >
                 <span>
-                  <span className="font-medium">{formatTime(b.heldAt)}</span> · {b.cashier} ·{' '}
-                  {b.counter}
+                  <span className="font-medium">{formatTime(b.heldAt)}</span> · {b.cashier}
                   {b.customerName ? ` · ${b.customerName}` : ''}
                   {b.kind === 'QUOTATION' ? ' · quotation' : ''}
                 </span>

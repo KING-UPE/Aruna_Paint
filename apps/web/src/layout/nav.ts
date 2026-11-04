@@ -5,7 +5,7 @@ export interface NavItem {
   label: string;
   section: 'Billing' | 'Stock' | 'HRM' | 'Admin';
   perms: Permission[];
-  /** Needs the counters: not on the online panel. */
+  /** Happens at the shop: not on the online panel. */
   shopOnly?: boolean;
 }
 

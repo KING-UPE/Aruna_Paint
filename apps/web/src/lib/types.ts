@@ -5,7 +5,6 @@ export interface Me {
   user: { id: string; username: string; fullName: string; mustChangePassword: boolean };
   roles: string[];
   permissions: string[];
-  counter: { id: string; code: string; name: string; locationId: string } | null;
   location: { id: string; code: string; name: string } | null;
   locked: boolean;
   shortcuts: { screen: string; action: string; keys: string }[];
@@ -84,7 +83,6 @@ export interface BillingItem {
 }
 
 export interface BillingStatus {
-  counter: { id: string; code: string; name: string } | null;
   today: { total: string; bills: number };
   shift: { id: string; no: string; businessDate: string } | null;
   nextNumbers: { INVOICE: string; QUOTATION: string };
@@ -103,7 +101,6 @@ export interface SaleListItem {
   createdAt: string;
   completedAt: string | null;
   cashier: string;
-  counter: string;
   wholesale: boolean;
   customerName: string;
   itemCount: number;
@@ -129,7 +126,6 @@ export interface SaleDetail {
   validUntil: string | null;
   completedAt: string | null;
   cashier: string;
-  counter: string;
   itemCount: number;
   totalQty: string;
   gross: string;
@@ -159,35 +155,32 @@ export interface SaleDetail {
   reprints: { copyNo: number; at: string; by: string }[];
 }
 
+/** One day of the shop (every PC is the same), with each user's share. */
 export interface ShiftSummary {
   id: string;
   no: string;
   status: 'OPEN' | 'CLOSED';
-  counter: { id: string; code: string; name: string };
+  /** Days from before counters were removed. */
+  counter: string | null;
   businessDate: string;
   openedBy: string;
   openedAt: string;
   closedBy: string | null;
-  openingFloat: string;
   billCount: number;
   voidCount: number;
   returnCount: number;
   cashSales: string;
   cashRefunds: string;
-  cashIn: string;
-  cashOut: string;
-  expectedCash: string;
-  countedCash: string | null;
-  difference: string | null;
-  denominations: Record<string, number>;
-  movements: {
-    id: string;
-    at: string;
-    kind: 'IN' | 'OUT';
-    amount: string;
-    reason: string;
-    note: string;
-    by: string;
+  net: string;
+  /** Admins see everyone; a cashier sees their own line. */
+  byUser: {
+    userId: string;
+    name: string;
+    bills: number;
+    sales: string;
+    returns: number;
+    refunds: string;
+    net: string;
   }[];
 }
 

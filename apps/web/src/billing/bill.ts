@@ -22,7 +22,7 @@ export interface BillLine {
   qty: string;
   /** What the cashier typed in the discount box; empty keeps the batch default. */
   discountText: string;
-  /** Loose paint: a price per liter changed at the counter (needs an Admin PIN). */
+  /** Loose paint: a price per liter changed while billing (needs an Admin PIN). */
   pricePerLiter: string | null;
 }
 

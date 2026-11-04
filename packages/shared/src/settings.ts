@@ -111,6 +111,19 @@ export const appearanceSettingsSchema = z.object({
 });
 export type AppearanceSettings = z.infer<typeof appearanceSettingsSchema>;
 
+/** The shop's one receipt printer: every PC prints on it (no per-PC counters). */
+export const printerSettingsSchema = z.object({
+  driver: z.enum(['none', 'network', 'windows-share', 'file']).default('none'),
+  /** Network printer address; raw port 9100 by default. */
+  host: z.string().max(200).default(''),
+  port: z.number().int().min(1).max(65535).default(9100),
+  /** A USB printer shared in Windows on the server PC. */
+  share: z.string().max(200).default(''),
+  /** The "file" driver's folder (testing). */
+  path: z.string().max(400).default(''),
+});
+export type PrinterSettings = z.infer<typeof printerSettingsSchema>;
+
 export const SETTINGS_SCHEMAS = {
   shop: shopSettingsSchema,
   receipt: receiptSettingsSchema,
@@ -121,6 +134,7 @@ export const SETTINGS_SCHEMAS = {
   cloud: cloudSettingsSchema,
   hrm: hrmSettingsSchema,
   appearance: appearanceSettingsSchema,
+  printer: printerSettingsSchema,
 } as const;
 
 export type SettingsKey = keyof typeof SETTINGS_SCHEMAS;
@@ -136,4 +150,5 @@ export const DEFAULT_SETTINGS: Settings = {
   cloud: cloudSettingsSchema.parse({}),
   hrm: hrmSettingsSchema.parse({}),
   appearance: appearanceSettingsSchema.parse({}),
+  printer: printerSettingsSchema.parse({}),
 };
