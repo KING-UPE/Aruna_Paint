@@ -205,8 +205,10 @@ export async function authRoutes(app: FastifyInstance) {
     '/api/auth/lock',
     { config: { allowLocked: true, allowPasswordChange: true } },
     async (req) => {
+      // With the screen lock off, nothing locks.
+      if (!(await settings.get('billing')).screenLock) return { ok: true, locked: false };
       await db.session.update({ where: { id: req.ctx.sessionId }, data: { lockedAt: new Date() } });
-      return { ok: true };
+      return { ok: true, locked: true };
     },
   );
 
@@ -367,6 +369,7 @@ export async function authRoutes(app: FastifyInstance) {
       settings: {
         shopName: shop.shopName,
         idleLockMinutes: billing.idleLockMinutes,
+        screenLock: billing.screenLock,
         timeFormat: billing.timeFormat,
         quotationValidityDays: billing.quotationValidityDays,
       },

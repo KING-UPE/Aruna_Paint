@@ -11,6 +11,8 @@ export interface Me {
   settings: {
     shopName: string;
     idleLockMinutes: number;
+    /** The Super Admin's screen lock switch: off, nothing times out or asks for a PIN. */
+    screenLock: boolean;
     timeFormat: '12h' | '24h';
     quotationValidityDays: number;
   };

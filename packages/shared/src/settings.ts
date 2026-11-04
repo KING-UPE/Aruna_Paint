@@ -26,6 +26,11 @@ export const billingSettingsSchema = z.object({
   netTotalRounding: z.enum(['0.01', '1', '5', '10']).default('0.01'),
   /** The plan keeps negative stock off; it is never allowed in this version. */
   allowNegativeStock: z.literal(false).default(false),
+  /**
+   * Screen lock, switched by the Super Admin: on, an idle screen locks after idleLockMinutes and
+   * asks for a PIN; off, screens never time out and no PIN is asked. Every PC and the online panel.
+   */
+  screenLock: z.boolean().default(true),
   idleLockMinutes: z.number().int().min(1).max(240).default(5),
   timeFormat: z.enum(['12h', '24h']).default('24h'),
 });

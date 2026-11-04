@@ -64,10 +64,10 @@ export function useSessionErrors() {
  * The screen locks after the set idle time; the server enforces it too. Any key or click
  * counts as activity.
  */
-export function useIdleLock(minutes: number, locked: boolean) {
+export function useIdleLock(minutes: number, locked: boolean, enabled = true) {
   const qc = useQueryClient();
   useEffect(() => {
-    if (locked) return;
+    if (locked || !enabled) return;
     let last = Date.now();
     const bump = () => {
       last = Date.now();
@@ -88,5 +88,5 @@ export function useIdleLock(minutes: number, locked: boolean) {
       window.removeEventListener('pointerdown', bump, true);
       window.clearInterval(t);
     };
-  }, [minutes, locked, qc]);
+  }, [minutes, locked, enabled, qc]);
 }

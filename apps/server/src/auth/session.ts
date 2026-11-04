@@ -51,10 +51,19 @@ export function registerSessionHook(app: FastifyInstance): void {
       throw new DomainError('UNAUTHENTICATED', 'Please log in.');
     }
 
-    // The screen locks after a set idle time; a PIN (or password) unlocks it.
-    const { idleLockMinutes } = await settings.get('billing');
+    // With the screen lock on, the screen locks after a set idle time and a PIN (or password)
+    // unlocks it. With it off (the Super Admin's choice), nothing times out or asks for a PIN.
+    const { idleLockMinutes, screenLock } = await settings.get('billing');
     let lockedAt = session.lockedAt;
-    if (!lockedAt && now.getTime() - session.lastActivityAt.getTime() > idleLockMinutes * 60_000) {
+    if (!screenLock && lockedAt) {
+      lockedAt = null;
+      await db.session.update({ where: { id: session.id }, data: { lockedAt } });
+    }
+    if (
+      screenLock &&
+      !lockedAt &&
+      now.getTime() - session.lastActivityAt.getTime() > idleLockMinutes * 60_000
+    ) {
       lockedAt = now;
       await db.session.update({ where: { id: session.id }, data: { lockedAt } });
     }

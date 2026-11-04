@@ -108,6 +108,32 @@ describe('access', () => {
     expect((await shop.cashier.get('/api/values/units')).status).toBe(423);
   });
 
+  it('with the screen lock switched off, nothing times out or asks for a PIN', async () => {
+    const billing = (await shop.sa.get('/api/settings')).body.billing;
+    // Only the Super Admin switches it.
+    expect(
+      (await shop.admin.put('/api/settings/billing', { ...billing, screenLock: false })).status,
+    ).toBe(403);
+    expect(
+      (await shop.sa.put('/api/settings/billing', { ...billing, screenLock: false })).status,
+    ).toBe(200);
+    expect((await shop.cashier.get('/api/auth/me')).body.settings.screenLock).toBe(false);
+    await app.deps.db.session.updateMany({
+      data: { lastActivityAt: new Date(Date.now() - 60 * 60_000) },
+    });
+    expect((await shop.cashier.get('/api/values/units')).status).toBe(200);
+    expect((await shop.cashier.post('/api/auth/lock', {})).body.locked).toBe(false);
+    // A screen locked before it was switched off opens again.
+    await app.deps.db.session.updateMany({ data: { lockedAt: new Date() } });
+    expect((await shop.cashier.get('/api/values/units')).status).toBe(200);
+    // Switched back on, idle screens lock again.
+    await shop.sa.put('/api/settings/billing', { ...billing, screenLock: true });
+    await app.deps.db.session.updateMany({
+      data: { lastActivityAt: new Date(Date.now() - 60 * 60_000) },
+    });
+    expect((await shop.cashier.get('/api/values/units')).status).toBe(423);
+  });
+
   it('a reset password must be changed at next login', async () => {
     const r = await shop.sa.post(`/api/users/${shop.ids.cashier}/reset-password`, {
       password: 'temporary1',

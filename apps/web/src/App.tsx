@@ -90,7 +90,7 @@ function Screens({
 function Session() {
   const { me, can } = useAuth();
   const qc = useQueryClient();
-  useIdleLock(me.settings.idleLockMinutes, me.locked);
+  useIdleLock(me.settings.idleLockMinutes, me.locked, me.settings.screenLock);
   // Live updates come from the shop server; the online panel (on Vercel) refreshes on a timer.
   useEffect(() => (me.mode === 'shop' ? connectLive(qc) : undefined), [qc, me.mode]);
   const home =

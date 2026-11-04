@@ -132,7 +132,22 @@ export function SettingsPage() {
       ])}
       {section('billing', 'Billing', [
         number('billing', 'quotationValidityDays', 'Quotation validity (days)'),
-        number('billing', 'idleLockMinutes', 'Lock the screen after (minutes idle)'),
+        <Field
+          key="screenLock"
+          label="Screen lock"
+          hint="On: an idle screen locks and asks for a PIN. Off: screens never time out and no PIN is asked. Every PC and the online panel."
+        >
+          <Select
+            value={draft.billing?.screenLock === false ? 'off' : 'on'}
+            onChange={(e) => set('billing', 'screenLock', e.target.value === 'on')}
+          >
+            <option value="on">On: ask for a PIN after the idle time</option>
+            <option value="off">Off: no timeout, no PIN</option>
+          </Select>
+        </Field>,
+        ...(draft.billing?.screenLock === false
+          ? []
+          : [number('billing', 'idleLockMinutes', 'Lock the screen after (minutes idle)')]),
         <Field key="round" label="Round the net total to">
           <Select
             value={String(draft.billing?.netTotalRounding)}
