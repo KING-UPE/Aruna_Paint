@@ -51,6 +51,8 @@ interface UserRow {
   mustChangePassword: boolean;
   /** Works on the test copy (the Super Admin switches it). */
   testMode: boolean;
+  /** The owner: the one top Super Admin, at every shop. Only the owner changes this account. */
+  owner: boolean;
   hasPin: boolean;
   commissionRate: string | null;
   lastLoginAt: string | null;
@@ -225,6 +227,7 @@ export function UsersPage() {
                   <td className="px-4 py-2.5">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-medium">{u.fullName}</span>
+                      {u.owner ? <Badge tone="accent">Owner</Badge> : null}
                       {!u.active ? <Badge>Disabled</Badge> : null}
                       {!u.hasPin ? <Badge tone="warn">No PIN</Badge> : null}
                       {u.testMode ? <Badge tone="danger">Test mode</Badge> : null}
@@ -252,47 +255,55 @@ export function UsersPage() {
                     {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    <div className="flex items-center justify-end gap-0.5">
-                      <IconButton
-                        label={`Edit ${u.fullName}`}
-                        icon={<Pencil size={16} />}
-                        onClick={() => setEditing(u)}
-                      />
-                      <IconButton
-                        label="Reset password"
-                        icon={<KeyRound size={16} />}
-                        onClick={() => void reset(u, 'password')}
-                      />
-                      <IconButton
-                        label="Reset PIN"
-                        icon={<RectangleEllipsis size={16} />}
-                        onClick={() => void reset(u, 'pin')}
-                      />
-                      {superAdmin && !isSuperAdmin(u) ? (
+                    {u.owner && !me.user.owner ? (
+                      <span className="text-sm text-muted">Only the owner changes this</span>
+                    ) : (
+                      <div className="flex items-center justify-end gap-0.5">
                         <IconButton
-                          label={u.testMode ? 'Back to real data' : 'Put in test mode'}
-                          tone={u.testMode ? 'danger' : 'default'}
-                          icon={
-                            u.testMode ? <FlaskConicalOff size={16} /> : <FlaskConical size={16} />
-                          }
-                          disabled={switching === u.id}
-                          onClick={() => void setTestMode(u, !u.testMode)}
+                          label={`Edit ${u.fullName}`}
+                          icon={<Pencil size={16} />}
+                          onClick={() => setEditing(u)}
                         />
-                      ) : superAdmin ? (
-                        <span className="w-8" aria-hidden />
-                      ) : null}
-                      {/* Keeps the icons lined up when a Super Admin row has no delete. */}
-                      {!isSuperAdmin(u) ? (
                         <IconButton
-                          label={`Delete ${u.fullName}`}
-                          tone="danger"
-                          icon={<Trash2 size={16} />}
-                          onClick={() => void deleteUser(u)}
+                          label="Reset password"
+                          icon={<KeyRound size={16} />}
+                          onClick={() => void reset(u, 'password')}
                         />
-                      ) : (
-                        <span className="w-8" aria-hidden />
-                      )}
-                    </div>
+                        <IconButton
+                          label="Reset PIN"
+                          icon={<RectangleEllipsis size={16} />}
+                          onClick={() => void reset(u, 'pin')}
+                        />
+                        {superAdmin && !isSuperAdmin(u) ? (
+                          <IconButton
+                            label={u.testMode ? 'Back to real data' : 'Put in test mode'}
+                            tone={u.testMode ? 'danger' : 'default'}
+                            icon={
+                              u.testMode ? (
+                                <FlaskConicalOff size={16} />
+                              ) : (
+                                <FlaskConical size={16} />
+                              )
+                            }
+                            disabled={switching === u.id}
+                            onClick={() => void setTestMode(u, !u.testMode)}
+                          />
+                        ) : superAdmin ? (
+                          <span className="w-8" aria-hidden />
+                        ) : null}
+                        {/* Keeps the icons lined up when a Super Admin row has no delete. */}
+                        {!isSuperAdmin(u) ? (
+                          <IconButton
+                            label={`Delete ${u.fullName}`}
+                            tone="danger"
+                            icon={<Trash2 size={16} />}
+                            onClick={() => void deleteUser(u)}
+                          />
+                        ) : (
+                          <span className="w-8" aria-hidden />
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               );

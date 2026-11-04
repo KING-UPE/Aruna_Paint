@@ -36,6 +36,8 @@ model User {
   commissionRate     Decimal?  @map("commission_rate") @db.Decimal(5, 2)
   /// Set by the Super Admin: this account works on the test copy, everyone else on the real data.
   testMode           Boolean   @default(false) @map("test_mode")
+  /// The owner: the one top Super Admin, the same account at every shop (set by the online panel).
+  owner              Boolean   @default(false)
   lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(3)
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)

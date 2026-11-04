@@ -100,6 +100,7 @@ export function registerSessionHook(app: FastifyInstance): void {
         username: session.user.username,
         fullName: session.user.fullName,
         mustChangePassword: session.user.mustChangePassword,
+        owner: session.user.owner,
       },
       roleCodes,
       permissions,

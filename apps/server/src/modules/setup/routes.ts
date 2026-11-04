@@ -22,9 +22,12 @@ export async function setupRoutes(app: FastifyInstance) {
         appearance: await settings.get('appearance'),
       };
     }
+    const setUp = !(await needsSetup(db));
     return {
-      needsSetup: await needsSetup(db),
+      needsSetup: !setUp,
       waitingForShop: false,
+      // Linked to the online panel and set up without an account: the owner's comes with a sync.
+      waitingForOwner: setUp && (await db.user.count()) === 0,
       mode: config.mode,
       appearance: await settings.get('appearance'),
     };
@@ -33,7 +36,7 @@ export async function setupRoutes(app: FastifyInstance) {
   /** First-run wizard. Works only while no user exists. */
   app.post('/api/setup', { config: { public: true } }, async (req, reply) => {
     const result = await runSetup(db, config, req.body as never);
-    await createSession(app, reply, req, result.adminId);
-    return { recoveryCodes: result.recoveryCodes };
+    if (result.adminId) await createSession(app, reply, req, result.adminId);
+    return { recoveryCodes: result.recoveryCodes, signedIn: Boolean(result.adminId) };
   });
 }

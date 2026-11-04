@@ -22,23 +22,40 @@ import {
   sha256,
 } from '../../auth/crypto';
 
-export const setupSchema = z.object({
-  shop: z.object({
-    shopName: z.string().min(1).max(120),
-    address: z.string().max(300).default(''),
-    phone: z.string().max(60).default(''),
-  }),
-  admin: z.object({
-    username: z
-      .string()
-      .min(3)
-      .max(40)
-      .regex(/^[A-Za-z0-9._-]+$/, { message: 'Use letters, digits and . _ - only.' }),
-    fullName: z.string().min(1).max(120),
-    password: passwordSchema,
-    pin: pinSchema,
-  }),
-});
+export const setupSchema = z
+  .object({
+    shop: z.object({
+      shopName: z.string().min(1).max(120),
+      address: z.string().max(300).default(''),
+      phone: z.string().max(60).default(''),
+    }),
+    /** A shop without the online panel makes its own Super Admin here. */
+    admin: z
+      .object({
+        username: z
+          .string()
+          .min(3)
+          .max(40)
+          .regex(/^[A-Za-z0-9._-]+$/, { message: 'Use letters, digits and . _ - only.' }),
+        fullName: z.string().min(1).max(120),
+        password: passwordSchema,
+        pin: pinSchema,
+      })
+      .optional(),
+    /**
+     * A shop linked to the online panel makes no account: the owner's (the one top Super Admin)
+     * arrives with the first sync, and the owner signs in with their usual username and password.
+     */
+    cloud: z
+      .object({
+        url: z.string().trim().url({ message: 'Type the online panel address, like https://….' }),
+        shopKey: z.string().trim().min(8, { message: 'Type the shop key.' }),
+      })
+      .optional(),
+  })
+  .refine((v) => Boolean(v.admin) !== Boolean(v.cloud), {
+    message: 'Link the online panel, or make a Super Admin for a shop without it.',
+  });
 export type SetupInput = z.input<typeof setupSchema>;
 
 /** The value lists the shop starts with; the Super Admin edits them in the value manager. */
@@ -65,19 +82,21 @@ const STARTING_LISTS = {
   cutoffTypes: ['Salary', 'Rent', 'Bills', 'Savings'],
 };
 
+/** Set up once: the shop's details are saved by the first-run wizard. */
 export async function needsSetup(db: Db): Promise<boolean> {
-  return (await db.user.count()) === 0;
+  return !(await db.setting.findUnique({ where: { key: 'shop' } }));
 }
 
 /**
- * First-run wizard: shop details, the Super Admin account and recovery codes, the first shop
- * (plus the built-in Damaged location), counter C1, starting lists and number formats.
+ * First-run wizard: shop details, then either the link to the online panel (the owner's account
+ * arrives from there) or, for a shop without it, its own Super Admin; recovery codes, the first
+ * shop location (plus the built-in Damaged location), starting lists and number formats.
  * Returns the recovery codes once; only their hashes are stored.
  */
 export async function runSetup(db: Db, config: AppConfig, rawInput: SetupInput) {
   const input = setupSchema.parse(rawInput);
   return db.$transaction(async (tx) => {
-    if ((await tx.user.count()) > 0)
+    if ((await tx.user.count()) > 0 || (await tx.setting.findUnique({ where: { key: 'shop' } })))
       throw new DomainError('INVALID_STATE', 'The shop is already set up.');
 
     await ensureBuiltInRoles(tx);
@@ -125,17 +144,23 @@ export async function runSetup(db: Db, config: AppConfig, rawInput: SetupInput) 
       },
     });
 
+    if (input.cloud)
+      await tx.setting.create({
+        data: { key: 'cloud', value: input.cloud as Prisma.InputJsonValue },
+      });
     const superAdminRole = await tx.role.findUniqueOrThrow({ where: { code: 'SUPER_ADMIN' } });
-    const admin = await tx.user.create({
-      data: {
-        username: input.admin.username,
-        usernameKey: nameKey(input.admin.username),
-        fullName: input.admin.fullName,
-        passwordHash: await hashPassword(input.admin.password),
-        pinHmac: pinHmac(input.admin.pin, config.pinSecret),
-        roles: { create: [{ roleId: superAdminRole.id }] },
-      },
-    });
+    const admin = input.admin
+      ? await tx.user.create({
+          data: {
+            username: input.admin.username,
+            usernameKey: nameKey(input.admin.username),
+            fullName: input.admin.fullName,
+            passwordHash: await hashPassword(input.admin.password),
+            pinHmac: pinHmac(input.admin.pin, config.pinSecret),
+            roles: { create: [{ roleId: superAdminRole.id }] },
+          },
+        })
+      : null;
 
     const recoveryCodes = Array.from({ length: 8 }, () => newRecoveryCode());
     for (const code of recoveryCodes) {
@@ -144,10 +169,10 @@ export async function runSetup(db: Db, config: AppConfig, rawInput: SetupInput) 
 
     await audit(
       tx,
-      { userId: admin.id },
+      { userId: admin?.id ?? null },
       { action: 'setup', entity: 'shop', note: input.shop.shopName },
     );
-    return { adminId: admin.id, recoveryCodes };
+    return { adminId: admin?.id ?? null, recoveryCodes };
   }, TX_OPTIONS);
 }
 

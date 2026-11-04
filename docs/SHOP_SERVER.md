@@ -21,7 +21,7 @@ pnpm --filter @aruna/server db:deploy
 pnpm shop:start
 ```
 
-The first visit to `http://<server-pc>:3000` runs the first-run wizard. Every other PC opens the same
+The first visit to `http://<server-pc>:3000` runs the first-run wizard: the shop's details and the online panel's address and shop key. No account is made: the owner's arrives with the first sync (about a minute) and the owner signs in with their usual username and password. (A shop without the online panel makes its own Super Admin there instead.) Every other PC opens the same
 address. Receipts print on the one printer set in Settings → Receipt printer.
 
 ## Every day: starting it

@@ -8,11 +8,12 @@ import type { SyncTransport } from '../src/core/syncagent';
 import {
   Client,
   createTestApp,
+  login,
   PASSWORD,
   resetDb,
   setupShop,
-  TEST_URL,
   type Shop,
+  TEST_URL,
 } from './helpers';
 import { createCatalog, type Catalog } from './fixtures';
 
@@ -128,7 +129,11 @@ beforeEach(async () => {
   owner = (await online('owner', shopA)).c;
 }, 60_000);
 
-const commands = async (c: Client) => (await c.get('/api/sync/status')).body.commands;
+/** Online changes, leaving out the owner's own account (it goes to every shop by itself). */
+const commands = async (c: Client) =>
+  (await c.get('/api/sync/status')).body.commands.filter(
+    (x: { route: string }) => x.route !== 'owner',
+  );
 
 describe('online panel for several shops', () => {
   it('each shop gets its own copy; only those given the online panel can open it', async () => {
@@ -491,6 +496,75 @@ describe('online panel for several shops', () => {
     expect((await again.post('/api/cloud/switch', { shopId: await nodeId(shopB) })).body).toEqual({
       signedIn: true,
     });
+  });
+
+  it('one owner above every Super Admin; a new shop needs no account of its own', async () => {
+    // beforeEach signed in "owner" (shop A's Super Admin) online first: the owner, at every shop.
+    await sync(shopA);
+    await sync(shopB);
+    for (const shop of [shopA, shopB])
+      expect(
+        (await shop.deps.db.user.findFirstOrThrow({ where: { username: 'owner' } })).owner,
+      ).toBe(true);
+
+    // Another Super Admin, added at shop B, belongs to shop B only.
+    const roles = (await b.sa.get('/api/roles')).body.items;
+    const sa = roles.find((r: { code: string }) => r.code === 'SUPER_ADMIN').id;
+    expect(
+      (
+        await b.sa.post('/api/users', {
+          username: 'partner',
+          fullName: 'Partner',
+          password: PASSWORD,
+          roleIds: [sa],
+          mustChangePassword: false,
+        })
+      ).status,
+    ).toBe(200);
+    await sync(shopB);
+    const partner = (await online('partner', shopB)).c;
+    const signedIn = (await partner.get('/api/cloud/shops')).body.items.filter(
+      (x: { signedIn: boolean }) => x.signedIn,
+    );
+    expect(signedIn).toHaveLength(1);
+    expect((await partner.get('/api/sync/status')).body.nodes).toHaveLength(1);
+    // Only the owner takes a shop off the panel, and nobody else changes the owner's account.
+    expect((await partner.delete(`/api/cloud/shops/${await nodeId(shopA)}`)).status).toBe(403);
+    const ownerAtB = (await shopB.deps.db.user.findFirstOrThrow({ where: { username: 'owner' } }))
+      .id;
+    expect(
+      (await partner.post(`/api/users/${ownerAtB}/reset-password`, { password: 'taken-over-1' }))
+        .status,
+    ).toBe(403);
+    const atShop = new Client(shopB);
+    await login(atShop, 'partner');
+    expect(
+      (await atShop.post(`/api/users/${ownerAtB}/reset-password`, { password: 'taken-over-1' }))
+        .status,
+    ).toBe(403);
+    expect((await atShop.patch(`/api/users/${ownerAtB}`, { active: false })).status).toBe(403);
+
+    // A new shop links at setup and makes no account: the owner's arrives with the sync.
+    await resetDb(shopB);
+    const setup = await new Client(shopB).post('/api/setup', {
+      shop: { shopName: 'Aruna Paint Kuliyapitiya' },
+      cloud: { url: 'https://cloud.example', shopKey: KEY },
+    });
+    expect(setup.status).toBe(200);
+    expect(setup.body.signedIn).toBe(false);
+    const status = (await new Client(shopB).get('/api/setup/status')).body;
+    expect(status).toMatchObject({ needsSetup: false, waitingForOwner: true });
+    await sync(shopB); // the full copy goes up; the owner's account comes back as an online change
+    await sync(shopB); // the shop takes it
+    const atNew = new Client(shopB);
+    expect(
+      (await atNew.post('/api/auth/login', { username: 'owner', password: PASSWORD })).status,
+    ).toBe(200);
+    expect((await atNew.get('/api/auth/me')).body).toMatchObject({
+      roles: ['SUPER_ADMIN'],
+      user: { owner: true },
+    });
+    expect((await new Client(shopB).get('/api/setup/status')).body.waitingForOwner).toBe(false);
   });
 
   it("the owner's username is never taken from someone else at a shop", async () => {

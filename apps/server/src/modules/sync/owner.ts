@@ -6,11 +6,13 @@ import type { CloudShops } from '../../core/shops';
 import { recordCloudChange } from './cloud';
 
 /**
- * The owner is the Super Admin (the owner's request: no separate account). A Super Admin who signs
- * in on the online panel with their own username and password becomes an owner: they see every
- * shop, new ones included, with that one sign-in, and their account is copied to each shop as a
- * Super Admin, so the same username and password work at every shop's PCs. A password changed
- * online or at any shop reaches every shop. Owners are kept in the cloud's own database.
+ * The owner is the one top Super Admin (the owner's request): the first Super Admin who signs in
+ * on the online panel, with their usual username and password. That one sign-in opens every shop,
+ * new ones included, and their account is at every shop as a Super Admin marked owner, so the same
+ * username and password work at every shop's PCs and a new shop needs no account of its own.
+ * Other Super Admins belong to the shops they are added to, and nobody but the owner changes the
+ * owner's account. A password changed online or at any shop reaches every shop. The owner is kept
+ * in the cloud's own database.
  */
 export interface Owner {
   username: string;
@@ -52,15 +54,18 @@ const same = (a: string, b: string) =>
   timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
 
 /**
- * A Super Admin signed in on the panel at `shopId`: they become (or stay) an owner, with the
- * password they use there, and their account goes to every other shop.
+ * A Super Admin signed in on the panel at `shopId`. The first one becomes the owner; the owner
+ * keeps the password they use there, and their account goes to every shop. Any other Super Admin
+ * gets null: they belong to their own shops.
  */
 export async function becomeOwner(
   shops: CloudShops,
   shopId: string,
   user: { username: string; usernameKey: string; fullName: string; passwordHash: string },
-): Promise<Owner> {
-  const owner = await getOwner(shops.control, user.usernameKey);
+): Promise<Owner | null> {
+  const owners = await getOwners(shops.control);
+  const owner = owners.find((o) => o.usernameKey === user.usernameKey) ?? null;
+  if (!owner && owners.length) return null;
   if (!owner) {
     const created: Owner = {
       username: user.username,
@@ -72,7 +77,8 @@ export async function becomeOwner(
       updatedAt: new Date().toISOString(),
     };
     await saveOwner(shops.control, created);
-    await provisionAll(shops, created, shopId);
+    // Every shop, this one too: here their account is marked the owner's.
+    await provisionAll(shops, created);
     return created;
   }
   if (owner.passwordHash !== user.passwordHash || owner.fullName !== user.fullName)
@@ -153,8 +159,8 @@ export async function ownerFromCookie(
 // ---- The owner's account at each shop ----
 
 /**
- * Makes the owner's account at one shop match: a Super Admin with the owner's username, name,
- * password and PIN. The change goes to the shop like an online change. Returns why it couldn't,
+ * Makes the owner's account at one shop match: a Super Admin marked owner, with the owner's
+ * username, name, password and PIN. The change goes to the shop like an online change. Returns why it couldn't,
  * or null when the account is right.
  */
 export async function provisionOwner(
@@ -184,6 +190,7 @@ export async function provisionOwner(
     existing.passwordHash === owner.passwordHash &&
     existing.fullName === owner.fullName &&
     existing.active &&
+    existing.owner &&
     !existing.mustChangePassword &&
     existing.pinHmac === pin
   )
@@ -196,6 +203,7 @@ export async function provisionOwner(
         pinHmac: pin,
         active: true,
         mustChangePassword: false,
+        owner: true,
       };
       const user = existing
         ? await tx.user.update({ where: { id: existing.id }, data })

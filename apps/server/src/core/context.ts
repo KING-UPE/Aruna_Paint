@@ -8,6 +8,8 @@ export interface RequestContext {
     username: string;
     fullName: string;
     mustChangePassword: boolean;
+    /** The owner: the one top Super Admin, at every shop. */
+    owner: boolean;
   };
   roleCodes: string[];
   permissions: PermissionSet;

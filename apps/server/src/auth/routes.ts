@@ -84,11 +84,11 @@ export async function authRoutes(app: FastifyInstance) {
       const { permissions, roleCodes } = await loadUserPermissions(db, user.id);
       if (!permissions.has('cloud.access'))
         throw new DomainError('FORBIDDEN', 'You are not allowed to open the online panel.');
-      // The Super Admin is the owner: this one sign-in opens every shop, and their account goes
-      // to every shop with this password.
+      // The owner (the first Super Admin here) opens every shop with this one sign-in, and their
+      // account goes to every shop with this password. Other Super Admins sign in per shop.
       if (roleCodes.includes('SUPER_ADMIN') && app.deps.shops) {
         const owner = await becomeOwner(app.deps.shops, scopeShop()!, user);
-        setOwnerCookie(reply, req, config.syncKey, owner);
+        if (owner) setOwnerCookie(reply, req, config.syncKey, owner);
       }
     }
     await createSession(app, reply, req, user.id);

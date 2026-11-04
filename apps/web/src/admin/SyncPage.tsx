@@ -365,7 +365,7 @@ export function SyncPage() {
                               icon={<ArrowRightLeft size={16} />}
                               onClick={() => void openShop(n.id)}
                             />
-                            {superAdmin ? (
+                            {me.user.owner ? (
                               <IconButton
                                 label={`Remove ${n.name} from the panel`}
                                 icon={<Trash2 size={16} />}

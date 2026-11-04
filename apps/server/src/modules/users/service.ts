@@ -59,6 +59,7 @@ function publicUser(u: {
   active: boolean;
   mustChangePassword: boolean;
   testMode: boolean;
+  owner: boolean;
   pinHmac: string | null;
   commissionRate: { toString(): string } | null;
   lastLoginAt: Date | null;
@@ -73,6 +74,7 @@ function publicUser(u: {
     active: u.active,
     mustChangePassword: u.mustChangePassword,
     testMode: u.testMode,
+    owner: u.owner,
     hasPin: u.pinHmac !== null,
     commissionRate: u.commissionRate?.toString() ?? null,
     lastLoginAt: u.lastLoginAt,
@@ -85,6 +87,16 @@ function publicUser(u: {
 }
 
 const userInclude = { roles: { include: { role: true } }, permissionOverrides: true } as const;
+
+/** The owner is the one top Super Admin: nobody but the owner changes the owner's account. */
+async function guardOwner(tx: Tx, actor: ActorRef, id: string) {
+  const target = await tx.user.findUnique({ where: { id }, select: { owner: true } });
+  if (!target?.owner || actor.userId === id) return;
+  const me = actor.userId
+    ? await tx.user.findUnique({ where: { id: actor.userId }, select: { owner: true } })
+    : null;
+  if (!me?.owner) throw new DomainError('FORBIDDEN', "Only the owner changes the owner's account.");
+}
 
 /** Only real, non-Super Admin-only permissions can be added or taken away per user. */
 function checkOverrides(list: { permission: string; granted: boolean }[]) {
@@ -178,6 +190,7 @@ export async function createUser(tx: Tx, actor: ActorRef, raw: unknown, pinSecre
 
 export async function updateUser(tx: Tx, actor: ActorRef, id: string, raw: unknown) {
   const input = updateUserSchema.parse(raw);
+  await guardOwner(tx, actor, id);
   const before = await tx.user.findUnique({ where: { id }, include: userInclude });
   if (!before) throw new DomainError('NOT_FOUND', 'User not found.');
   if (input.roleIds) await assertRolesExist(tx, input.roleIds);
@@ -222,6 +235,7 @@ export async function updateUser(tx: Tx, actor: ActorRef, id: string, raw: unkno
 /** The Super Admin resets passwords; the user must change a reset password at next login. */
 export async function resetPassword(tx: Tx, actor: ActorRef, id: string, password: string) {
   passwordSchema.parse(password);
+  await guardOwner(tx, actor, id);
   await tx.user.update({
     where: { id },
     data: { passwordHash: await hashPassword(password), mustChangePassword: true },
@@ -241,6 +255,7 @@ export async function resetPin(
   pinSecret: string,
 ) {
   if (pin !== null) pinSchema.parse(pin);
+  await guardOwner(tx, actor, id);
   const hmac = pin ? pinHmac(pin, pinSecret) : null;
   if (hmac) await assertPinFree(tx, hmac, id);
   await tx.user.update({ where: { id }, data: { pinHmac: hmac } });
@@ -252,6 +267,7 @@ export async function resetPin(
 }
 
 export async function deleteUser(tx: Tx, actor: ActorRef, id: string) {
+  await guardOwner(tx, actor, id);
   const user = await tx.user.findUnique({
     where: { id },
     include: userInclude,

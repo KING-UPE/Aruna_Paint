@@ -2,7 +2,14 @@ import type { AppearanceSettings } from '@aruna/shared';
 /** Shapes the shop server returns. Money and quantities are strings ("1250.00", "1.500"). */
 
 export interface Me {
-  user: { id: string; username: string; fullName: string; mustChangePassword: boolean };
+  user: {
+    id: string;
+    username: string;
+    fullName: string;
+    mustChangePassword: boolean;
+    /** The owner: the one top Super Admin, at every shop. */
+    owner: boolean;
+  };
   roles: string[];
   permissions: string[];
   location: { id: string; code: string; name: string } | null;

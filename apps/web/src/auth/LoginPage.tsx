@@ -46,8 +46,11 @@ export function LoginPage() {
         waitingForShop?: boolean;
         shops?: { id: string; name: string; lastSeenAt: string | null }[];
         currentShop?: string | null;
+        waitingForOwner?: boolean;
       }>('/api/setup/status'),
     staleTime: Infinity,
+    // A shop linked at setup waits for the owner's account to arrive with a sync.
+    refetchInterval: (q) => (q.state.data?.waitingForOwner ? 5_000 : false),
   });
   const cloud = setup.data?.mode === 'cloud';
   // Online panel: users and passwords are each shop's own, so the shop comes first.
@@ -82,6 +85,13 @@ export function LoginPage() {
       subtitle="Pannala Aruna Paint Center"
     >
       <form onSubmit={submit} className="flex flex-col gap-3">
+        {setup.data?.waitingForOwner ? (
+          <p role="status" className="rounded-[8px] bg-surface-2 px-3 py-2 text-sm text-muted">
+            This shop is linked to the online panel. The owner&apos;s account arrives with the first
+            sync (about a minute, with the internet on); then sign in with the owner&apos;s username
+            and password.
+          </p>
+        ) : null}
         {cloud ? (
           <p className="rounded-[8px] bg-surface-2 px-3 py-2 text-sm text-muted">
             {setup.data?.waitingForShop

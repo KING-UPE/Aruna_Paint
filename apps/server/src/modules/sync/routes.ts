@@ -99,7 +99,10 @@ export async function syncRoutes(app: FastifyInstance) {
     });
 
     // The Super Admin takes a shop off the panel (one linked by mistake, or a PC set up again).
+    // Only the owner: other Super Admins belong to their own shops.
     app.delete('/api/cloud/shops/:id', { preHandler: superAdminOnly() }, async (req) => {
+      if (!req.ctx.user.owner)
+        throw new DomainError('FORBIDDEN', 'Only the owner takes a shop off the panel.');
       const id = z.string().parse((req.params as { id: string }).id);
       if (id === scopeShop())
         throw new DomainError('INVALID_STATE', 'Switch to another shop before removing this one.');
@@ -137,11 +140,9 @@ export async function syncRoutes(app: FastifyInstance) {
       });
       if (cloud) {
         const current = scopeShop();
-        // The Super Admin sees every shop; others see the shop they signed in to.
+        // The owner sees every shop; others see the shop they signed in to.
         const all = await app.deps.shops!.list();
-        const list = req.ctx.roleCodes.includes('SUPER_ADMIN')
-          ? all
-          : all.filter((n) => n.id === current);
+        const list = req.ctx.user.owner ? all : all.filter((n) => n.id === current);
         const since = new Date(`${shopDate()}T00:00:00+05:30`);
         const nodes = await Promise.all(
           list.map(async (n) => {
