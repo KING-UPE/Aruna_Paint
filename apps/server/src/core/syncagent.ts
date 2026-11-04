@@ -60,6 +60,8 @@ export interface SyncStatus {
 }
 
 const FINAL = new Set(['APPLIED', 'DISCARDED', 'FAILED']);
+/** sync_state key: a full copy of the shop is queued (or gone up). Deleting it sends another. */
+export const FULL_COPY_DONE = 'full_copy';
 const PUSH_BATCH = 500;
 
 function plainError(err: unknown): string {
@@ -171,6 +173,7 @@ export class SyncAgent {
       // Online changes first, so the shop's backlog sent after them already includes them.
       const { items } = (await this.call('GET', '/api/sync/commands')) as { items: CloudCommand[] };
       for (const c of items) await this.take(c);
+      await this.fullCopyIfNeeded();
       await this.push();
       this.state.online = true;
       this.state.lastError = '';
@@ -216,14 +219,41 @@ export class SyncAgent {
           data: r.data,
           old: r.old,
         })),
-      })) as { lastChangeId: string };
+      })) as { lastChangeId: string; needFullCopy?: boolean };
+      if (rows.length)
+        await this.db.syncOutbox.updateMany({
+          where: { id: { lte: BigInt(res.lastChangeId) }, sentAt: null },
+          data: { sentAt: new Date() },
+        });
+      if (res.needFullCopy) {
+        // The cloud has no full copy of this shop: the next round sends one.
+        await this.db.syncState.deleteMany({ where: { key: FULL_COPY_DONE } });
+        return;
+      }
       if (!rows.length) return;
-      await this.db.syncOutbox.updateMany({
-        where: { id: { lte: BigInt(res.lastChangeId) }, sentAt: null },
-        data: { sentAt: new Date() },
-      });
       if (rows.length < PUSH_BATCH) return;
     }
+  }
+
+  /**
+   * A full copy of the shop goes up once, before anything else, when the cloud has none: the first
+   * link, a copy the cloud lost or started again, or after the shop's data was cleaned. Without
+   * it the cloud would only see rows changed since, and miss things like the roles.
+   */
+  private async fullCopyIfNeeded() {
+    if (await this.db.syncState.findUnique({ where: { key: FULL_COPY_DONE } })) return;
+    await this.db.$transaction(
+      async (tx) => {
+        const [r] = await tx.$queryRaw<{ rows: number }[]>`SELECT sync_full_copy() AS rows`;
+        const value = { at: new Date().toISOString(), rows: r?.rows ?? 0 };
+        await tx.syncState.upsert({
+          where: { key: FULL_COPY_DONE },
+          create: { key: FULL_COPY_DONE, value },
+          update: { value },
+        });
+      },
+      { maxWait: 30_000, timeout: 600_000 },
+    );
   }
 
   /** One online change: apply, or hold as a conflict, or follow the Super Admin's answer. */

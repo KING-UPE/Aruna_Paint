@@ -84,10 +84,20 @@ export async function syncRoutes(app: FastifyInstance) {
       items: (await shops.list()).map((n) => ({
         id: n.id,
         name: n.name,
+        lastSeenAt: n.lastSeenAt,
         signedIn: Boolean(req.cookies[`${SESSION_COOKIE}_${n.id}`]),
       })),
       current: scopeShop(),
     }));
+
+    // The Super Admin takes a shop off the panel (one linked by mistake, or a PC set up again).
+    app.delete('/api/cloud/shops/:id', { preHandler: superAdminOnly() }, async (req) => {
+      const id = z.string().parse((req.params as { id: string }).id);
+      if (id === scopeShop())
+        throw new DomainError('INVALID_STATE', 'Switch to another shop before removing this one.');
+      if (!(await shops.remove(id))) throw new DomainError('NOT_FOUND', 'That shop was not found.');
+      return { ok: true };
+    });
 
     // Look at another shop; its own sign-in is kept, so going back needs none.
     app.post('/api/cloud/switch', { config: { public: true } }, async (req, reply) => {

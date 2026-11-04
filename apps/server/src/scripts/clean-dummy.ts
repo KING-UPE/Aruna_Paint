@@ -81,7 +81,6 @@ async function main() {
     // Operational logs / outbox
     'audit_logs',
     'sync_outbox',
-    'sync_state',
     'backups',
     'alerts',
     'update_log',
@@ -94,6 +93,15 @@ async function main() {
     } catch (err: any) {
       console.warn(`Could not truncate ${table}: ${err.message}`);
     }
+  }
+
+  // The shop keeps its id at the cloud (so it doesn't turn up as a second shop) and sends a full
+  // copy of what is left at its next sync, which replaces the cloud's copy.
+  try {
+    await prisma.$executeRawUnsafe(`DELETE FROM sync_state WHERE key <> 'node';`);
+    console.log('The cloud gets a full copy of the cleaned shop at the next sync.');
+  } catch (err: any) {
+    console.warn(`Could not reset the sync state: ${err.message}`);
   }
 
   // Reset number sequences

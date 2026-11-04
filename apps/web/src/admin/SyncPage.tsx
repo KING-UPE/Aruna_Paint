@@ -1,6 +1,6 @@
 import { formatDateTime, formatMoney } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRightLeft, Check, CloudOff, Cloud, RefreshCw, Undo2 } from 'lucide-react';
+import { ArrowRightLeft, Check, CloudOff, Cloud, RefreshCw, Trash2, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
@@ -171,6 +171,24 @@ export function SyncPage() {
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ['sync-status'] });
   // Look at another shop: its own sign-in, the first time.
+  const removeShop = async (n: { id: string; name: string }) => {
+    const ok = await confirm({
+      title: `Remove ${n.name} from the panel?`,
+      message:
+        'Its copy here is deleted; the shop itself keeps all its data. If its server connects again, it comes back as a new shop with a full copy.',
+      confirmLabel: 'Remove shop',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/api/cloud/shops/${n.id}`);
+      toast.success(`${n.name} is off the panel.`);
+      await qc.invalidateQueries({ queryKey: ['sync-status'] });
+      await qc.invalidateQueries({ queryKey: ['cloud-shops'] });
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
   const openShop = async (shopId: string) => {
     try {
       await api.post('/api/cloud/switch', { shopId });
@@ -339,11 +357,20 @@ export function SyncPage() {
                       <td className="px-4 py-2.5 text-muted">v{n.version}</td>
                       <td className="px-4 py-2.5 text-right">
                         {!n.current ? (
-                          <IconButton
-                            label={`Open ${n.name}`}
-                            icon={<ArrowRightLeft size={16} />}
-                            onClick={() => void openShop(n.id)}
-                          />
+                          <span className="inline-flex gap-0.5">
+                            <IconButton
+                              label={`Open ${n.name}`}
+                              icon={<ArrowRightLeft size={16} />}
+                              onClick={() => void openShop(n.id)}
+                            />
+                            {superAdmin ? (
+                              <IconButton
+                                label={`Remove ${n.name} from the panel`}
+                                icon={<Trash2 size={16} />}
+                                onClick={() => void removeShop(n)}
+                              />
+                            ) : null}
+                          </span>
                         ) : null}
                       </td>
                     </tr>

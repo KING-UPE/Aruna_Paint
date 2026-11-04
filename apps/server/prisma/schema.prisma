@@ -1384,7 +1384,9 @@ model SyncNode {
   /// Changes still waiting at the shop, as it last reported.
   waiting      Int       @default(0)
   version      String    @default("")
-  /// { counters: [{ code, name, lastBillAt }] }
+  /// When the cloud's copy last started again from a full copy of the shop (null: ask for one).
+  fullCopyAt   DateTime? @map("full_copy_at") @db.Timestamptz(3)
+  /// { lastBillAt, errors? }
   info         Json?
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)

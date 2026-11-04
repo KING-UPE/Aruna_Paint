@@ -16,7 +16,7 @@ export async function setupRoutes(app: FastifyInstance) {
         needsSetup: false,
         waitingForShop: shops.length === 0,
         mode: config.mode,
-        shops: shops.map((s) => ({ id: s.id, name: s.name })),
+        shops: shops.map((s) => ({ id: s.id, name: s.name, lastSeenAt: s.lastSeenAt })),
         currentShop: current,
         // The chosen shop's colour theme.
         appearance: await settings.get('appearance'),

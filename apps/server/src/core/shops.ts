@@ -112,6 +112,20 @@ export class CloudShops {
     this.clients.set(shopId, db);
   }
 
+  /**
+   * Takes a shop off the panel, with its copy. If its server connects again, it comes back as a
+   * new shop and sends a full copy.
+   */
+  async remove(shopId: string): Promise<boolean> {
+    const node = await this.control.syncNode.findUnique({ where: { id: shopId } });
+    if (!node) return false;
+    await this.clients.get(shopId)?.$disconnect();
+    this.clients.delete(shopId);
+    await this.control.syncNode.delete({ where: { id: shopId } });
+    if (node.dbName) await this.direct(null, (admin) => dropDatabase(admin, node.dbName));
+    return true;
+  }
+
   /** Tests: forget every shop. */
   async reset() {
     await this.close();

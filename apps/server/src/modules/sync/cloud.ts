@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { DomainError } from '@aruna/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { Db } from '../../db';
+import type { Db, Tx } from '../../db';
 import { uuidv7 } from '../../lib/ids';
 import { mirrorChange, TableCatalog, type RowChange } from '../../core/syncapply';
 import { ONLINE_CHANGES, SHOP_REQUESTS } from './online';
@@ -11,6 +11,7 @@ const CLOUD_OWN = (route: string) =>
   route.startsWith('POST /api/auth/') ||
   route.startsWith('POST /api/sync/') ||
   route.startsWith('POST /api/cloud/') ||
+  route.startsWith('DELETE /api/cloud/') ||
   route.startsWith('PUT /api/auth/');
 
 const routeKey = (req: FastifyRequest) => `${req.method} ${req.routeOptions.url ?? req.url}`;
@@ -198,27 +199,54 @@ export async function applyPush(
   body: PushBody,
 ) {
   const node = await control.syncNode.findUniqueOrThrow({ where: { id: nodeId } });
-  const fresh = body.changes.filter((c) => BigInt(c.id) > node.lastChangeId);
+  // A full copy is always taken, and its numbers start the count again (a shop whose database
+  // was restored or rebuilt may count lower than before).
+  const copyAt = body.changes.findIndex((c) => c.table === FULL_COPY);
+  const fresh =
+    copyAt >= 0
+      ? body.changes.slice(copyAt)
+      : body.changes.filter((c) => BigInt(c.id) > node.lastChangeId);
   const last = body.changes.length
-    ? body.changes.reduce((m, c) => (BigInt(c.id) > m ? BigInt(c.id) : m), node.lastChangeId)
+    ? body.changes.reduce(
+        (m, c) => (BigInt(c.id) > m ? BigInt(c.id) : m),
+        copyAt >= 0 ? 0n : node.lastChangeId,
+      )
     : node.lastChangeId;
-  // One row that can't be applied must not hold up the rest: it is noted and skipped.
+  // One row that can't be applied must not hold up the rest: it is noted and skipped. A row
+  // whose parent comes later in the same batch is tried again after the others.
   const errors: string[] = [];
+  let fullCopy = false;
   await db.$transaction(
     async (tx) => {
       await tx.$executeRawUnsafe(`SET LOCAL aruna.sync_apply = 'on'`);
-      for (const ch of fresh) {
-        await tx.$executeRawUnsafe('SAVEPOINT one_change');
-        try {
-          await mirrorChange(tx, catalog, ch);
-          await tx.$executeRawUnsafe('RELEASE SAVEPOINT one_change');
-        } catch (err) {
-          await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT one_change');
-          if (errors.length < 5)
-            errors.push(
-              `${ch.table} #${ch.id}: ${err instanceof Error ? err.message.split('\n').pop() : String(err)}`,
-            );
+      let pending = fresh;
+      for (let pass = 1; pending.length; pass++) {
+        const later: typeof fresh = [];
+        for (const ch of pending) {
+          if (ch.table === FULL_COPY) {
+            // A full copy of the shop follows: the copy starts again from it.
+            await emptyCopy(tx);
+            fullCopy = true;
+            continue;
+          }
+          await tx.$executeRawUnsafe('SAVEPOINT one_change');
+          try {
+            await mirrorChange(tx, catalog, ch);
+            await tx.$executeRawUnsafe('RELEASE SAVEPOINT one_change');
+          } catch (err) {
+            await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT one_change');
+            const msg = err instanceof Error ? err.message : String(err);
+            if (pass < 4 && /foreign key|23503/i.test(msg)) later.push(ch);
+            else if (errors.length < 5)
+              errors.push(`${ch.table} #${ch.id}: ${msg.split('\n').pop()}`);
+          }
         }
+        if (later.length === pending.length) {
+          for (const ch of later.slice(0, 5 - errors.length))
+            errors.push(`${ch.table} #${ch.id}: its parent row is missing.`);
+          break;
+        }
+        pending = later;
       }
     },
     { maxWait: 10_000, timeout: 120_000 },
@@ -242,7 +270,25 @@ export async function applyPush(
       },
       lastSeenAt: new Date(),
       ...(body.changes.length ? { lastPushAt: new Date(), lastChangeId: last } : {}),
+      ...(fullCopy ? { fullCopyAt: new Date() } : {}),
     },
   });
-  return { lastChangeId: last.toString() };
+  // A copy that never started from a full copy of the shop may be missing rows (a shop linked
+  // before this was built, a cleaned shop, a new cloud database): ask for one.
+  return { lastChangeId: last.toString(), needFullCopy: !fullCopy && !node.fullCopyAt };
+}
+
+/** The marker sync_full_copy() puts before a full copy of the shop. */
+export const FULL_COPY = '__full_copy__';
+
+/** Empties every synced table of a shop's copy; logins, sync records and online changes stay. */
+async function emptyCopy(tx: Tx) {
+  const tables = await tx.$queryRaw<{ name: string }[]>`
+    SELECT c.relname AS name FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid
+     WHERE tg.tgname = 'zz_sync_capture' AND NOT tg.tgisinternal`;
+  if (!tables.length) return;
+  // Signed-in sessions point at users, so they go too: people sign in to the panel again.
+  await tx.$executeRawUnsafe(
+    `TRUNCATE TABLE ${tables.map((t) => `"${t.name.replace(/"/g, '""')}"`).join(', ')} CASCADE`,
+  );
 }

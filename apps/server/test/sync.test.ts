@@ -352,6 +352,49 @@ describe('online panel for several shops', () => {
     ).toBe(2);
   });
 
+  it('a shop whose sync data was wiped comes back with a full copy, so its users can sign in online', async () => {
+    // What the old clean script did: the queue and the shop's id at the cloud were wiped, while
+    // users and roles stayed. The shop then turned up as a second shop with no roles.
+    const oldId = await nodeId(shopB);
+    await shopB.deps.db.$executeRawUnsafe('DELETE FROM sync_outbox');
+    await shopB.deps.db.$executeRawUnsafe('DELETE FROM sync_state');
+    expect((await sync(shopB)).lastError).toBe('');
+    const newId = await nodeId(shopB);
+    expect(newId).not.toBe(oldId);
+    // The full copy brought everything, roles included: the owner signs in to it online.
+    expect((await online('owner', shopB)).status).toBe(200);
+
+    // The Super Admin takes the stray old entry off the panel.
+    const names = async () =>
+      (await owner.get('/api/cloud/shops')).body.items.map((x: { id: string }) => x.id);
+    expect(await names()).toContain(oldId);
+    expect((await owner.delete(`/api/cloud/shops/${oldId}`)).status).toBe(200);
+    expect(await names()).not.toContain(oldId);
+    // Not the shop being looked at, and only the Super Admin.
+    expect((await owner.delete(`/api/cloud/shops/${await nodeId(shopA)}`)).status).toBe(409);
+    expect(
+      (await (await online('admin', shopA)).c.delete(`/api/cloud/shops/${newId}`)).status,
+    ).toBe(403);
+  });
+
+  it('a copy made before full copies existed is filled in: the cloud asks the shop for one', async () => {
+    const id = await nodeId(shopA);
+    // A copy from before: never started from a full copy, and missing the roles.
+    await cloudApp.deps.shops!.control.syncNode.update({
+      where: { id },
+      data: { fullCopyAt: null },
+    });
+    await cloudCopy(shopA, (db) => db.$executeRawUnsafe('TRUNCATE roles CASCADE'));
+    expect(await cloudCopy(shopA, (db) => db.role.count())).toBe(0);
+    await sync(shopA); // the cloud asks for a full copy
+    await sync(shopA); // the shop sends it
+    expect(await cloudCopy(shopA, (db) => db.role.count())).toBe(4);
+    expect((await online('owner', shopA)).status).toBe(200);
+    expect(
+      (await cloudApp.deps.shops!.control.syncNode.findUniqueOrThrow({ where: { id } })).fullCopyAt,
+    ).not.toBeNull();
+  });
+
   it('different fields changed at each end are both kept; "Keep shop version" puts the panel back', async () => {
     const id = a.ids.cashier!;
     await link(shopA, 'a-wrong-key');

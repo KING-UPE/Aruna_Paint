@@ -1,3 +1,4 @@
+import { formatDateTime } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,7 @@ export function LoginPage() {
       api.get<{
         mode: 'shop' | 'cloud';
         waitingForShop?: boolean;
-        shops?: { id: string; name: string }[];
+        shops?: { id: string; name: string; lastSeenAt: string | null }[];
         currentShop?: string | null;
       }>('/api/setup/status'),
     staleTime: Infinity,
@@ -93,7 +94,10 @@ export function LoginPage() {
             <Select id="shop" value={shopId} onChange={(e) => setChosen(e.target.value)}>
               {shops.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}
+                  {/* Two shops with one name are told apart by when each last synced. */}
+                  {shops.filter((o) => o.name === s.name).length > 1
+                    ? `${s.name} (last seen ${s.lastSeenAt ? formatDateTime(s.lastSeenAt) : 'never'})`
+                    : s.name}
                 </option>
               ))}
             </Select>
