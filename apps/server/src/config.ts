@@ -1,4 +1,6 @@
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export type AppMode = 'shop' | 'cloud';
 
@@ -45,10 +47,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     pinSecret,
     dataDir: resolve(env.DATA_DIR ?? './data'),
     pgBinDir: env.PG_BIN_DIR ?? '',
-    webDistDir: env.WEB_DIST_DIR ?? '',
+    webDistDir: env.WEB_DIST_DIR ?? builtScreens(),
     sessionDays: Number(env.SESSION_DAYS ?? 30),
     logLevel: env.LOG_LEVEL ?? 'info',
     disableSchedulers: env.DISABLE_SCHEDULERS === '1',
     syncKey: env.SYNC_KEY ?? '',
   };
+}
+
+/**
+ * The built screens (apps/web/dist) next to the server in this folder, so a shop server started
+ * with `pnpm start` serves them to every PC without WEB_DIST_DIR. Empty when they aren't built.
+ */
+function builtScreens(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const found = [resolve('../web/dist'), resolve(here, '../../web/dist')].find((d) =>
+    existsSync(join(d, 'index.html')),
+  );
+  return found ?? '';
 }

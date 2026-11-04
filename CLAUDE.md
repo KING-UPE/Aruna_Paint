@@ -31,6 +31,7 @@ pnpm --filter @aruna/web build                      # needed before e2e
 cd apps/web && PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium npx playwright test   # keyboard e2e; its webServer step builds a seeded aruna_e2e DB
 pnpm format                                         # prettier
 node apps/server/scripts/vercel-build.mjs           # online panel for Vercel (.vercel/output); SKIP_MIGRATE=1 without a database
+pnpm shop:start / pnpm shop:update                  # shop server PC: run the build / back up, pull, build, migrate (docs/SHOP_SERVER.md)
 ```
 
 Seeded logins (password `password123`): `owner` (Super Admin, PIN 1111), `admin` (2222), `stock` (3333), `cashier` (4444). Billing PCs open `http://host:3000/?counter=C1` (the code is remembered in localStorage and sent at login).

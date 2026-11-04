@@ -19,7 +19,7 @@ export function libpqUrl(databaseUrl: string): string {
 }
 
 /**
- * Automatic backups at day end and every night, compressed and named by date. Keeps 30 daily and
+ * Automatic backups every night (and when asked for), compressed and named by date. Keeps 30 daily and
  * 12 monthly copies, plus a second copy on a USB or second drive. Backups are not encrypted.
  */
 export class BackupService {

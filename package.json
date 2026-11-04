@@ -18,7 +18,9 @@
     "db:migrate": "pnpm --filter @aruna/server db:migrate",
     "db:seed": "pnpm --filter @aruna/server db:seed",
     "db:clean": "pnpm --filter @aruna/server db:clean",
-    "db:reset": "pnpm --filter @aruna/server db:reset"
+    "db:reset": "pnpm --filter @aruna/server db:reset",
+    "shop:start": "pnpm --filter @aruna/server start",
+    "shop:update": "node apps/server/scripts/update-shop.mjs"
   },
   "devDependencies": {
     "prettier": "3.6.2",
