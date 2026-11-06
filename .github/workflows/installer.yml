@@ -150,6 +150,14 @@ jobs:
           $login = @{ username = 'owner'; password = 'password123' } | ConvertTo-Json
           $null = Invoke-RestMethod -Method Post -ContentType 'application/json' -Body $login http://127.0.0.1:3000/api/auth/login
           'The owner signs in after the reinstall.'
+      - name: Show the setup logs
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem C:\ProgramData\ArunaPOS\logs -ErrorAction SilentlyContinue | ForEach-Object {
+            "===== $($_.Name)"
+            Get-Content $_.FullName -Tail 120
+          }
       - name: Logs
         if: always()
         uses: actions/upload-artifact@v4
