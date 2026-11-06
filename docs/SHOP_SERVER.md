@@ -63,12 +63,14 @@ Vercel updates by itself when the code reaches `main`.
 
 ### Publishing a new version (developer)
 
-1. Raise `"version"` in the root `package.json` (for example `1.0.1`) and merge to `main`.
-2. Tag it: `git tag v1.0.1 && git push origin v1.0.1`.
-3. The **Windows installer** workflow (`.github/workflows/installer.yml`) builds the installer,
-   installs it on a clean Windows machine and tests a fresh install, first-run setup, an update over
-   it, the automatic updater, uninstall and reinstall. Only if all of that passes does it publish
-   the GitHub release that the shops update from.
+1. Raise `"version"` in every `package.json` (root, `apps/server`, `apps/web`, `packages/shared`),
+   for example to `1.0.2`, and merge to `main`.
+2. On GitHub: **Actions → Windows installer → Run workflow**, branch `main`, tick **publish**, Run.
+   (Pushing a tag `v1.0.2` does the same.)
+3. The workflow (`.github/workflows/installer.yml`) builds the installer, installs it on a clean
+   Windows machine and tests a fresh install, first-run setup, an update over it, the automatic
+   updater, uninstall and reinstall. Only if all of that passes does it publish the GitHub release
+   (and its tag) that the shops update from.
 
 To build the installer yourself: `node installer/build.mjs` (needs `makensis` from NSIS and
 internet; writes `dist/ArunaPOS-Setup-<version>.exe` and `dist/latest.json`).

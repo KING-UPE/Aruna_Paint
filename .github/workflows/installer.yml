@@ -16,6 +16,11 @@ on:
       - 'pnpm-lock.yaml'
       - '.github/workflows/installer.yml'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish release v<package.json version> (from main, after the Windows tests pass)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -167,7 +172,8 @@ jobs:
           if-no-files-found: ignore
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # A pushed v* tag, or "Run workflow" on main with publish ticked (the release makes the tag).
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
     needs: test-on-windows
     runs-on: ubuntu-latest
     permissions:
@@ -181,7 +187,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          tag="v$(jq -r .version dist/latest.json)"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "$tag" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} but the installer is $tag"; exit 1
+          fi
+          gh release create "$tag" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Aruna POS ${GITHUB_REF_NAME#v}" \
-            --notes "Windows installer for the shop server. New installs: download ArunaPOS-Setup-${GITHUB_REF_NAME#v}.exe and run it. Shops already installed update by themselves at the set time (Settings → Software updates)."
+            --target "$GITHUB_SHA" \
+            --title "Aruna POS ${tag#v}" \
+            --notes "Windows installer for the shop server. New installs: download ArunaPOS-Setup-${tag#v}.exe and run it. Shops already installed update by themselves at the set time (Settings → Software updates)."
