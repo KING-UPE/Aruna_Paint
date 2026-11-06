@@ -59,6 +59,7 @@ type Status =
         lastSyncAt: string | null;
         lastError: string;
         waiting: number;
+        pinSecretShared?: boolean | null;
       };
       commands: Command[];
     }
@@ -297,6 +298,12 @@ export function SyncPage() {
                 <Stat label="Cloud">{s.agent.url}</Stat>
                 {s.agent.lastError ? (
                   <p className="text-sm text-danger md:col-span-4">{s.agent.lastError}</p>
+                ) : null}
+                {s.agent.pinSecretShared === false ? (
+                  <p className="text-sm text-warn md:col-span-4">
+                    PINs set on the online panel don&apos;t work at this shop: it already had PINs
+                    when it was linked, so it keeps its own PIN secret. Set PINs here at the shop.
+                  </p>
                 ) : null}
               </>
             )}

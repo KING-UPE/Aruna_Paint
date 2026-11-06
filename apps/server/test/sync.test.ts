@@ -567,6 +567,62 @@ describe('online panel for several shops', () => {
     expect((await new Client(shopB).get('/api/setup/status')).body.waitingForOwner).toBe(false);
   });
 
+  it("a new shop takes the panel's PIN secret, so PINs set online work; one with PINs keeps its own", async () => {
+    // A new shop server installed with its own random PIN secret (the installer makes one).
+    await resetDb(shopB);
+    const own = 'this-shop-own-pin-secret-0123456789';
+    const fresh = await createTestApp(
+      { databaseUrl: branchUrl, pinSecret: own },
+      { syncTransport: to(cloudApp) },
+    );
+    try {
+      await new Client(fresh).post('/api/setup', {
+        shop: { shopName: 'Aruna Paint Kuliyapitiya' },
+        cloud: { url: 'https://cloud.example', shopKey: KEY },
+      });
+      await sync(fresh);
+      await sync(fresh);
+      const panelSecret = cloudApp.deps.config.pinSecret;
+      expect(fresh.deps.config.pinSecret).toBe(panelSecret);
+      expect((await fresh.deps.sync!.status()).pinSecretShared).toBe(true);
+      // A PIN set for the owner on the panel works at the new shop.
+      const boss = (await online('owner', fresh)).c;
+      const ownerHere = await fresh.deps.db.user.findFirstOrThrow({ where: { username: 'owner' } });
+      expect(
+        (await boss.post(`/api/users/${ownerHere.id}/reset-pin`, { pin: '2468' })).status,
+      ).toBe(200);
+      await sync(fresh);
+      const atNew = new Client(fresh);
+      await login(atNew, 'owner');
+      expect((await atNew.post('/api/auth/pin', { pin: '2468' })).status).toBe(200);
+    } finally {
+      await fresh.close();
+    }
+    // The secret stays after a restart, whatever the settings file says.
+    const restarted = await createTestApp(
+      { databaseUrl: branchUrl, pinSecret: own },
+      { syncTransport: to(cloudApp) },
+    );
+    try {
+      expect(restarted.deps.config.pinSecret).toBe(cloudApp.deps.config.pinSecret);
+    } finally {
+      await restarted.close();
+    }
+    // A shop that already has PINs made with its own secret keeps it (they would all stop working).
+    await shopB.deps.db.syncState.deleteMany({ where: { key: 'pin_secret' } });
+    const older = await createTestApp(
+      { databaseUrl: branchUrl, pinSecret: own },
+      { syncTransport: to(cloudApp) },
+    );
+    try {
+      await sync(older);
+      expect(older.deps.config.pinSecret).toBe(own);
+      expect((await older.deps.sync!.status()).pinSecretShared).toBe(false);
+    } finally {
+      await older.close();
+    }
+  });
+
   it("the owner's username is never taken from someone else at a shop", async () => {
     // At shop B, "owner" is a cashier.
     const db = shopB.deps.db;

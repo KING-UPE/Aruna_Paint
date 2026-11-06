@@ -135,8 +135,8 @@ export async function getHrmMonthlySummary(
 
   const maxCommissionPercent =
     override?.maxCommissionPercent ?? hrmSettings.maxCommissionPercent ?? 10;
-  const shopRent = override?.shopRent ?? hrmSettings.shopRent ?? 45000;
-  const electricityBill = override?.electricityBill ?? hrmSettings.electricityBill ?? 18500;
+  const shopRent = override?.shopRent ?? hrmSettings.shopRent ?? 0;
+  const electricityBill = override?.electricityBill ?? hrmSettings.electricityBill ?? 0;
   const salaries = override?.salaries ?? hrmSettings.salaries ?? [];
   const members = override?.members ?? hrmSettings.members ?? [];
 

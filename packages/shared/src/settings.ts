@@ -85,17 +85,11 @@ export type HrmMember = z.infer<typeof hrmMemberSchema>;
 
 export const hrmMonthConfigSchema = z.object({
   maxCommissionPercent: z.number().min(0).max(100).default(10),
-  shopRent: z.number().min(0).default(45000),
-  electricityBill: z.number().min(0).default(18500),
-  salaries: z.array(hrmSalarySchema).default([
-    { id: 'sal-1', name: 'Kasun Bandara', role: 'Cashier', amount: 35000 },
-    { id: 'sal-2', name: 'Saman Kumara', role: 'Stock Keeper', amount: 40000 },
-  ]),
-  members: z.array(hrmMemberSchema).default([
-    { id: 'mem-1', name: 'Aruna', userId: null, role: 'Partner / Store', ratePercent: 3 },
-    { id: 'mem-2', name: 'Owner', userId: null, role: 'Super Admin', ratePercent: 3 },
-    { id: 'mem-3', name: 'Savings', userId: null, role: 'Reserve Fund', ratePercent: 4 },
-  ]),
+  // A new shop starts with no figures: the Super Admin enters the shop's own on the HRM page.
+  shopRent: z.number().min(0).default(0),
+  electricityBill: z.number().min(0).default(0),
+  salaries: z.array(hrmSalarySchema).default([]),
+  members: z.array(hrmMemberSchema).default([]),
 });
 export type HrmMonthConfig = z.infer<typeof hrmMonthConfigSchema>;
 

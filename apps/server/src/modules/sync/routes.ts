@@ -52,7 +52,9 @@ export async function syncRoutes(app: FastifyInstance) {
         orderBy: { createdAt: 'asc' },
         take: 200,
       });
-      return { items };
+      // The panel's PIN secret, for a new shop to take before any PIN exists there, so PINs
+      // set online (the owner's included) work at the shop. Only a shop with the key gets it.
+      return { items, pinSecret: config.pinSecret };
     });
 
     // What the shop did with one.

@@ -57,6 +57,11 @@ export interface SyncStatus {
   lastTryAt: string | null;
   lastError: string;
   waiting: number;
+  /**
+   * False when the online panel uses another PIN secret and this shop already had PINs of its
+   * own, so PINs set online don't work here. Null until the cloud answered.
+   */
+  pinSecretShared: boolean | null;
 }
 
 const FINAL = new Set(['APPLIED', 'DISCARDED', 'FAILED']);
@@ -87,6 +92,7 @@ export class SyncAgent {
     lastSyncAt: null as string | null,
     lastTryAt: null as string | null,
     lastError: '',
+    pinSecretShared: null as boolean | null,
   };
 
   constructor(
@@ -99,6 +105,8 @@ export class SyncAgent {
       onApplied: (changes: RowChange[]) => void;
       /** Does a request made online (SHOP_REQUESTS); the answer is shown on the panel. */
       runRequest: (route: string, by: ActorRef) => Promise<string>;
+      /** The panel's PIN secret: false when the shop keeps its own (it already has PINs). */
+      pinSecret?: (secret: string) => Promise<boolean>;
     },
     private readonly transport: SyncTransport = fetchTransport,
   ) {}
@@ -134,6 +142,7 @@ export class SyncAgent {
       lastTryAt: this.state.lastTryAt,
       lastError: this.state.lastError,
       waiting,
+      pinSecretShared: this.state.pinSecretShared,
     };
   }
 
@@ -171,7 +180,13 @@ export class SyncAgent {
     this.state.lastTryAt = new Date().toISOString();
     try {
       // Online changes first, so the shop's backlog sent after them already includes them.
-      const { items } = (await this.call('GET', '/api/sync/commands')) as { items: CloudCommand[] };
+      const { items, pinSecret } = (await this.call('GET', '/api/sync/commands')) as {
+        items: CloudCommand[];
+        pinSecret?: string;
+      };
+      // Before the online changes: the owner's account comes with a PIN made with that secret.
+      if (pinSecret && this.hooks.pinSecret)
+        this.state.pinSecretShared = await this.hooks.pinSecret(pinSecret);
       for (const c of items) await this.take(c);
       await this.fullCopyIfNeeded();
       await this.push();

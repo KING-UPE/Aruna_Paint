@@ -34,9 +34,14 @@ What the installer sets up:
 | Updates | scheduled task **Aruna POS Updater** (started by the server) |
 
 The settings file `C:\ProgramData\ArunaPOS\config.env` holds the database passwords and the PIN
-secret. Keep a copy somewhere safe: losing `PIN_SECRET` means setting every PIN again. For PINs
-set on the online panel to work at the shop, every shop and the online panel must use the same
-PIN secret: install with `ArunaPOS-Setup-<version>.exe /PINSECRET=<the online panel's PIN_SECRET>`.
+secret. Keep a copy somewhere safe: losing `PIN_SECRET` means setting every PIN again.
+
+PINs set on the online panel work at a shop only if both use the same PIN secret. A new shop
+linked to the online panel in the first-run wizard takes the panel's secret by itself with its
+first sync (before any PIN exists there), and keeps using it. A shop that already had PINs keeps
+its own secret, and Admin → Cloud sync says that PINs set online don't work there. To give a shop
+the panel's secret from the start anyway, install with
+`ArunaPOS-Setup-<version>.exe /PINSECRET=<the online panel's PIN_SECRET>`.
 
 Silent install (for IT): `ArunaPOS-Setup-<version>.exe /S`.
 

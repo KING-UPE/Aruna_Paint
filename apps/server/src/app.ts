@@ -29,6 +29,9 @@ import { userRoutes } from './modules/users/routes';
 import { adminRoutes } from './modules/admin/routes';
 import { registerModuleRoutes } from './modules';
 
+/** sync_state key holding the online panel's PIN secret a shop took at its first link. */
+const PANEL_PIN_SECRET = 'pin_secret';
+
 declare module 'fastify' {
   interface FastifyInstance {
     deps: Deps;
@@ -46,6 +49,14 @@ export async function buildApp(
   });
 
   const production = overrides.db ?? createPrisma(config.databaseUrl);
+  if (config.mode === 'shop') {
+    // The online panel's PIN secret, once this shop took it (usePanelPinSecret below).
+    const saved = await production.syncState
+      .findUnique({ where: { key: PANEL_PIN_SECRET } })
+      .catch(() => null);
+    const secret = (saved?.value as { secret?: string } | undefined)?.secret;
+    if (secret) config.pinSecret = secret;
+  }
   const events = overrides.events ?? new EventBus();
   // Set just below; the callback only runs later, when a copy is made or a user switched.
   let settings: SettingsService;
@@ -83,6 +94,7 @@ export async function buildApp(
             {
               onApplied: (changes) => void afterOnlineChange(changes),
               runRequest: (route, by) => runShopRequest(route, by),
+              pinSecret: (secret) => usePanelPinSecret(secret),
             },
             overrides.syncTransport,
           )
@@ -100,6 +112,24 @@ export async function buildApp(
     ).length;
     if (switchedOn && (await production.user.count({ where: { testMode: true } })) === switchedOn)
       await testMode.rebuild().catch(() => undefined);
+  }
+  /**
+   * A shop linked to the online panel takes the panel's PIN secret while it has no PIN of its own
+   * yet (a new shop, before the owner's account arrives), so PINs set online work here. Kept in
+   * sync_state (never synced) and used from then on, also after a restart. A shop that already
+   * has PINs keeps its own secret: changing it would make every PIN there stop working.
+   */
+  async function usePanelPinSecret(secret: string): Promise<boolean> {
+    if (secret === config.pinSecret) return true;
+    if (secret.length < 16) return false;
+    if (await production.user.count({ where: { pinHmac: { not: null } } })) return false;
+    await production.syncState.upsert({
+      where: { key: PANEL_PIN_SECRET },
+      create: { key: PANEL_PIN_SECRET, value: { secret } },
+      update: { value: { secret } },
+    });
+    config.pinSecret = secret;
+    return true;
   }
   /** Asked for online, done here: a backup now, or a fresh test copy. */
   async function runShopRequest(route: string, by: ActorRef): Promise<string> {

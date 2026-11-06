@@ -1,7 +1,9 @@
 Write-Host "========================================================" -ForegroundColor Cyan
 Write-Host "  Starting Pannala Aruna Paint Center POS Local Server" -ForegroundColor Cyan
 Write-Host "========================================================" -ForegroundColor Cyan
-$bridge = Start-Process node -ArgumentList "bridge.js" -PassThru -NoNewWindow
+# Runs from the project folder (this file lives in tools\dev).
+Set-Location (Join-Path $PSScriptRoot '..\..')
+$bridge = Start-Process node -ArgumentList "tools/dev/bridge.js" -PassThru -NoNewWindow
 Start-Sleep -Seconds 2
 try {
     pnpm dev

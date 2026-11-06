@@ -47,6 +47,7 @@ New migration: edit `apps/server/prisma/schema.prisma`, then `npx prisma migrate
 packages/shared   @aruna/shared — business rules used by BOTH server and screens (exported as TS source)
 apps/server       @aruna/server — Fastify 5 + Prisma 6 on PostgreSQL; serves apps/web/dist in production
 apps/web          @aruna/web    — React 19 + Vite 7 + Tailwind 4, TanStack Query/Table, RHF + Zod, cmdk, Radix Dialog
+tools/dev/        the owner's Windows dev helpers (WSL PostgreSQL bridge, run.bat); not shipped
 installer/        Windows installer: build.mjs, windows/aruna.nsi, windows/tools/*.ps1 (install, update, updater task, uninstall)
 docs/             plan PDF, PROGRESS.md, SHOP_SERVER.md (install and updates), CLOUD_ON_VERCEL.md
 ```

@@ -127,8 +127,8 @@ export function HrmPage() {
 
   // Form states editable by Super Admin
   const [maxCommissionPercent, setMaxCommissionPercent] = useState<number>(10);
-  const [shopRent, setShopRent] = useState<number>(45000);
-  const [electricityBill, setElectricityBill] = useState<number>(18500);
+  const [shopRent, setShopRent] = useState<number>(0);
+  const [electricityBill, setElectricityBill] = useState<number>(0);
   const [salaries, setSalaries] = useState<SalaryItem[]>([]);
   const [members, setMembers] = useState<MemberItem[]>([]);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
