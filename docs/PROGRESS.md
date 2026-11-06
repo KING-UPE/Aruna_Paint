@@ -173,7 +173,9 @@ These were my calls; confirm them with the owner if any matters:
 
 ## Known gaps and rough edges
 
-- **The installer has been tested on GitHub's clean Windows Server machine (CI), not yet on the shop's own Windows 10/11 PC.** Printing through a shared Windows printer from the server service (running as SYSTEM) is untested.
+- **The installer passes its tests on GitHub's clean Windows machine** (run 42293146862: install, first-run setup, update with backup, updater task, uninstall keeping data, reinstall over kept data), **but has not run on the shop's own Windows 10/11 PC yet.** The rollback after a failed update is written but not exercised by CI. Printing through a shared Windows printer from the server service (running as SYSTEM) is untested.
+- WinSW stops the server by ending the process rather than a graceful shutdown; bills are single transactions, so nothing half-written stays, but a request in flight at that moment fails.
+- The first published release must be `v1.0.1` or later: the tag `v1.0.0` already exists on an older commit.
 - The installer isn't code-signed: Windows SmartScreen asks "More info → Run anyway" the first time.
 - Each install makes its own random `PIN_SECRET` unless `/PINSECRET=` is given; PINs set on the online panel only work at shops that share the online panel's secret.
 - A PostgreSQL major-version change (16 → 17) is not done by the updater (it keeps the current PostgreSQL and says so in the log); that would need `pg_upgrade`.
