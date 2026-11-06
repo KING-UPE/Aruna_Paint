@@ -222,6 +222,7 @@ function Install-Fresh {
 
   foreach ($part in 'node', 'pgsql', 'app', 'service', 'tools', 'redist') { Move-Part $part }
 
+  $me = $null
   $reuse = (Test-Path -LiteralPath $Config) -and (Test-Path -LiteralPath (Join-Path $PgData 'PG_VERSION'))
   if ($reuse) {
     # Uninstalled earlier with the data kept: the same database and settings come back.
@@ -258,6 +259,12 @@ function Install-Fresh {
 
     Say 'Making the database cluster...'
     if (Test-Path -LiteralPath $PgData) { Remove-Item -LiteralPath $PgData -Recurse -Force }
+    # initdb drops administrator rights while it runs (PostgreSQL refuses them), so the folder
+    # must be open to this Windows account itself, and to NetworkService that runs the database.
+    New-Item -ItemType Directory -Force -Path $PgData | Out-Null
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    Run 'icacls.exe' @($PgData, '/grant', "*$($me):(OI)(CI)F", '*S-1-5-20:(OI)(CI)F', '/Q')
+    Run 'icacls.exe' @($Base, '/grant', "*$($me):(RX)", '*S-1-5-20:(RX)', '/Q')
     $pwFile = Join-Path $env:TEMP ("aruna-pg-{0}.txt" -f (New-Secret 8))
     Set-Content -LiteralPath $pwFile -Value $pgPassword -Encoding ASCII -NoNewline
     try {
@@ -267,8 +274,13 @@ function Install-Fresh {
     Add-Content -LiteralPath (Join-Path $PgData 'postgresql.conf') -Value @(
       '', '# Aruna POS', "listen_addresses = 'localhost'", "port = $PgPort", "timezone = 'Asia/Colombo'")
   }
-  # The database service runs as NetworkService, which needs the data folder.
+  # The database service runs as NetworkService, which needs the data folder; the installing
+  # account's own access is taken off again.
   Run 'icacls.exe' @($PgData, '/grant', '*S-1-5-20:(OI)(CI)F', '/T', '/Q')
+  if ($me) {
+    & icacls.exe $PgData /remove:g "*$me" /T /Q | Out-Null
+    & icacls.exe $Base /remove:g "*$me" /Q | Out-Null
+  }
 
   Say 'Starting the database service...'
   if (-not (Get-Service -Name $DbService -ErrorAction SilentlyContinue)) {
