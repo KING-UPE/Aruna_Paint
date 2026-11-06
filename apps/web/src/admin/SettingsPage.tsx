@@ -222,7 +222,7 @@ export function SettingsPage() {
                 value={draft.updates?.auto === false ? 'off' : 'on'}
                 onChange={(e) => set('updates', 'auto', e.target.value === 'on')}
               >
-                <option value="on">By themselves, at the time below</option>
+                <option value="on">By themselves, at the install time</option>
                 <option value="off">Only when I press Install</option>
               </Select>
             </Field>,

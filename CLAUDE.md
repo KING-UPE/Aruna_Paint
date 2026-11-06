@@ -30,6 +30,7 @@ cd apps/server && npx vitest run test/billing.test.ts -t "day end"   # one file 
 pnpm --filter @aruna/web build                      # needed before e2e
 cd apps/web && PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium npx playwright test   # keyboard e2e; its webServer step builds a seeded aruna_e2e DB
 pnpm format                                         # prettier
+node installer/build.mjs                            # Windows installer -> dist/ArunaPOS-Setup-<version>.exe (needs makensis)
 node apps/server/scripts/vercel-build.mjs           # online panel for Vercel (.vercel/output); SKIP_MIGRATE=1 without a database
 pnpm shop:start / pnpm shop:update                  # shop server PC: run the build / back up, pull, build, migrate (docs/SHOP_SERVER.md)
 ```
@@ -38,13 +39,16 @@ Seeded logins (password `password123`): `owner` (Super Admin, PIN 1111), `admin`
 
 New migration: edit `apps/server/prisma/schema.prisma`, then `npx prisma migrate dev --name <name>` in `apps/server`. `prisma migrate reset` refuses to run for an AI agent without the user's consent; for a throwaway local DB, drop and recreate it with `dropdb`/`createdb` and run `prisma migrate deploy` instead.
 
+**Windows installer and updates** (`installer/`, `docs/SHOP_SERVER.md`): the shop installs one `ArunaPOS-Setup-<version>.exe`; installed servers update themselves from this repository's GitHub releases (`core/updates.ts`). A release is a `v<version>` tag matching the root `package.json` version; `.github/workflows/installer.yml` builds it, test-installs it on a clean Windows runner and publishes it. Installed shops migrate with `app/migrate.mjs` (`migrateShop()`), not the Prisma CLI: it runs each migration file statement by statement (`splitSql`), so keep migrations plain SQL. Keep `binaryTargets = ["native", "windows"]` in the schema. Anything the installed server needs at run time must be bundled by esbuild or copied in `installer/build.mjs`.
+
 ## Layout
 
 ```
 packages/shared   @aruna/shared — business rules used by BOTH server and screens (exported as TS source)
 apps/server       @aruna/server — Fastify 5 + Prisma 6 on PostgreSQL; serves apps/web/dist in production
 apps/web          @aruna/web    — React 19 + Vite 7 + Tailwind 4, TanStack Query/Table, RHF + Zod, cmdk, Radix Dialog
-docs/             plan PDF and PROGRESS.md
+installer/        Windows installer: build.mjs, windows/aruna.nsi, windows/tools/*.ps1 (install, update, updater task, uninstall)
+docs/             plan PDF, PROGRESS.md, SHOP_SERVER.md (install and updates), CLOUD_ON_VERCEL.md
 ```
 
 ## Architecture you need to know
