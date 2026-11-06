@@ -15,3 +15,7 @@ apps/web/playwright-report/
 
 # Vercel build output (apps/server/scripts/vercel-build.mjs)
 .vercel
+
+# Windows installer build (installer/build.mjs)
+installer/.cache/
+installer/.stage/

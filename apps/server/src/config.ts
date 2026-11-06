@@ -28,6 +28,13 @@ export interface AppConfig {
   disableSchedulers: boolean;
   /** Cloud only: the key shop servers sync with (their Settings → Cloud "shop key"). */
   syncKey: string;
+  /**
+   * The Windows install folder, set by the installer in config.env. Only an installed shop server
+   * installs software updates itself; empty everywhere else.
+   */
+  installDir: string;
+  /** GitHub repository whose releases carry the shop installer ("owner/name"). */
+  updateRepo: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -52,6 +59,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     logLevel: env.LOG_LEVEL ?? 'info',
     disableSchedulers: env.DISABLE_SCHEDULERS === '1',
     syncKey: env.SYNC_KEY ?? '',
+    installDir: env.ARUNA_INSTALL_DIR ?? '',
+    updateRepo: env.UPDATE_REPO || 'KING-UPE/Aruna_Paint',
   };
 }
 

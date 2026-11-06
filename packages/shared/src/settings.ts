@@ -129,6 +129,18 @@ export const printerSettingsSchema = z.object({
 });
 export type PrinterSettings = z.infer<typeof printerSettingsSchema>;
 
+/** Software updates of the installed shop server (from the project's GitHub releases). */
+export const updateSettingsSchema = z.object({
+  /** Install a new version by itself at installAt; off, the Super Admin presses Install. */
+  auto: z.boolean().default(true),
+  /** HH:MM in shop time, when nobody is billing. */
+  installAt: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/, { message: 'Use HH:MM, such as 02:30.' })
+    .default('02:30'),
+});
+export type UpdateSettings = z.infer<typeof updateSettingsSchema>;
+
 export const SETTINGS_SCHEMAS = {
   shop: shopSettingsSchema,
   receipt: receiptSettingsSchema,
@@ -140,6 +152,7 @@ export const SETTINGS_SCHEMAS = {
   hrm: hrmSettingsSchema,
   appearance: appearanceSettingsSchema,
   printer: printerSettingsSchema,
+  updates: updateSettingsSchema,
 } as const;
 
 export type SettingsKey = keyof typeof SETTINGS_SCHEMAS;
@@ -156,4 +169,5 @@ export const DEFAULT_SETTINGS: Settings = {
   hrm: hrmSettingsSchema.parse({}),
   appearance: appearanceSettingsSchema.parse({}),
   printer: printerSettingsSchema.parse({}),
+  updates: updateSettingsSchema.parse({}),
 };

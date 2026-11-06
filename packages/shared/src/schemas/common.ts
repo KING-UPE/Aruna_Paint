@@ -92,6 +92,9 @@ export const optionalCodeSchema = z
         }),
     ]),
   )
+  // Zod 4.6+ treats a key as required unless the schema says optional, so a missing code is
+  // allowed here explicitly (it gets the next number).
+  .optional()
   .transform((v) => (v ? v : null));
 
 export const phoneSchema = z.string().transform((v, ctx) => {

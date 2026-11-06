@@ -1,2 +1,6 @@
 * text=auto eol=lf
 *.pdf binary
+# Windows installer scripts keep Windows line endings.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.ico binary

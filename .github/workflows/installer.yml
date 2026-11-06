@@ -1,0 +1,178 @@
+# Builds the Windows installer, installs it on a clean Windows machine and tests it there
+# (fresh install, first-run setup, update over it, the automatic updater, uninstall).
+# A tag like v1.2.0 also publishes it as a GitHub release, which every shop server's automatic
+# updater picks up (latest.json + the installer).
+name: Windows installer
+
+on:
+  push:
+    tags: ['v*']
+    branches: [main, 'claude/**']
+    paths:
+      - 'installer/**'
+      - 'apps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check the version matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v=$(node -p "require('./package.json').version")
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "Tag ${GITHUB_REF_NAME} but package.json says $v"; exit 1; }
+      - run: pnpm typecheck
+      - name: Check the PowerShell scripts parse
+        shell: pwsh
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem installer/windows/tools/*.ps1) {
+            $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs)
+            foreach ($e in $errs) { Write-Host "$($f.Name): $($e.Message) (line $($e.Extent.StartLineNumber))"; $bad++ }
+          }
+          if ($bad) { exit 1 }
+      - run: sudo apt-get update -q && sudo apt-get install -y -q nsis
+      - name: Build the installer
+        run: node installer/build.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: |
+            dist/*.exe
+            dist/*.sha256
+            dist/latest.json
+          retention-days: 14
+
+  test-on-windows:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer
+          path: dist
+      - name: Fresh install (silent)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem dist/ArunaPOS-Setup-*.exe).FullName
+          $p = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
+          "Installer exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+          Get-Service ArunaPOS-DB, ArunaPOS-Server | Format-Table -AutoSize
+      - name: The server answers with an empty database (first-run wizard)
+        shell: pwsh
+        run: |
+          $version = (Get-Content dist/latest.json | ConvertFrom-Json).version
+          $h = Invoke-RestMethod http://127.0.0.1:3000/api/health
+          if ($h.version -ne $version) { throw "health says $($h.version), expected $version" }
+          $s = Invoke-RestMethod http://127.0.0.1:3000/api/setup/status
+          if (-not $s.needsSetup) { throw 'a fresh install should wait for the first-run wizard' }
+          $page = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/
+          if ($page.Content -notmatch '<div id="root">') { throw 'the screens are not served' }
+      - name: First-run setup makes the owner's account only
+        shell: pwsh
+        run: |
+          $body = @{ shop = @{ shopName = 'Test shop' }; admin = @{ username = 'owner'; fullName = 'Owner'; password = 'password123'; pin = '1111' } } | ConvertTo-Json -Depth 5
+          $r = Invoke-RestMethod -Method Post -ContentType 'application/json' -Body $body http://127.0.0.1:3000/api/setup
+          if ($r.recoveryCodes.Count -ne 8) { throw 'setup did not finish' }
+          $login = @{ username = 'owner'; password = 'password123' } | ConvertTo-Json
+          $null = Invoke-RestMethod -Method Post -ContentType 'application/json' -Body $login -SessionVariable web http://127.0.0.1:3000/api/auth/login
+          $users = Invoke-RestMethod -WebSession $web http://127.0.0.1:3000/api/users
+          "Users: $($users.items.Count)"
+          if ($users.items.Count -ne 1) { throw 'only the owner should exist' }
+      - name: Run the installer again (update path keeps the data)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem dist/ArunaPOS-Setup-*.exe).FullName
+          $p = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+          $result = Get-Content C:\ProgramData\ArunaPOS\data\updates\last-result.json | ConvertFrom-Json
+          $result
+          if (-not $result.ok) { throw 'update failed' }
+          $backup = Get-ChildItem C:\ProgramData\ArunaPOS\data\backups\before-update-*.dump
+          if (-not $backup) { throw 'no backup was made before the update' }
+          $login = @{ username = 'owner'; password = 'password123' } | ConvertTo-Json
+          $null = Invoke-RestMethod -Method Post -ContentType 'application/json' -Body $login http://127.0.0.1:3000/api/auth/login
+      - name: The automatic updater task runs a downloaded installer
+        shell: pwsh
+        run: |
+          $updates = 'C:\ProgramData\ArunaPOS\data\updates'
+          Remove-Item "$updates\last-result.json" -ErrorAction SilentlyContinue
+          $exe = (Get-ChildItem dist/ArunaPOS-Setup-*.exe)
+          Copy-Item $exe.FullName "$updates\$($exe.Name)"
+          $sha = (Get-FileHash "$updates\$($exe.Name)" -Algorithm SHA256).Hash.ToLower()
+          $version = (Get-Content dist/latest.json | ConvertFrom-Json).version
+          @{ version = $version; from = $version; installer = "$updates\$($exe.Name)"; sha256 = $sha } | ConvertTo-Json | Set-Content "$updates\pending.json"
+          schtasks.exe /Run /TN "Aruna POS Updater"
+          $deadline = (Get-Date).AddMinutes(10)
+          while (-not (Test-Path "$updates\last-result.json") -and (Get-Date) -lt $deadline) { Start-Sleep 5 }
+          $r = Get-Content "$updates\last-result.json" | ConvertFrom-Json
+          $r
+          if (-not $r.ok) { throw 'the updater task did not update' }
+          $null = Invoke-RestMethod http://127.0.0.1:3000/api/health
+      - name: Uninstall keeps the shop's data
+        shell: pwsh
+        run: |
+          $dir = 'C:\Program Files\Aruna POS'
+          $p = Start-Process -FilePath "$dir\uninstall.exe" -ArgumentList '/S', "_?=$dir" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+          if (Get-Service ArunaPOS-Server -ErrorAction SilentlyContinue) { throw 'the server service is still there' }
+          if (-not (Test-Path C:\ProgramData\ArunaPOS\pgdata\PG_VERSION)) { throw 'the data should be kept' }
+      - name: Reinstall over the kept data
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem dist/ArunaPOS-Setup-*.exe).FullName
+          $p = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+          $login = @{ username = 'owner'; password = 'password123' } | ConvertTo-Json
+          $null = Invoke-RestMethod -Method Post -ContentType 'application/json' -Body $login http://127.0.0.1:3000/api/auth/login
+          'The owner signs in after the reinstall.'
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-logs
+          path: C:\ProgramData\ArunaPOS\logs
+          if-no-files-found: ignore
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test-on-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer
+          path: dist
+      - name: Publish the release (shop servers update from it)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Aruna POS ${GITHUB_REF_NAME#v}" \
+            --notes "Windows installer for the shop server. New installs: download ArunaPOS-Setup-${GITHUB_REF_NAME#v}.exe and run it. Shops already installed update by themselves at the set time (Settings → Software updates)."

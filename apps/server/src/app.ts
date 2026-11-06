@@ -16,6 +16,7 @@ import { CloudShops } from './core/shops';
 import { SyncAgent, type SyncTransport } from './core/syncagent';
 import type { RowChange } from './core/syncapply';
 import { TestModeService } from './core/testmode';
+import { UpdateService } from './core/updates';
 import { registerCloudCapture } from './modules/sync/cloud';
 import { APP_VERSION } from './modules/system/routes';
 import { errorHandler } from './lib/errors';
@@ -87,6 +88,7 @@ export async function buildApp(
           )
         : null,
     shops,
+    updates: overrides.updates ?? new UpdateService(production, config, settings, APP_VERSION),
   };
   /** Online changes reached the shop: fresh settings, screens reload, a first test user gets a copy. */
   async function afterOnlineChange(changes: RowChange[]) {
@@ -132,6 +134,7 @@ export async function buildApp(
   app.get('/api/health', { config: { public: true } }, async () => ({
     ok: true,
     mode: config.mode,
+    version: APP_VERSION,
     time: new Date(),
   }));
 
@@ -158,11 +161,13 @@ export async function buildApp(
   if (!config.disableSchedulers && config.mode === 'shop') {
     deps.backups.startScheduler();
     deps.sync?.start();
+    await deps.updates.start();
   }
 
   app.addHook('onClose', async () => {
     await deps.sync?.close();
     await deps.backups.close();
+    await deps.updates.close();
     await testMode.close();
     await shops?.close();
     await production.$disconnect();

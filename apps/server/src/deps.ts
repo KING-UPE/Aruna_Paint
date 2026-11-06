@@ -7,6 +7,7 @@ import type { BackupService } from './core/backups';
 import type { CloudShops } from './core/shops';
 import type { SyncAgent } from './core/syncagent';
 import type { TestModeService } from './core/testmode';
+import type { UpdateService } from './core/updates';
 
 /** Everything route handlers need, decorated onto the Fastify instance as `app.deps`. */
 export interface Deps {
@@ -21,4 +22,6 @@ export interface Deps {
   sync: SyncAgent | null;
   /** Cloud mode: the shops it serves, each with its own copy. Null at a shop. */
   shops: CloudShops | null;
+  /** Software updates from the project's releases (installed shop servers only install). */
+  updates: UpdateService;
 }

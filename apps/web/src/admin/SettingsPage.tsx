@@ -12,6 +12,7 @@ import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/auth/AuthProvider';
 import { AppearanceCard } from './AppearanceCard';
 import { TestModeCard } from './TestModeCard';
+import { UpdatesCard } from './UpdatesCard';
 
 type Settings = Record<string, Record<string, unknown>>;
 
@@ -209,6 +210,38 @@ export function SettingsPage() {
           </Button>
         ) : null,
       )}
+      {!online && me.roles.includes('SUPER_ADMIN') ? (
+        <UpdatesCard
+          settingsFields={[
+            <Field
+              key="auto"
+              label="Install new versions"
+              hint="A backup is made first; the old version comes back by itself if anything fails."
+            >
+              <Select
+                value={draft.updates?.auto === false ? 'off' : 'on'}
+                onChange={(e) => set('updates', 'auto', e.target.value === 'on')}
+              >
+                <option value="on">By themselves, at the time below</option>
+                <option value="off">Only when I press Install</option>
+              </Select>
+            </Field>,
+            <div key="at" className="flex items-end gap-2">
+              <div className="flex-1">
+                {text('updates', 'installAt', 'Install time (HH:MM)', 'When nobody is billing.')}
+              </div>
+              <Button
+                size="sm"
+                variant="primary"
+                className="mb-6"
+                onClick={() => void save('updates')}
+              >
+                Save
+              </Button>
+            </div>,
+          ]}
+        />
+      ) : null}
       {!online &&
         section('cloud', 'Cloud mirror', [
           text('cloud', 'url', 'Cloud address'),

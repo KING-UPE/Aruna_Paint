@@ -5,7 +5,12 @@ import { scopeShop } from '../../core/dbscope';
 import { audit } from '../../core/audit';
 import { actorOf } from '../../core/context';
 
-export const APP_VERSION = process.env.npm_package_version ?? '0.1.0';
+/**
+ * The installed build has its version written in by the installer build (`installer/build.mjs`
+ * defines ARUNA_BUILD_VERSION); `pnpm dev` and `pnpm start` read it from package.json.
+ */
+export const APP_VERSION =
+  process.env.ARUNA_BUILD_VERSION ?? process.env.npm_package_version ?? '0.1.0';
 
 /**
  * For the status bar. At the shop: "Online · synced 10 s ago" or "Offline · 128 changes waiting".
@@ -102,6 +107,30 @@ export async function systemRoutes(app: FastifyInstance) {
   app.post('/api/test-mode/refresh', { preHandler: [shopOnly(), superAdminOnly()] }, async (req) =>
     app.deps.testMode.refresh(actorOf(req.ctx)),
   );
+
+  /** Software updates: this version, the newest release and how the last update went. */
+  app.get('/api/updates', { preHandler: superAdminOnly() }, async () => app.deps.updates.get());
+
+  app.post('/api/updates/check', { preHandler: [shopOnly(), superAdminOnly()] }, async () =>
+    app.deps.updates.checkAndDownload(),
+  );
+
+  /** Installs the downloaded version now. The server restarts within a minute or two. */
+  app.post('/api/updates/install', { preHandler: [shopOnly(), superAdminOnly()] }, async (req) => {
+    const before = app.deps.updates.get();
+    try {
+      const status = await app.deps.updates.install();
+      await audit(db, actorOf(req.ctx), {
+        action: 'update.start',
+        entity: 'software',
+        before: { version: before.current },
+        after: { version: status.latest?.version },
+      });
+      return status;
+    } catch (err) {
+      throw new DomainError('INVALID_STATE', err instanceof Error ? err.message : String(err));
+    }
+  });
 
   /**
    * Live updates over a WebSocket: a sale or purchase anywhere tells every counter which stock

@@ -20,6 +20,8 @@ export const testConfig: AppConfig = {
   logLevel: 'silent',
   disableSchedulers: true,
   syncKey: '',
+  installDir: '',
+  updateRepo: 'KING-UPE/Aruna_Paint',
 };
 
 export async function createTestApp(

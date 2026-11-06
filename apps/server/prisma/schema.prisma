@@ -10,7 +10,9 @@
 // - Triggers (see migrations) copy every change into sync_outbox inside the same transaction.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "windows" is for the shop installer (installer/build.mjs); "native" is the PC running generate.
+  binaryTargets = ["native", "windows"]
 }
 
 datasource db {
