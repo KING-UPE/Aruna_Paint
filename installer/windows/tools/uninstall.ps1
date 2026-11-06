@@ -21,6 +21,6 @@ if (Get-Service -Name 'ArunaPOS-DB' -ErrorAction SilentlyContinue) {
 }
 
 Unregister-ScheduledTask -TaskName 'Aruna POS Updater' -Confirm:$false -ErrorAction SilentlyContinue
-& netsh.exe advfirewall firewall delete rule name='Aruna POS (shop screens)' | Out-Null
+& netsh.exe advfirewall firewall delete rule name=ArunaPOS-Screens | Out-Null
 Write-Output 'Services removed.'
 exit 0

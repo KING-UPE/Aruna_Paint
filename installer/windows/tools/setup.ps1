@@ -37,7 +37,7 @@ $AppPort = 3000
 $DbService = 'ArunaPOS-DB'
 $AppService = 'ArunaPOS-Server'
 $TaskName = 'Aruna POS Updater'
-$FirewallRule = 'Aruna POS (shop screens)'
+$FirewallRule = 'ArunaPOS-Screens'
 
 foreach ($d in @($Base, $DataDir, $LogDir, $BackupDir, $UpdatesDir)) {
   New-Item -ItemType Directory -Force -Path $d | Out-Null
