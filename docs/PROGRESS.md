@@ -1,6 +1,6 @@
 # Build progress and handoff
 
-Last updated: 6 Nov 2026, after the Windows installer and automatic updates (branch `claude/modest-darwin-ks31u8`).
+Last updated: 6 Nov 2026, release 1.0.1: the first Windows installer and automatic updates.
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
