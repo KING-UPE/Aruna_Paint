@@ -226,7 +226,8 @@ jobs:
           function Setup-Exe([string]$version) { (Get-ChildItem "$env:GITHUB_WORKSPACE\tests\ArunaPOS-Setup-$version.exe").FullName }
           function Run-Installer([string]$exe) {
             $p = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
-            "Installer $([IO.Path]::GetFileName($exe)) exit code: $($p.ExitCode)"
+            # Write-Host, not output: a PowerShell function returns everything it outputs.
+            Write-Host "Installer $([IO.Path]::GetFileName($exe)) exit code: $($p.ExitCode)"
             return $p.ExitCode
           }
           function Wait-Version([string]$v, [int]$seconds = 120) {
