@@ -100,7 +100,18 @@ export async function buildApp(
           )
         : null,
     shops,
-    updates: overrides.updates ?? new UpdateService(production, config, settings, APP_VERSION),
+    updates:
+      overrides.updates ??
+      new UpdateService(
+        production,
+        config,
+        settings,
+        APP_VERSION,
+        fetch,
+        undefined,
+        undefined,
+        () => events.publish({ type: 'update' }),
+      ),
   };
   /** Online changes reached the shop: fresh settings, screens reload, a first test user gets a copy. */
   async function afterOnlineChange(changes: RowChange[]) {

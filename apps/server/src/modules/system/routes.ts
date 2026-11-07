@@ -1,5 +1,6 @@
 import { DomainError } from '@aruna/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import { perm, shopOnly, superAdminOnly } from '../../auth/guard';
 import { scopeShop } from '../../core/dbscope';
 import { audit } from '../../core/audit';
@@ -43,11 +44,22 @@ async function syncSummary(app: FastifyInstance) {
   };
 }
 
+/** Who runs software updates: the Super Admin and Admins (whoever looks after the shop's day). */
+const managesUpdates = (req: FastifyRequest) =>
+  req.ctx.roleCodes.includes('SUPER_ADMIN') || req.ctx.roleCodes.includes('ADMIN');
+
+function updateManager() {
+  return async (req: FastifyRequest) => {
+    if (!managesUpdates(req))
+      throw new DomainError('FORBIDDEN', 'Only the Super Admin or an Admin installs updates.');
+  };
+}
+
 export async function systemRoutes(app: FastifyInstance) {
   const { db, events } = app.deps;
 
   /** The status bar: "Online · synced 10 s ago" or "Offline · 128 changes waiting", and the version. */
-  app.get('/api/system/status', async () => {
+  app.get('/api/system/status', async (req) => {
     const [lastBackup, alerts] = await Promise.all([
       db.backup.findFirst({ orderBy: { at: 'desc' } }),
       db.alert.count({ where: { resolvedAt: null } }),
@@ -66,8 +78,23 @@ export async function systemRoutes(app: FastifyInstance) {
           }
         : null,
       openAlerts: alerts,
+      // A downloaded update, for the "update ready" pop-up (those who install updates only).
+      update: await updateReady(req),
     };
   });
+
+  async function updateReady(req: FastifyRequest) {
+    if (!req.ctx?.user || !managesUpdates(req)) return null;
+    const u = app.deps.updates.get();
+    if (!u.canInstall || !u.available || !u.downloaded || !u.latest) return null;
+    return {
+      version: u.latest.version,
+      notes: u.latest.notes,
+      choice: u.choice,
+      installing: u.state === 'installing',
+      installAt: (await app.deps.settings.get('updates')).installAt,
+    };
+  }
 
   app.get('/api/alerts', { preHandler: perm('dashboard.view') }, async () => ({
     items: await db.alert.findMany({
@@ -109,14 +136,30 @@ export async function systemRoutes(app: FastifyInstance) {
   );
 
   /** Software updates: this version, the newest release and how the last update went. */
-  app.get('/api/updates', { preHandler: superAdminOnly() }, async () => app.deps.updates.get());
+  app.get('/api/updates', { preHandler: updateManager() }, async () => app.deps.updates.get());
 
-  app.post('/api/updates/check', { preHandler: [shopOnly(), superAdminOnly()] }, async () =>
+  app.post('/api/updates/check', { preHandler: [shopOnly(), updateManager()] }, async () =>
     app.deps.updates.checkAndDownload(),
   );
 
+  /** The pop-up's "Tonight" or "Next time the shop opens". */
+  app.post('/api/updates/choice', { preHandler: [shopOnly(), updateManager()] }, async (req) => {
+    const { when } = z.object({ when: z.enum(['night', 'startup']) }).parse(req.body);
+    try {
+      const status = await app.deps.updates.choose(when);
+      await audit(db, actorOf(req.ctx), {
+        action: 'update.scheduled',
+        entity: 'software',
+        after: { version: status.latest?.version, when },
+      });
+      return status;
+    } catch (err) {
+      throw new DomainError('INVALID_STATE', err instanceof Error ? err.message : String(err));
+    }
+  });
+
   /** Installs the downloaded version now. The server restarts within a minute or two. */
-  app.post('/api/updates/install', { preHandler: [shopOnly(), superAdminOnly()] }, async (req) => {
+  app.post('/api/updates/install', { preHandler: [shopOnly(), updateManager()] }, async (req) => {
     const before = app.deps.updates.get();
     try {
       const status = await app.deps.updates.install();

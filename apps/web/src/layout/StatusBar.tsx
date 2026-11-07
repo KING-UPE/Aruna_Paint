@@ -2,12 +2,14 @@ import { formatDate, formatDateTime, formatRs, formatTime } from '@aruna/shared'
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/auth/AuthProvider';
+import { OPEN_UPDATE_PROMPT } from './UpdatePrompt';
 import { api } from '@/lib/api';
 import type { BillingStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 interface SystemStatus {
   version: string;
+  update?: { version: string; choice: 'night' | 'startup' | null; installAt: string } | null;
   sync: {
     linked: boolean;
     online: boolean;
@@ -102,6 +104,19 @@ export function StatusBar({ billing }: { billing?: BillingStatus | undefined }) 
       <span className="flex items-center gap-4">
         <SyncStatus sync={system.data?.sync} cloud={me.mode === 'cloud'} />
         <span>{me.user.fullName}</span>
+        {system.data?.update ? (
+          <button
+            type="button"
+            className="font-medium text-accent-strong underline-offset-2 hover:underline"
+            onClick={() => window.dispatchEvent(new Event(OPEN_UPDATE_PROMPT))}
+          >
+            {system.data.update.choice === 'night'
+              ? `Update ${system.data.update.version} installs at ${system.data.update.installAt}`
+              : system.data.update.choice === 'startup'
+                ? `Update ${system.data.update.version} installs at next start`
+                : `Update ${system.data.update.version} ready`}
+          </button>
+        ) : null}
         <span>v{system.data?.version ?? ''}</span>
       </span>
     </footer>

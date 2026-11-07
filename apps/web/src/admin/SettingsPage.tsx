@@ -210,7 +210,7 @@ export function SettingsPage() {
           </Button>
         ) : null,
       )}
-      {!online && me.roles.includes('SUPER_ADMIN') ? (
+      {!online && (me.roles.includes('SUPER_ADMIN') || me.roles.includes('ADMIN')) ? (
         <UpdatesCard
           settingsFields={[
             <Field

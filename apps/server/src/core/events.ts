@@ -9,7 +9,9 @@ export type LiveEvent =
   | { type: 'sale'; userId: string }
   | { type: 'settings' }
   /** A user was switched to or from test mode, or the copy was remade: screens reload. */
-  | { type: 'testmode' };
+  | { type: 'testmode' }
+  /** A software update finished downloading: the "update ready" pop-up asks what to do. */
+  | { type: 'update' };
 
 type Listener = (event: LiveEvent) => void;
 

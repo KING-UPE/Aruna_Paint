@@ -23,6 +23,9 @@ export function connectLive(queryClient: QueryClient): () => void {
       if (event.type === 'sale')
         void queryClient.invalidateQueries({ queryKey: ['billing-status'] });
       if (event.type === 'settings') void queryClient.invalidateQueries({ queryKey: ['me'] });
+      // A software update finished downloading: the "update ready" pop-up asks at once.
+      if (event.type === 'update')
+        void queryClient.invalidateQueries({ queryKey: ['system-status'] });
       // Test mode switched: the data underneath changed, so everything reloads.
       if (event.type === 'testmode') void queryClient.invalidateQueries();
     };

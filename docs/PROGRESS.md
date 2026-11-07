@@ -1,6 +1,6 @@
 # Build progress and handoff
 
-Last updated: 7 Nov 2026, release 1.0.3: a shop waiting for the owner's account locks sign-in, says why, and can fix its link.
+Last updated: 7 Nov 2026, release 1.0.4: an "Update ready" pop-up asks when to install each downloaded update.
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
@@ -49,6 +49,7 @@ Legend: ✅ done and tested · 🟡 partly done · ⬜ not started
   - The installed server checks `https://api.github.com/repos/KING-UPE/Aruna_Paint/releases/latest` every 6 hours (repository: `UPDATE_REPO`), reads `latest.json`, downloads a newer installer to `data\updates` and keeps it only if its SHA-256 matches.
   - It installs at `updates.installAt` (02:30 by default, setting group `updates`) when `updates.auto` is on, or when the Super Admin presses Install: it checks the file again, writes `pending.json` and starts the `Aruna POS Updater` task, which runs as SYSTEM outside the server's service, checks the hash once more and runs the installer silently.
   - The installer backs the database up (`before-update-<from>-to-<to>-<time>.dump`), stops the server, swaps the program (PostgreSQL only within the same major version), migrates, starts the server and waits for `/api/health` to answer with the new version. On any failure it puts the previous program and the backed-up database back and starts the old version. Its `last-result.json` becomes `update.installed` / `update.failed` in the audit log (and an alert when it failed) at the next start.
+  - **"Update ready" pop-up (1.0.4):** as soon as a version has downloaded, the Super Admin and Admins (not cashiers) get a pop-up on whatever screen they are on (`layout/UpdatePrompt.tsx`, from `update` in `GET /api/system/status` and the live event `update`): **Tonight at <installAt>** (focused, so a stray Enter never starts an install), **Next time the shop opens** (the first check after the server restarts installs it, once: `installIfChosenAtStart`), **Install now**, or **Remind me later** (asks again in 2 hours, per browser). The choice is kept in `data\updates\choice.json`, logged as `update.scheduled`, and shown in the status bar ("Update 1.0.5 installs at 02:30"), which reopens the pop-up. "Tonight" installs at the set time even when automatic installs are off. Admins may now check, choose and install updates too (`updateManager` in `modules/system/routes.ts`).
   - Only a server put in by the installer installs (`ARUNA_INSTALL_DIR`); elsewhere the card says so. A source install still updates with `pnpm shop:update` (`apps/server/scripts/update-shop.mjs`).
 - ⬜ Data import: Excel templates for suppliers, products and opening stock; a go-live stock count.
 - ✅ Settings (shop, receipt, billing, closing, alerts, backup, cloud, receipt printer), number formats (letters allowed).

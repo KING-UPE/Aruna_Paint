@@ -50,7 +50,7 @@ function fakeGitHub(opts: { version?: string; sha?: string; body?: Buffer } = {}
   return { f, calls };
 }
 
-function service(fetchImpl: Fetch, ran: string[], installed = true) {
+function service(fetchImpl: Fetch, ran: string[], installed = true, onReady = () => {}) {
   return new UpdateService(
     app.deps.db,
     { ...testConfig, dataDir, installDir: installed ? 'C:\\Program Files\\Aruna POS' : '' },
@@ -61,6 +61,7 @@ function service(fetchImpl: Fetch, ran: string[], installed = true) {
       ran.push(name);
     },
     'win32',
+    onReady,
   );
 }
 
@@ -162,10 +163,63 @@ describe('software updates', () => {
     expect(await app.deps.db.auditLog.count({ where: { action: 'update.failed' } })).toBe(1);
   });
 
-  it('only the Super Admin sees and starts updates', async () => {
-    expect((await shop.admin.get('/api/updates')).status).toBe(403);
-    expect((await shop.admin.post('/api/updates/check', {})).status).toBe(403);
+  it('only the Super Admin and Admins see and start updates', async () => {
+    expect((await shop.cashier.get('/api/updates')).status).toBe(403);
+    expect((await shop.cashier.post('/api/updates/check', {})).status).toBe(403);
+    expect((await shop.cashier.post('/api/updates/install', {})).status).toBe(403);
+    expect((await shop.admin.get('/api/updates')).status).toBe(200);
     const r = await shop.sa.get('/api/updates');
     expect(r.body).toMatchObject({ current: expect.any(String), canInstall: false });
+  });
+
+  it('a finished download asks at once: the "update ready" pop-up, for those who install', async () => {
+    let ready = 0;
+    const svc = service(fakeGitHub().f, [], true, () => ready++);
+    await svc.checkAndDownload();
+    await svc.checkAndDownload(); // the same file again asks no second time
+    expect(ready).toBe(1);
+    app.deps.updates = svc;
+    const forSa = (await shop.sa.get('/api/system/status')).body.update;
+    expect(forSa).toMatchObject({ version: '1.1.0', choice: null, installAt: '02:30' });
+    expect((await shop.admin.get('/api/system/status')).body.update.version).toBe('1.1.0');
+    // A cashier at the counter is never interrupted by it.
+    expect((await shop.cashier.get('/api/system/status')).body.update).toBeNull();
+  });
+
+  it('"Tonight" installs at the set time even with automatic installs off', async () => {
+    await shop.sa.put('/api/settings/updates', { auto: false, installAt: '02:30' });
+    const ran: string[] = [];
+    const svc = service(fakeGitHub().f, ran);
+    await svc.checkAndDownload();
+    app.deps.updates = svc;
+    const at = new Date('2026-11-06T21:00:00Z'); // 02:30 in Colombo
+    expect(await svc.autoInstall(at)).toBe(false);
+    const r = await shop.admin.post('/api/updates/choice', { when: 'night' });
+    expect(r.status).toBe(200);
+    expect(r.body.choice).toBe('night');
+    expect((await shop.sa.get('/api/system/status')).body.update.choice).toBe('night');
+    expect(await app.deps.db.auditLog.count({ where: { action: 'update.scheduled' } })).toBe(1);
+    expect(await svc.autoInstall(new Date('2026-11-07T21:00:00Z'))).toBe(true);
+    expect(ran).toEqual([UPDATER_TASK]);
+  });
+
+  it('"Next time the shop opens" installs at the next start, once', async () => {
+    const svc = service(fakeGitHub().f, []);
+    await svc.checkAndDownload();
+    await svc.choose('startup');
+    // The server restarts (the PC is switched on in the morning): a new service, same data.
+    const ran: string[] = [];
+    const next = service(fakeGitHub().f, ran);
+    await next.start();
+    await next.close();
+    await expect.poll(() => ran.length).toBe(1);
+    expect(ran).toEqual([UPDATER_TASK]);
+    // Forgotten after one try, so a failed update isn't started again at every start.
+    const again: string[] = [];
+    const third = service(fakeGitHub().f, again);
+    await third.start();
+    await third.close();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(again).toEqual([]);
   });
 });

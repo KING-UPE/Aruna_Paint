@@ -52,7 +52,14 @@ export interface UpdateStatus {
   error: string | null;
   downloaded: string | null;
   lastResult: UpdateResult | null;
+  /**
+   * What the person chose in the "update ready" pop-up for this version: install tonight at the
+   * set time, or when the shop server next starts. Null: not chosen (the pop-up asks).
+   */
+  choice: UpdateChoice | null;
 }
+
+export type UpdateChoice = 'night' | 'startup';
 
 export interface UpdateResult {
   version: string;
@@ -106,6 +113,7 @@ export class UpdateService {
   private timer: NodeJS.Timeout | null = null;
   private busy: Promise<unknown> | null = null;
   private lastAutoDay: string | null = null;
+  private chosen: { version: string; when: UpdateChoice } | null = null;
   private readonly dir: string;
 
   constructor(
@@ -116,6 +124,8 @@ export class UpdateService {
     private readonly fetchImpl: Fetch = fetch,
     private readonly runTask: RunTask = runSchtasks,
     private readonly platform: NodeJS.Platform = process.platform,
+    /** A new version finished downloading: the screens ask what to do (the pop-up). */
+    private readonly onReady: () => void = () => {},
   ) {
     this.dir = join(config.dataDir, 'updates');
     const reason =
@@ -135,18 +145,24 @@ export class UpdateService {
       error: null,
       downloaded: null,
       lastResult: null,
+      choice: null,
     };
   }
 
   get(): UpdateStatus {
-    return { ...this.status };
+    const latest = this.status.latest?.version;
+    const choice = this.chosen && this.chosen.version === latest ? this.chosen.when : null;
+    return { ...this.status, choice };
   }
 
   /** Reports how the last update went (once), then checks now and every 6 hours. */
   async start() {
     await this.reportLastResult();
     if (!this.status.canInstall) return;
-    void this.checkAndDownload().catch(() => undefined);
+    await this.loadChoice();
+    void this.checkAndDownload()
+      .then(() => this.installIfChosenAtStart())
+      .catch(() => undefined);
     let lastCheck = Date.now();
     this.timer = setInterval(() => {
       void (async () => {
@@ -179,8 +195,10 @@ export class UpdateService {
         this.status.latest = latest;
         this.status.checkedAt = new Date().toISOString();
         this.status.available = newerVersion(latest.version, this.status.current);
+        const had = this.status.downloaded;
         if (this.status.available && this.status.canInstall) await this.download(latest);
         this.status.state = this.status.downloaded ? 'ready' : 'idle';
+        if (this.status.downloaded && this.status.downloaded !== had) this.onReady();
       } catch (err) {
         this.status.state = 'error';
         this.status.error = err instanceof Error ? err.message : String(err);
@@ -295,10 +313,46 @@ export class UpdateService {
   /** The automatic install: once a day at the set time, when a newer version is downloaded. */
   async autoInstall(now: Date): Promise<boolean> {
     const cfg = await this.settings.get('updates');
-    if (!cfg.auto || !this.status.downloaded || !this.status.available) return false;
+    // "Tonight" in the pop-up installs at the set time even with automatic installs off.
+    const tonight = this.get().choice === 'night';
+    if ((!cfg.auto && !tonight) || !this.status.downloaded || !this.status.available) return false;
     const { hm, day } = shopClock(now);
     if (hm !== cfg.installAt || this.lastAutoDay === day) return false;
     this.lastAutoDay = day;
+    await this.install();
+    return true;
+  }
+
+  /** The pop-up's answer for the downloaded version: tonight, or when the server next starts. */
+  async choose(when: UpdateChoice): Promise<UpdateStatus> {
+    const version = this.status.latest?.version;
+    if (!this.status.canInstall) throw new Error(this.status.reason ?? 'Updates are off here.');
+    if (!version || !this.status.available || !this.status.downloaded)
+      throw new Error('There is no update ready to install.');
+    this.chosen = { version, when };
+    await mkdir(this.dir, { recursive: true });
+    await writeFile(join(this.dir, 'choice.json'), JSON.stringify(this.chosen));
+    return this.get();
+  }
+
+  private async loadChoice() {
+    try {
+      this.chosen = JSON.parse(await readFile(join(this.dir, 'choice.json'), 'utf8')) as {
+        version: string;
+        when: UpdateChoice;
+      };
+    } catch {
+      this.chosen = null;
+    }
+  }
+
+  /** "When the shop next starts": the first check after a restart installs that version. */
+  async installIfChosenAtStart(): Promise<boolean> {
+    if (this.get().choice !== 'startup' || !this.status.downloaded) return false;
+    // Forgotten first, so an update that fails (and puts the old version back) isn't tried at
+    // every start; tonight's automatic install still applies if it is on.
+    this.chosen = null;
+    await rm(join(this.dir, 'choice.json'), { force: true });
     await this.install();
     return true;
   }
