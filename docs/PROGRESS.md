@@ -1,6 +1,6 @@
 # Build progress and handoff
 
-Last updated: 6 Nov 2026, release 1.0.1: the first Windows installer and automatic updates.
+Last updated: 7 Nov 2026, release 1.0.2: a new shop linked at setup now syncs at once (1.0.1 waited for a restart).
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
@@ -172,6 +172,9 @@ These were my calls; confirm them with the owner if any matters:
 22. **One installer for install and update.** The updater runs the same exe silently; there is no separate patch format, so every update is a full, tested install path with backup and rollback.
 
 ## Known gaps and rough edges
+
+- **Fixed in 1.0.2:** in 1.0.1 a shop linked in the first-run wizard never synced until its server restarted: the installer starts the server before setup, the sync agent read the empty `cloud` setting into the settings cache, and setup didn't clear it, so the owner's account never arrived. Setup now clears the cache and syncs at once (`modules/setup/routes.ts`); the sync test runs a round before setup to cover it. A 1.0.1 shop stuck waiting needs one restart of the **Aruna POS Server** service (or the PC).
+- The online panel's address for shops is `https://arunapaint.vercel.app`. The per-deployment `*-king-upes-projects.vercel.app` addresses sit behind Vercel's login (Deployment Protection), so a shop linked to one never reaches the panel, and its waiting page doesn't say why yet.
 
 - **The installer passes its tests on GitHub's clean Windows machine** (run 42293146862: install, first-run setup, update with backup, updater task, uninstall keeping data, reinstall over kept data), **but has not run on the shop's own Windows 10/11 PC yet.** The rollback after a failed update is written but not exercised by CI. Printing through a shared Windows printer from the server service (running as SYSTEM) is untested.
 - WinSW stops the server by ending the process rather than a graceful shutdown; bills are single transactions, so nothing half-written stays, but a request in flight at that moment fails.

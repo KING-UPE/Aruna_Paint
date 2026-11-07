@@ -36,6 +36,11 @@ export async function setupRoutes(app: FastifyInstance) {
   /** First-run wizard. Works only while no user exists. */
   app.post('/api/setup', { config: { public: true } }, async (req, reply) => {
     const result = await runSetup(db, config, req.body as never);
+    // The server ran before setup (the installer starts it) and has the empty settings in memory;
+    // without this the sync agent keeps seeing no cloud link and the owner never arrives.
+    settings.invalidate();
+    // A shop linked here syncs at once, so the owner's account arrives within seconds.
+    void app.deps.sync?.sync().catch(() => undefined);
     if (result.adminId) await createSession(app, reply, req, result.adminId);
     return { recoveryCodes: result.recoveryCodes, signedIn: Boolean(result.adminId) };
   });

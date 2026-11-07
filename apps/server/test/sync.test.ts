@@ -576,6 +576,9 @@ describe('online panel for several shops', () => {
       { syncTransport: to(cloudApp) },
     );
     try {
+      // As at a real install: the server is already running (and syncing) before setup, so it
+      // has "no cloud link" in memory; setup must make it see the link.
+      expect((await sync(fresh)).linked).toBe(false);
       await new Client(fresh).post('/api/setup', {
         shop: { shopName: 'Aruna Paint Kuliyapitiya' },
         cloud: { url: 'https://cloud.example', shopKey: KEY },
