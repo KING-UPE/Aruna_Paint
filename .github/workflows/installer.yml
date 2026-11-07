@@ -300,7 +300,7 @@ jobs:
           $deadline = (Get-Date).AddMinutes(10)
           while (-not (Last-Result) -and (Get-Date) -lt $deadline) { Start-Sleep 5 }
           $r = Last-Result; $r
-          if ($null -eq $r -or $r.ok) { throw 'the failing update should have been reported as failed' }
+          if ($null -eq $r -or $r.ok -or $r.message -notmatch 'database change in this update failed') { throw 'the failing update should have been reported as a failed database change' }
           Wait-Version '0.9.1'
           if ((Db "SELECT to_regclass('public.update_test_half') IS NULL") -ne 't') { throw 'the half-applied change is still in the database' }
           if ((Db "SELECT count(*) FROM _prisma_migrations WHERE migration_name LIKE '29990102%'") -ne '0') { throw 'the failed change is recorded as applied' }
@@ -313,7 +313,7 @@ jobs:
           Clear-Result
           if ((Run-Installer (Setup-Exe '0.9.3')) -eq 0) { throw 'the installer should report the failed update' }
           $r = Last-Result; $r
-          if ($null -eq $r -or $r.ok -or $r.message -notmatch 'did not answer') { throw 'expected "did not answer"' }
+          if ($null -eq $r -or $r.ok -or $r.message -notmatch 'did not (start|answer)') { throw 'expected "did not start" or "did not answer"' }
           Wait-Version '0.9.1'
           if ((Supplier-Count) -ne 1) { throw 'the data was lost' }
       - name: The failed updates show in the app (alerts and audit log)

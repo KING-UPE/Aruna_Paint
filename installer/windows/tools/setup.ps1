@@ -70,7 +70,11 @@ function Run([string]$exe, [string[]]$arguments, [hashtable]$envVars = @{}) {
     foreach ($k in $envVars.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process') }
   }
   foreach ($l in $out) { Say "    $l" }
-  if ($code -ne 0) { throw "$([IO.Path]::GetFileName($exe)) failed with exit code $code" }
+  if ($code -ne 0) {
+    # The last real line says why (PowerShell adds RemoteException lines for stderr).
+    $why = ($out | Where-Object { $_ -and $_ -notmatch 'RemoteException' } | Select-Object -Last 1)
+    throw "$([IO.Path]::GetFileName($exe)) failed (exit code $code): $why"
+  }
 }
 
 function New-Secret([int]$length) {
@@ -365,14 +369,18 @@ function Update-Existing {
     # 3. New migrations (the backup above is what undoes them).
     Say 'Updating the database...'
     $migrated = $true
-    Run "$InstallDir\node\node.exe" @("--env-file=$Config", "$InstallDir\app\migrate.mjs")
+    try {
+      Run "$InstallDir\node\node.exe" @("--env-file=$Config", "$InstallDir\app\migrate.mjs")
+    } catch {
+      throw "The database change in this update failed: $($_.Exception.Message -replace '^node\.exe failed \(exit code \d+\): ', '')"
+    }
 
     # 4. Start and check it answers as the new version.
     Write-ServiceXml
     Register-Updater
     Set-Firewall
     Say 'Starting the server...'
-    Start-Service -Name $AppService
+    try { Start-Service -Name $AppService } catch { throw "The new version's server did not start." }
     Wait-Health $Version 120
   } catch {
     $why = $_.Exception.Message
