@@ -626,6 +626,74 @@ describe('online panel for several shops', () => {
     }
   });
 
+  it('a shop waiting for the owner says why, refuses sign-in plainly, and can fix its link', async () => {
+    await resetDb(shopB);
+    const fresh = await createTestApp({ databaseUrl: branchUrl }, { syncTransport: to(cloudApp) });
+    try {
+      // Set up with a wrong shop key.
+      await new Client(fresh).post('/api/setup', {
+        shop: { shopName: 'Aruna Paint Kuliyapitiya' },
+        cloud: { url: 'https://cloud.example', shopKey: 'not-the-right-key' },
+      });
+      await sync(fresh);
+      const status = (await new Client(fresh).get('/api/setup/status')).body;
+      expect(status.waitingForOwner).toBe(true);
+      expect(status.link).toMatchObject({ host: 'cloud.example', online: false });
+      expect(status.link.lastError).toMatch(/Wrong shop key/);
+      expect(JSON.stringify(status)).not.toContain('not-the-right-key');
+      // Nobody can sign in yet, and the reason is not "wrong password".
+      const early = await new Client(fresh).post('/api/auth/login', {
+        username: 'owner',
+        password: PASSWORD,
+      });
+      expect(early.status).toBe(409);
+      expect(early.body.error.message).toMatch(/hasn't arrived from the online panel yet/);
+      // Fixed from the waiting page: the owner's account arrives and sign-in works.
+      const fix = await new Client(fresh).post('/api/setup/cloud', {
+        url: 'https://cloud.example',
+        shopKey: KEY,
+      });
+      expect(fix.status).toBe(200);
+      await sync(fresh);
+      await sync(fresh);
+      expect((await new Client(fresh).get('/api/setup/status')).body.waitingForOwner).toBe(false);
+      const atNew = new Client(fresh);
+      expect(
+        (await atNew.post('/api/auth/login', { username: 'owner', password: PASSWORD })).status,
+      ).toBe(200);
+      // Once someone can sign in, the link changes only in Settings.
+      const late = await new Client(fresh).post('/api/setup/cloud', {
+        url: 'https://elsewhere.example',
+        shopKey: KEY,
+      });
+      expect(late.status).toBe(403);
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  it('an address behind Vercel sign-in is named as the wrong address, not a JSON error', async () => {
+    const { createServer } = await import('node:http');
+    const { fetchTransport } = await import('../src/core/syncagent');
+    const server = createServer((_req, res) => {
+      res.writeHead(401, { 'content-type': 'text/html' });
+      res.end('<html>Vercel Authentication</html>');
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as { port: number }).port;
+    try {
+      await expect(
+        fetchTransport('GET', '/api/sync/commands', undefined, {
+          url: `http://127.0.0.1:${port}`,
+          key: KEY,
+          node: '00000000-0000-0000-0000-000000000000',
+        }),
+      ).rejects.toThrow(/asks for a Vercel sign-in/);
+    } finally {
+      server.close();
+    }
+  });
+
   it("the owner's username is never taken from someone else at a shop", async () => {
     // At shop B, "owner" is a cashier.
     const db = shopB.deps.db;

@@ -64,6 +64,13 @@ export async function authRoutes(app: FastifyInstance) {
         maxAge: 365 * 86_400,
       });
     }
+    // A shop linked at setup has no account until the owner's arrives with a sync: say so,
+    // rather than "wrong password".
+    if (!app.deps.shops && (await db.user.count()) === 0)
+      throw new DomainError(
+        'INVALID_STATE',
+        "The owner's account hasn't arrived from the online panel yet. Wait for the first sync, then sign in.",
+      );
     const user = await db.user.findUnique({ where: { usernameKey: nameKey(body.username) } });
     const ok = user && user.active && (await verifyPassword(body.password, user.passwordHash));
     if (!ok) {

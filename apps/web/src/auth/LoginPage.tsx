@@ -1,6 +1,6 @@
 import { formatDateTime } from '@aruna/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
@@ -47,11 +47,20 @@ export function LoginPage() {
         shops?: { id: string; name: string; lastSeenAt: string | null }[];
         currentShop?: string | null;
         waitingForOwner?: boolean;
+        link?: LinkStatus | null;
       }>('/api/setup/status'),
     staleTime: Infinity,
     // A shop linked at setup waits for the owner's account to arrive with a sync.
-    refetchInterval: (q) => (q.state.data?.waitingForOwner ? 5_000 : false),
+    refetchInterval: (q) => (q.state.data?.waitingForOwner ? 3_000 : false),
   });
+  // Nobody can sign in until the owner's account has arrived: the boxes stay locked till then.
+  const waiting = Boolean(setup.data?.waitingForOwner);
+  const usernameRef = useRef<HTMLInputElement>(null);
+  const wasWaiting = useRef(waiting);
+  useLayoutEffect(() => {
+    if (wasWaiting.current && !waiting) usernameRef.current?.focus();
+    wasWaiting.current = waiting;
+  }, [waiting]);
   const cloud = setup.data?.mode === 'cloud';
   // Online panel: users and passwords are each shop's own, so the shop comes first.
   const shops = setup.data?.shops ?? [];
@@ -85,13 +94,7 @@ export function LoginPage() {
       subtitle="Pannala Aruna Paint Center"
     >
       <form onSubmit={submit} className="flex flex-col gap-3">
-        {setup.data?.waitingForOwner ? (
-          <p role="status" className="rounded-[8px] bg-surface-2 px-3 py-2 text-sm text-muted">
-            This shop is linked to the online panel. The owner&apos;s account arrives with the first
-            sync (about a minute, with the internet on); then sign in with the owner&apos;s username
-            and password.
-          </p>
-        ) : null}
+        {waiting ? <WaitingForOwner link={setup.data?.link ?? null} /> : null}
         {cloud ? (
           <p className="rounded-[8px] bg-surface-2 px-3 py-2 text-sm text-muted">
             {setup.data?.waitingForShop
@@ -116,7 +119,9 @@ export function LoginPage() {
         <Field label="Username" htmlFor="username">
           <Input
             id="username"
+            ref={usernameRef}
             autoFocus
+            disabled={waiting}
             autoComplete="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -126,6 +131,7 @@ export function LoginPage() {
           <Input
             id="password"
             type="password"
+            disabled={waiting}
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -136,11 +142,15 @@ export function LoginPage() {
             {error}
           </p>
         ) : null}
-        <Button type="submit" variant="primary" disabled={busy || !username || !password}>
-          Log in
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={waiting || busy || !username || !password}
+        >
+          {waiting ? "Waiting for the owner's account…" : 'Log in'}
         </Button>
         {/* A recovery code resets the password at the shop, where it counts. */}
-        {!cloud ? (
+        {!cloud && !waiting ? (
           <button
             type="button"
             className="text-left text-sm text-muted underline-offset-2 hover:underline"
@@ -151,6 +161,109 @@ export function LoginPage() {
         ) : null}
       </form>
     </AuthShell>
+  );
+}
+
+interface LinkStatus {
+  host: string;
+  online: boolean;
+  lastTryAt: string | null;
+  lastError: string;
+}
+
+/**
+ * A shop linked at setup, before the owner's account has arrived: how the link is doing, and a
+ * way to fix a wrong panel address or shop key without setting the shop up again.
+ */
+function WaitingForOwner({ link }: { link: LinkStatus | null }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [url, setUrl] = useState('');
+  const [shopKey, setShopKey] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.post('/api/setup/cloud', { url, shopKey });
+      setEditing(false);
+      setShopKey('');
+      await qc.invalidateQueries({ queryKey: ['setup-status'] });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const where = link?.host ? ` at ${link.host}` : '';
+  return (
+    <div className="flex flex-col gap-2">
+      <div role="status" className="rounded-[8px] bg-surface-2 px-3 py-2 text-sm">
+        {link?.lastError ? (
+          <span className="text-danger">
+            Can&apos;t reach the online panel{where}: {link.lastError}
+          </span>
+        ) : link?.online ? (
+          <span className="text-muted">
+            Connected to the online panel{where}. The owner&apos;s account is on its way; you can
+            sign in as soon as it arrives.
+          </span>
+        ) : (
+          <span className="text-muted">
+            Connecting to the online panel{where}… The owner&apos;s account arrives with the first
+            sync (about a minute, with the internet on).
+          </span>
+        )}
+      </div>
+      {editing ? (
+        <div className="flex flex-col gap-2 rounded-[8px] border border-border p-3">
+          <Field label="Online panel address" htmlFor="link-url">
+            <Input
+              id="link-url"
+              inputMode="url"
+              placeholder="https://arunapaint.vercel.app"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          </Field>
+          <Field label="Shop key" htmlFor="link-key" hint="The same key every shop uses.">
+            <Input
+              id="link-key"
+              type="password"
+              value={shopKey}
+              onChange={(e) => setShopKey(e.target.value)}
+            />
+          </Field>
+          {error ? (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          ) : null}
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="primary"
+              disabled={busy || !url || !shopKey}
+              onClick={() => void save()}
+            >
+              Save and connect
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="text-left text-sm text-muted underline-offset-2 hover:underline"
+          onClick={() => setEditing(true)}
+        >
+          Change the online panel link
+        </button>
+      )}
+    </div>
   );
 }
 

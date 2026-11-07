@@ -32,6 +32,17 @@ export const fetchTransport: SyncTransport = async (method, path, body, auth) =>
     signal: AbortSignal.timeout(30_000),
   });
   const text = await res.text();
+  // The panel always answers JSON. Anything else is another site: most often a Vercel address
+  // behind Vercel's own sign-in (a per-deployment address) or a mistyped one.
+  if (!(res.headers.get('content-type') ?? '').includes('application/json')) {
+    throw new Error(
+      res.status === 401 || res.status === 403
+        ? "That address asks for a Vercel sign-in, so it isn't the online panel's public address. Use the panel's main address, like https://arunapaint.vercel.app."
+        : res.status === 404
+          ? 'Nothing answers at that address. Check the online panel address.'
+          : `That address doesn't answer like the online panel (HTTP ${res.status}). Check the online panel address.`,
+    );
+  }
   return { status: res.status, body: text ? (JSON.parse(text) as unknown) : null };
 };
 
