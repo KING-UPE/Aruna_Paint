@@ -246,7 +246,8 @@ jobs:
           function Db([string]$sql) {
             $line = Get-Content C:\ProgramData\ArunaPOS\config.env | Where-Object { $_ -like 'DATABASE_URL=*' }
             $url = ($line -replace "^DATABASE_URL='?", '' -replace "'$", '') -replace '\?.*$', ''
-            $out = & 'C:\Program Files\Aruna POS\pgsql\bin\psql.exe' $url -At -c $sql
+            # Options first: psql on Windows ignores anything after the database address.
+            $out = & 'C:\Program Files\Aruna POS\pgsql\bin\psql.exe' -At -c $sql -d $url
             if ($LASTEXITCODE -ne 0) { throw "psql failed: $sql" }
             return ($out -join "`n").Trim()
           }
