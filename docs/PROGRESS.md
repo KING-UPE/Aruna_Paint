@@ -1,6 +1,6 @@
 # Build progress and handoff
 
-Last updated: 7 Nov 2026, release 1.0.5: update checks every 15 minutes, update results reported, failing updates tested on Windows before every release.
+Last updated: 7 Nov 2026, release 1.0.6: a test update (no app changes) for the live pop-up test at the shops.
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
