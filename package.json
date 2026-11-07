@@ -1,6 +1,6 @@
 {
   "name": "aruna-paint-pos",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "description": "Pannala Aruna Paint Center — keyboard-first POS (shop server + cloud mirror)",
   "type": "module",
