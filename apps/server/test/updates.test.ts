@@ -161,15 +161,17 @@ describe('software updates', () => {
 
   it("reports the installer's result once in the audit log, and alerts when it failed", async () => {
     await mkdir(join(dataDir, 'updates'), { recursive: true });
+    // Written by Windows PowerShell 5.1: UTF-8 with a byte-order mark in front.
     await writeFile(
       join(dataDir, 'updates', 'last-result.json'),
-      JSON.stringify({
-        version: '1.1.0',
-        from: '1.0.0',
-        ok: false,
-        message: 'The server did not answer after the update.',
-        at: '2026-11-06T21:05:00Z',
-      }),
+      '\uFEFF' +
+        JSON.stringify({
+          version: '1.1.0',
+          from: '1.0.0',
+          ok: false,
+          message: 'The server did not answer after the update.',
+          at: '2026-11-06T21:05:00Z',
+        }),
     );
     const svc = service(fakeGitHub().f, [], false);
     await svc.start();

@@ -379,7 +379,7 @@ export class UpdateService {
     const file = join(this.dir, 'last-result.json');
     if (!existsSync(file)) return this.loadReported();
     try {
-      const r = JSON.parse(await readFile(file, 'utf8')) as UpdateResult;
+      const r = JSON.parse(stripBom(await readFile(file, 'utf8'))) as UpdateResult;
       this.status.lastResult = r;
       await audit(
         this.db,
@@ -410,12 +410,18 @@ export class UpdateService {
     const file = join(this.dir, 'last-result.reported.json');
     if (this.status.lastResult || !existsSync(file)) return;
     try {
-      this.status.lastResult = JSON.parse(await readFile(file, 'utf8')) as UpdateResult;
+      this.status.lastResult = JSON.parse(stripBom(await readFile(file, 'utf8'))) as UpdateResult;
     } catch {
       // ignore
     }
   }
 }
+
+/**
+ * Windows PowerShell 5.1 writes UTF-8 files with a byte-order mark, which JSON.parse refuses; the
+ * installer's last-result.json comes from it.
+ */
+const stripBom = (text: string) => text.replace(/^\uFEFF/, '');
 
 async function sha256File(path: string): Promise<string> {
   const hash = createHash('sha256');

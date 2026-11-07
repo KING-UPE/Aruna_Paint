@@ -215,7 +215,8 @@ function Pg([string]$exe) { Join-Path $InstallDir "pgsql\bin\$exe" }
 
 function Write-Result([bool]$ok, [string]$from, [string]$message) {
   $r = [ordered]@{ version = $Version; from = $from; ok = $ok; message = $message; at = (Get-Date).ToUniversalTime().ToString('o') }
-  ($r | ConvertTo-Json -Compress) | Set-Content -LiteralPath (Join-Path $UpdatesDir 'last-result.json') -Encoding UTF8
+  # UTF-8 without a byte-order mark: the server reads it as JSON.
+  [IO.File]::WriteAllText((Join-Path $UpdatesDir 'last-result.json'), ($r | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding $false))
 }
 
 # ---------------------------------------------------------------------------------------------

@@ -17,7 +17,8 @@ function Say([string]$text) {
 function Fail([object]$job, [string]$message) {
   Say "FAILED: $message"
   $r = [ordered]@{ version = $job.version; from = $job.from; ok = $false; message = $message; at = (Get-Date).ToUniversalTime().ToString('o') }
-  ($r | ConvertTo-Json -Compress) | Set-Content -LiteralPath (Join-Path $Updates 'last-result.json') -Encoding UTF8
+  # UTF-8 without a byte-order mark: the server reads it as JSON.
+  [IO.File]::WriteAllText((Join-Path $Updates 'last-result.json'), ($r | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding $false))
   exit 1
 }
 
