@@ -12,7 +12,14 @@
 //   tools/     the PowerShell steps the installer and the updater run (installer/windows)
 //
 // Environment: PG_ZIP (a local PostgreSQL binaries zip), PG_VERSIONS (comma list to try),
-// NODE_VERSION, SKIP_WEB_BUILD=1.
+// NODE_VERSION, SKIP_WEB_BUILD=1, NSIS_FAST=1 (quicker, larger: zlib instead of LZMA).
+//
+// Update tests only (.github/workflows/installer.yml, job update-tests): VERSION_OVERRIDE builds
+// the same app under another version number, and TEST_VARIANT changes the staged copy:
+//   good-migration  adds a migration that makes a table (an update with a database change)
+//   bad-migration   adds a migration that makes a table, then fails (rollback must undo it)
+//   broken-server   a server that exits at start (the health check fails; rollback)
+// Never published: the variants use 0.9.x numbers, below every real release.
 import { execFileSync, execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -40,7 +47,12 @@ const server = join(root, 'apps', 'server');
 const cache = join(here, '.cache');
 const stage = join(here, '.stage');
 const dist = join(root, 'dist');
-const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+const version =
+  process.env.VERSION_OVERRIDE ||
+  JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+const TEST_VARIANT = process.env.TEST_VARIANT || '';
+if (TEST_VARIANT && !/^0\.9\.\d+$/.test(version))
+  throw new Error('Update-test variants must use a 0.9.x VERSION_OVERRIDE.');
 const NODE_VERSION = process.env.NODE_VERSION || '22.21.1';
 const PG_VERSIONS = (
   process.env.PG_VERSIONS || '16.13-1,16.12-1,16.11-1,16.10-1,16.9-1,16.8-1'
@@ -149,6 +161,30 @@ cpSync(generated, join(stage, 'app', 'node_modules', '.prisma', 'client'), {
   filter: (f) => !/libquery_engine-.*\.so\.node$|query_engine_bg\.(js|wasm)$/.test(f),
 });
 cpSync(join(server, 'prisma'), join(stage, 'app', 'prisma'), { recursive: true });
+if (TEST_VARIANT) {
+  console.log(`Update-test variant: ${TEST_VARIANT}`);
+  const migration = (name, sql) => {
+    const dir = join(stage, 'app', 'prisma', 'migrations', name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'migration.sql'), sql);
+  };
+  if (TEST_VARIANT === 'good-migration')
+    migration(
+      '29990101000000_update_test_marker',
+      "CREATE TABLE update_test_marker (id INT PRIMARY KEY, note TEXT NOT NULL);\nINSERT INTO update_test_marker VALUES (1, 'applied');\n",
+    );
+  else if (TEST_VARIANT === 'bad-migration')
+    migration(
+      '29990102000000_update_test_fails',
+      'CREATE TABLE update_test_half (id INT PRIMARY KEY);\nSELECT 1 / 0;\n',
+    );
+  else if (TEST_VARIANT === 'broken-server')
+    writeFileSync(
+      join(stage, 'app', 'server.mjs'),
+      "console.error('Update test: this server exits on purpose.');\nprocess.exit(1);\n",
+    );
+  else throw new Error(`Unknown TEST_VARIANT ${TEST_VARIANT}`);
+}
 writeFileSync(
   join(stage, 'app', 'package.json'),
   JSON.stringify({ name: 'aruna-pos-server', version, type: 'module', private: true }, null, 2),
@@ -206,6 +242,7 @@ execFileSync(
   [
     '-V2',
     `-DVERSION=${version}`,
+    ...(process.env.NSIS_FAST === '1' ? ['-DFAST'] : []),
     `-DSTAGE=${stage}`,
     `-DOUTFILE=${exe}`,
     join(here, 'windows', 'aruna.nsi'),

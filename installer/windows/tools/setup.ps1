@@ -377,6 +377,8 @@ function Update-Existing {
   } catch {
     $why = $_.Exception.Message
     Say "UPDATE FAILED: $why"
+    # Written before the old version starts again, so that start reports it (audit log, alert).
+    Write-Result $false $from $why
     Say 'Putting the previous version back...'
     try {
       Stop-Service -Name $AppService -Force -ErrorAction SilentlyContinue
@@ -407,8 +409,8 @@ function Update-Existing {
       Say 'The previous version is running again.'
     } catch {
       Say "Putting the previous version back also failed: $($_.Exception.Message). The backup is $dump"
+      Write-Result $false $from "$why Putting the previous version back also failed: $($_.Exception.Message). The backup is $dump"
     }
-    Write-Result $false $from $why
     throw
   }
   foreach ($p in $parts + @('pgsql')) {

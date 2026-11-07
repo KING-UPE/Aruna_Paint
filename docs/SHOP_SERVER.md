@@ -47,7 +47,7 @@ Silent install (for IT): `ArunaPOS-Setup-<version>.exe /S`.
 
 ## Updates (automatic)
 
-The server checks the GitHub releases every 6 hours. A newer version is downloaded and checked
+The server checks the GitHub releases every 15 minutes (and when it starts). A newer version is downloaded and checked
 (SHA-256), then installed by itself at the time set in **Settings → Software updates** (02:30 by
 default), or straight away when the Super Admin presses **Install**. Each update:
 

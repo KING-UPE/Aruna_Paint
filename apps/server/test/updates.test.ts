@@ -26,17 +26,23 @@ const SHA = createHash('sha256').update(INSTALLER).digest('hex');
 /** GitHub's latest release with latest.json and the installer, as the release workflow makes. */
 function fakeGitHub(opts: { version?: string; sha?: string; body?: Buffer } = {}) {
   const calls: string[] = [];
-  const f: Fetch = async (url) => {
+  const f: Fetch = async (url, init) => {
     calls.push(url);
+    const sent = (init?.headers as Record<string, string> | undefined)?.['If-None-Match'];
+    if (url.endsWith('/releases/latest') && sent === '"v1"')
+      return new Response(null, { status: 304 });
     if (url.endsWith('/releases/latest'))
-      return Response.json({
-        body: 'What is new',
-        published_at: '2026-11-06T00:00:00Z',
-        assets: [
-          { name: 'latest.json', browser_download_url: 'https://dl/latest.json' },
-          { name: 'ArunaPOS-Setup-1.1.0.exe', browser_download_url: 'https://dl/setup.exe' },
-        ],
-      });
+      return Response.json(
+        {
+          body: 'What is new',
+          published_at: '2026-11-06T00:00:00Z',
+          assets: [
+            { name: 'latest.json', browser_download_url: 'https://dl/latest.json' },
+            { name: 'ArunaPOS-Setup-1.1.0.exe', browser_download_url: 'https://dl/setup.exe' },
+          ],
+        },
+        { headers: { etag: '"v1"' } },
+      );
     if (url === 'https://dl/latest.json')
       return Response.json({
         version: opts.version ?? '1.1.0',
@@ -72,6 +78,22 @@ beforeEach(async () => {
 });
 
 describe('software updates', () => {
+  it('checks every 15 minutes; an unchanged release costs one cheap 304', async () => {
+    const { CHECK_EVERY_MS } = await import('../src/core/updates');
+    expect(CHECK_EVERY_MS).toBe(15 * 60_000);
+    const gh = fakeGitHub();
+    const svc = service(gh.f, []);
+    await svc.checkAndDownload();
+    const first = gh.calls.length;
+    const again = await svc.checkAndDownload();
+    // Only the API call again (answered 304): no manifest or installer download.
+    expect(gh.calls.slice(first)).toEqual([
+      'https://api.github.com/repos/KING-UPE/Aruna_Paint/releases/latest',
+    ]);
+    expect(again).toMatchObject({ available: true, state: 'ready' });
+    expect(again.latest?.version).toBe('1.1.0');
+  });
+
   it('compares versions number by number', () => {
     expect(newerVersion('1.0.10', '1.0.9')).toBe(true);
     expect(newerVersion('v1.1.0', '1.0.9')).toBe(true);

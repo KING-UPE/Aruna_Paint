@@ -13,7 +13,7 @@ import type { SettingsService } from './settings';
 /**
  * Software updates of the installed shop server (plan § "Automatic updates").
  *
- * - Every 6 hours (and on "Check now") it reads the latest release of the project's GitHub
+ * - Every 15 minutes, at start and on "Check now" it reads the latest release of the project's GitHub
  *   repository. Each release carries the installer and `latest.json`
  *   (`{ version, file, sha256, size }`), written by `installer/build.mjs`.
  * - A newer version is downloaded to `<data>/updates` and kept only if its SHA-256 matches.
@@ -28,7 +28,12 @@ import type { SettingsService } from './settings';
  */
 
 export const UPDATER_TASK = 'Aruna POS Updater';
-const CHECK_EVERY_MS = 6 * 3_600_000;
+/**
+ * How often the shop looks for a new version. GitHub allows 60 unauthenticated API calls an hour
+ * per internet connection; an unchanged answer (304, thanks to the ETag) doesn't count, so a few
+ * shop PCs behind one connection stay far below it.
+ */
+export const CHECK_EVERY_MS = 15 * 60_000;
 
 export interface ReleaseInfo {
   version: string;
@@ -113,6 +118,8 @@ export class UpdateService {
   private timer: NodeJS.Timeout | null = null;
   private busy: Promise<unknown> | null = null;
   private lastAutoDay: string | null = null;
+  /** The last answer about the newest release, with GitHub's ETag for cheap repeat checks. */
+  private cached: { etag: string; release: ReleaseInfo } | null = null;
   private chosen: { version: string; when: UpdateChoice } | null = null;
   private readonly dir: string;
 
@@ -171,6 +178,8 @@ export class UpdateService {
           await this.checkAndDownload().catch(() => undefined);
         }
         await this.autoInstall(new Date()).catch(() => undefined);
+        // A successful update writes its result after this server started: report it now.
+        await this.reportLastResult().catch(() => undefined);
       })();
     }, 60_000);
     this.timer.unref();
@@ -214,11 +223,16 @@ export class UpdateService {
   }
 
   private async latestRelease(): Promise<ReleaseInfo> {
-    const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'ArunaPOS-updater' };
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'ArunaPOS-updater',
+    };
     const res = await this.fetchImpl(
       `https://api.github.com/repos/${this.config.updateRepo}/releases/latest`,
-      { headers },
+      { headers: this.cached ? { ...headers, 'If-None-Match': this.cached.etag } : headers },
     );
+    // Nothing new since the last check (and it doesn't count against GitHub's limit).
+    if (res.status === 304 && this.cached) return this.cached.release;
     if (res.status === 404) throw new Error('No release has been published yet.');
     if (!res.ok) throw new Error(`Could not reach the update server (HTTP ${res.status}).`);
     const release = (await res.json()) as {
@@ -241,7 +255,7 @@ export class UpdateService {
       throw new Error('latest.json is not complete.');
     const asset = assets.find((a) => a.name === info.file);
     if (!asset) throw new Error(`The release is missing ${info.file}.`);
-    return {
+    const out: ReleaseInfo = {
       version: info.version,
       file: info.file,
       sha256: info.sha256!,
@@ -250,6 +264,9 @@ export class UpdateService {
       notes: release.body ?? '',
       publishedAt: release.published_at ?? null,
     };
+    const etag = res.headers.get('etag');
+    this.cached = etag ? { etag, release: out } : null;
+    return out;
   }
 
   private async download(r: ReleaseInfo) {

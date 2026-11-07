@@ -32,7 +32,7 @@ const STATE_WORDS: Record<UpdateStatus['state'], string> = {
 };
 
 /**
- * Super Admin, at the shop. The server checks the project's releases every 6 hours, downloads a
+ * Super Admin, at the shop. The server checks the project's releases every 15 minutes, downloads a
  * new version and installs it by itself at the set time (Settings → Software updates below), or
  * now with Install. The installer backs up first and puts the old version back if anything fails.
  */

@@ -10,8 +10,12 @@
 Unicode true
 ManifestDPIAware true
 RequestExecutionLevel admin
+!ifdef FAST
+SetCompressor /SOLID zlib
+!else
 SetCompressor /SOLID lzma
 SetCompressorDictSize 64
+!endif
 
 !include "MUI2.nsh"
 !include "LogicLib.nsh"

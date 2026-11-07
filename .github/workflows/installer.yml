@@ -61,6 +61,10 @@ jobs:
       - run: sudo apt-get update -q && sudo apt-get install -y -q nsis
       - name: Build the installer
         run: node installer/build.mjs
+      - name: Release notes (docs/releases/<version>.md, shown in the shops' update pop-up)
+        run: |
+          f="docs/releases/$(node -p "require('./package.json').version").md"
+          if [ -f "$f" ]; then cp "$f" dist/notes.md; fi
       - uses: actions/upload-artifact@v4
         with:
           name: installer
@@ -68,6 +72,7 @@ jobs:
             dist/*.exe
             dist/*.sha256
             dist/latest.json
+            dist/notes.md
           retention-days: 14
 
   test-on-windows:
@@ -171,10 +176,183 @@ jobs:
           path: C:\ProgramData\ArunaPOS\logs
           if-no-files-found: ignore
 
+  # Update tests: older -> newer with a database change, a failing database change, a server that
+  # won't start, then a normal update to this build. Every release must pass them.
+  build-update-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: sudo apt-get update -q && sudo apt-get install -y -q nsis
+      - name: Build the test installers (0.9.x, never published)
+        env:
+          NSIS_FAST: '1'
+        run: |
+          VERSION_OVERRIDE=0.9.0 node installer/build.mjs
+          SKIP_WEB_BUILD=1 VERSION_OVERRIDE=0.9.1 TEST_VARIANT=good-migration node installer/build.mjs
+          SKIP_WEB_BUILD=1 VERSION_OVERRIDE=0.9.2 TEST_VARIANT=bad-migration node installer/build.mjs
+          SKIP_WEB_BUILD=1 VERSION_OVERRIDE=0.9.3 TEST_VARIANT=broken-server node installer/build.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: update-test-installers
+          path: dist/ArunaPOS-Setup-0.9.*.exe
+          retention-days: 7
+
+  test-updates-on-windows:
+    needs: [build, build-update-tests]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: update-test-installers
+          path: tests
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer
+          path: dist
+      - name: Test helpers
+        shell: pwsh
+        run: |
+          @'
+          $ErrorActionPreference = 'Stop'
+          $Updates = 'C:\ProgramData\ArunaPOS\data\updates'
+          function Setup-Exe([string]$version) { (Get-ChildItem "$env:GITHUB_WORKSPACE\tests\ArunaPOS-Setup-$version.exe").FullName }
+          function Run-Installer([string]$exe) {
+            $p = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
+            "Installer $([IO.Path]::GetFileName($exe)) exit code: $($p.ExitCode)"
+            return $p.ExitCode
+          }
+          function Wait-Version([string]$v, [int]$seconds = 120) {
+            $deadline = (Get-Date).AddSeconds($seconds)
+            while ((Get-Date) -lt $deadline) {
+              try { if ((Invoke-RestMethod -TimeoutSec 5 http://127.0.0.1:3000/api/health).version -eq $v) { return } } catch { }
+              Start-Sleep 2
+            }
+            throw "The server did not answer as version $v"
+          }
+          function Sign-In {
+            $login = @{ username = 'owner'; password = 'password123' } | ConvertTo-Json
+            $null = Invoke-RestMethod -Method Post -ContentType 'application/json' -Body $login -SessionVariable web http://127.0.0.1:3000/api/auth/login
+            return $web
+          }
+          function Db([string]$sql) {
+            $line = Get-Content C:\ProgramData\ArunaPOS\config.env | Where-Object { $_ -like 'DATABASE_URL=*' }
+            $url = ($line -replace "^DATABASE_URL='?", '' -replace "'$", '') -replace '\?.*$', ''
+            $out = & 'C:\Program Files\Aruna POS\pgsql\bin\psql.exe' $url -At -c $sql
+            if ($LASTEXITCODE -ne 0) { throw "psql failed: $sql" }
+            return ($out -join "`n").Trim()
+          }
+          # The result file; a server that started after it may already have renamed it.
+          function Last-Result {
+            $f = Get-ChildItem "$Updates\last-result.json", "$Updates\last-result.reported.json" -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if (-not $f) { return $null }
+            return Get-Content $f.FullName -Raw | ConvertFrom-Json
+          }
+          function Clear-Result { Remove-Item "$Updates\last-result.json", "$Updates\last-result.reported.json" -ErrorAction SilentlyContinue }
+          function Supplier-Count {
+            $web = Sign-In
+            return (Invoke-RestMethod -WebSession $web 'http://127.0.0.1:3000/api/suppliers?q=Update%20Test').items.Count
+          }
+          '@ | Set-Content "$env:RUNNER_TEMP\t.ps1"
+      - name: Install the older version 0.9.0 and put data in
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\t.ps1"
+          if ((Run-Installer (Setup-Exe '0.9.0')) -ne 0) { exit 1 }
+          Wait-Version '0.9.0'
+          $body = @{ shop = @{ shopName = 'Update test shop' }; admin = @{ username = 'owner'; fullName = 'Owner'; password = 'password123'; pin = '1111' } } | ConvertTo-Json -Depth 5
+          $null = Invoke-RestMethod -Method Post -ContentType 'application/json' -Body $body http://127.0.0.1:3000/api/setup
+          $web = Sign-In
+          $s = @{ name = 'Update Test Supplier'; phones = @('0771234567') } | ConvertTo-Json
+          $null = Invoke-RestMethod -WebSession $web -Method Post -ContentType 'application/json' -Body $s http://127.0.0.1:3000/api/suppliers
+          if ((Supplier-Count) -ne 1) { throw 'the supplier was not saved' }
+      - name: Update with a database change (0.9.1) keeps the data
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\t.ps1"
+          Clear-Result
+          if ((Run-Installer (Setup-Exe '0.9.1')) -ne 0) { exit 1 }
+          Wait-Version '0.9.1'
+          $r = Last-Result; $r
+          if (-not $r.ok -or $r.from -ne '0.9.0' -or $r.version -ne '0.9.1') { throw 'expected a successful update from 0.9.0' }
+          if ((Db "SELECT note FROM update_test_marker WHERE id = 1") -ne 'applied') { throw 'the database change was not applied' }
+          if ((Supplier-Count) -ne 1) { throw 'the data was lost' }
+      - name: A failing database change (0.9.2, through the updater task) is rolled back
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\t.ps1"
+          Clear-Result
+          $exe = Get-Item (Setup-Exe '0.9.2')
+          Copy-Item $exe.FullName "$Updates\$($exe.Name)"
+          $sha = (Get-FileHash "$Updates\$($exe.Name)" -Algorithm SHA256).Hash.ToLower()
+          @{ version = '0.9.2'; from = '0.9.1'; installer = "$Updates\$($exe.Name)"; sha256 = $sha } | ConvertTo-Json | Set-Content "$Updates\pending.json"
+          schtasks.exe /Run /TN "Aruna POS Updater"
+          $deadline = (Get-Date).AddMinutes(10)
+          while (-not (Last-Result) -and (Get-Date) -lt $deadline) { Start-Sleep 5 }
+          $r = Last-Result; $r
+          if ($null -eq $r -or $r.ok) { throw 'the failing update should have been reported as failed' }
+          Wait-Version '0.9.1'
+          if ((Db "SELECT to_regclass('public.update_test_half') IS NULL") -ne 't') { throw 'the half-applied change is still in the database' }
+          if ((Db "SELECT count(*) FROM _prisma_migrations WHERE migration_name LIKE '29990102%'") -ne '0') { throw 'the failed change is recorded as applied' }
+          if ((Db "SELECT note FROM update_test_marker WHERE id = 1") -ne 'applied') { throw 'the earlier change was lost' }
+          if ((Supplier-Count) -ne 1) { throw 'the data was lost' }
+      - name: A server that won't start (0.9.3) is rolled back
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\t.ps1"
+          Clear-Result
+          if ((Run-Installer (Setup-Exe '0.9.3')) -eq 0) { throw 'the installer should report the failed update' }
+          $r = Last-Result; $r
+          if ($null -eq $r -or $r.ok -or $r.message -notmatch 'did not answer') { throw 'expected "did not answer"' }
+          Wait-Version '0.9.1'
+          if ((Supplier-Count) -ne 1) { throw 'the data was lost' }
+      - name: The failed updates show in the app (alerts and audit log)
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\t.ps1"
+          $web = Sign-In
+          $deadline = (Get-Date).AddMinutes(2)
+          do {
+            $alerts = (Invoke-RestMethod -WebSession $web http://127.0.0.1:3000/api/alerts).items | Where-Object { $_.kind -eq 'UPDATE_FAILED' }
+            if ($alerts.Count -ge 2) { break }
+            Start-Sleep 10
+          } while ((Get-Date) -lt $deadline)
+          $alerts | Format-List message
+          if ($alerts.Count -lt 2) { throw 'both failed updates should show as alerts' }
+      - name: After the failures, a normal update to this build still works
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\t.ps1"
+          Clear-Result
+          $exe = (Get-ChildItem dist/ArunaPOS-Setup-*.exe).FullName
+          $version = (Get-Content dist/latest.json | ConvertFrom-Json).version
+          if ((Run-Installer $exe) -ne 0) { exit 1 }
+          Wait-Version $version
+          $r = Last-Result; $r
+          if (-not $r.ok) { throw 'the update to this build failed' }
+          if ((Supplier-Count) -ne 1) { throw 'the data was lost' }
+          if (Get-ChildItem 'C:\Program Files\Aruna POS\*.prev' -ErrorAction SilentlyContinue) { throw 'old .prev folders were left behind' }
+      - name: Show the logs
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem C:\ProgramData\ArunaPOS\logs -Filter '*.log' -ErrorAction SilentlyContinue | ForEach-Object {
+            "===== $($_.Name)"
+            Get-Content $_.FullName -Tail 60
+          }
+
   release:
     # A pushed v* tag, or "Run workflow" on main with publish ticked (the release makes the tag).
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
-    needs: test-on-windows
+    needs: [test-on-windows, test-updates-on-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -191,8 +369,10 @@ jobs:
           if [ "${GITHUB_REF_TYPE}" = tag ] && [ "$tag" != "${GITHUB_REF_NAME}" ]; then
             echo "Tag ${GITHUB_REF_NAME} but the installer is $tag"; exit 1
           fi
+          notes="Windows installer for the shop server. New installs: download ArunaPOS-Setup-${tag#v}.exe and run it. Shops already installed are asked when to install it."
+          if [ -f dist/notes.md ]; then notes="$(cat dist/notes.md)"; rm dist/notes.md; fi
           gh release create "$tag" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Aruna POS ${tag#v}" \
-            --notes "Windows installer for the shop server. New installs: download ArunaPOS-Setup-${tag#v}.exe and run it. Shops already installed update by themselves at the set time (Settings → Software updates)."
+            --notes "$notes"
