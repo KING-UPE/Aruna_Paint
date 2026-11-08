@@ -1,6 +1,6 @@
 # Build progress and handoff
 
-Last updated: 8 Nov 2026, release 1.0.7: clean sign-out and sign-in, page permission checks, online user and role changes fully applied at the shop.
+Last updated: 8 Nov 2026, release 1.0.8: the screen lock asks for the password when the user has no PIN; anyone sets their own PIN in My profile.
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
@@ -175,6 +175,9 @@ These were my calls; confirm them with the owner if any matters:
 22. **One installer for install and update.** The updater runs the same exe silently; there is no separate patch format, so every update is a full, tested install path with backup and rollback.
 
 ## Known gaps and rough edges
+
+- **Fixed in 1.0.8:** a user with no PIN (the owner's account from the panel has none until one is set online or here) was asked for a PIN by the screen lock. `GET /api/auth/me` now carries `hasPin`; `LockScreen` opens on the password box when it is false. `POST /api/auth/my-pin` (shop only, password checked, PIN unique via `resetPin`) backs **My profile → Set my PIN / Change my PIN**. Tests: `foundation.test.ts`, e2e `session.spec.ts`.
+- The e2e test "a resting mouse never changes which suggestion Enter takes" failed once in a full local run and passed in every rerun (timing); watch it if it fails in CI.
 
 - **Fixed in 1.0.7, sign-out:** signing out only forgot who was signed in; the page and everything the previous user had loaded stayed, so an Admin signing in after the Super Admin saw the Super Admin's page (Settings, Users and roles, with their data) until a reload. Now `signOut()`/`startFresh()` (`auth/session.ts`) reload the app on sign-out, sign-in and a PIN switch to another user, and `layout/PageGate.tsx` checks each page against its menu entry's permissions (an address typed in goes to the Main menu). e2e: `session.spec.ts`.
 - **Fixed in 1.0.7, online user changes at the shop** (`beforeOnlineChange`/`afterOnlineChange` in `core/syncagent.ts`): a user deleted online now loses their shop sign-ins first (sessions never sync, and used to make the delete fail); an online password reset (`must_change_password`) or switch-off signs the user out at the shop, as at the shop itself (the owner's account arriving with a new stored hash signs nobody out). A change the shop can't take because something made there since the last sync still points to it is kept, with "It is still in use at the shop…". Tests in `sync.test.ts`: users added/changed/reset/switched off/deleted online; a user who billed at the shop meanwhile; roles added/changed/deleted and one the shop started using; changes queued offline applied in order.

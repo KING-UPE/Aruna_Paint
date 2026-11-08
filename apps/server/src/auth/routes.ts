@@ -16,6 +16,8 @@ import { audit } from '../core/audit';
 import { actorOf } from '../core/context';
 import { TX_OPTIONS } from '../db';
 import { requireApproval } from './approvals';
+import { shopOnly } from './guard';
+import { resetPin } from '../modules/users/service';
 import { hashPassword, normalizeRecoveryCode, pinHmac, sha256, verifyPassword } from './crypto';
 import { scopeShop, useShopData } from '../core/dbscope';
 import { loadUserPermissions } from './permissions';
@@ -222,6 +224,22 @@ export async function authRoutes(app: FastifyInstance) {
     },
   );
 
+  /**
+   * Anyone sets or changes their own PIN (for the screen lock and switching user), after typing
+   * their password. PINs are each shop's own, so only at the shop. Unique, like every PIN.
+   */
+  app.post('/api/auth/my-pin', { preHandler: shopOnly() }, async (req) => {
+    const body = z.object({ password: z.string().min(1), pin: pinSchema }).parse(req.body);
+    const user = await db.user.findUniqueOrThrow({ where: { id: req.ctx.user.id } });
+    if (!(await verifyPassword(body.password, user.passwordHash)))
+      throw new DomainError('VALIDATION', 'That password is not right.', 'password');
+    await db.$transaction(
+      (tx) => resetPin(tx, actorOf(req.ctx), user.id, body.pin, config.pinSecret),
+      TX_OPTIONS,
+    );
+    return { ok: true };
+  });
+
   /** A reset password must be changed at next login. */
   app.post(
     '/api/auth/change-password',
@@ -369,8 +387,11 @@ export async function authRoutes(app: FastifyInstance) {
       settings.get('appearance'),
     ]);
     const location = await db.location.findUnique({ where: { id: ctx.locationId } });
+    const pin = await db.user.findUnique({ where: { id: ctx.user.id }, select: { pinHmac: true } });
     return {
       user: ctx.user,
+      // No PIN yet: the screen lock asks for the password instead, and My profile offers one.
+      hasPin: Boolean(pin?.pinHmac),
       roles: ctx.roleCodes,
       permissions: ctx.permissions.toArray(),
       location: location ? { id: location.id, code: location.code, name: location.name } : null,

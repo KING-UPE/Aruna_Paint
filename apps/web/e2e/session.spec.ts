@@ -76,3 +76,59 @@ test('after an Admin signs out or a cashier unlocks with their PIN, the cashier 
   await expect(page.getByRole('link', { name: 'Cashiers' })).toHaveCount(0);
   await expect(page.locator('footer')).toContainText('Cashier');
 });
+
+test('with no PIN, the locked screen asks for the password; a PIN set in My profile opens it next time', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'owner');
+  const made = await page.evaluate(async () => {
+    const roles = (await (await fetch('/api/roles')).json()) as {
+      items: { id: string; code: string }[];
+    };
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'nopin',
+        fullName: 'No Pin',
+        password: 'password123',
+        roleIds: [roles.items.find((r) => r.code === 'CASHIER')!.id],
+        mustChangePassword: false,
+      }),
+    });
+    return res.status;
+  });
+  expect(made).toBe(200);
+  await signOut(page);
+  await signIn(page, 'nopin');
+  const lock = () =>
+    page.evaluate(() =>
+      fetch('/api/auth/lock', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      }),
+    );
+  await lock();
+  await page.reload();
+  await expect(page.getByText('You have no PIN yet')).toBeVisible();
+  await expect(page.getByLabel('Password')).toBeFocused();
+  await page.getByLabel('Password').fill('password123');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Screen locked' })).toHaveCount(0);
+
+  await page.goto('/profile');
+  await page.getByRole('button', { name: 'Set my PIN' }).click();
+  await page.getByLabel('My password').fill('password123');
+  await page.getByLabel('New PIN').fill('8642');
+  await page.getByRole('button', { name: 'Save my PIN' }).click();
+  await expect(page.getByText('Your PIN is set.')).toBeVisible();
+
+  await lock();
+  await page.reload();
+  await expect(page.getByLabel('PIN')).toBeFocused();
+  await page.getByLabel('PIN').fill('8642');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Screen locked' })).toHaveCount(0);
+});

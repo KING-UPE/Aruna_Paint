@@ -1,5 +1,5 @@
 import { DEFAULT_SHORTCUTS, eventToCombo, type ShortcutScreen } from '@aruna/shared';
-import { KeyRound, RotateCcw } from 'lucide-react';
+import { Hash, KeyRound, RotateCcw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -8,6 +8,8 @@ import { ChangePasswordPage } from '@/auth/ChangePasswordPage';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
+import { Field } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 import { Kbd } from '@/components/ui/kbd';
 import { PageHeader } from '@/components/ui/misc';
 import { useKeymap } from '@/keyboard/keymap';
@@ -29,6 +31,7 @@ export function ProfilePage() {
   const qc = useQueryClient();
   const [capture, setCapture] = useState<{ screen: ShortcutScreen; action: string } | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
   const captureRef = useRef<HTMLDivElement>(null);
   const save = async (screen: ShortcutScreen, action: string, keys: string) => {
     try {
@@ -46,6 +49,11 @@ export function ProfilePage() {
         <Button icon={<KeyRound size={16} />} onClick={() => setPasswordOpen(true)}>
           Change password
         </Button>
+        {me.mode === 'shop' ? (
+          <Button icon={<Hash size={16} />} onClick={() => setPinOpen(true)}>
+            {me.hasPin ? 'Change my PIN' : 'Set my PIN'}
+          </Button>
+        ) : null}
         <Button
           icon={<RotateCcw size={16} />}
           onClick={async () => {
@@ -112,6 +120,80 @@ export function ProfilePage() {
           onDone={() => (setPasswordOpen(false), toast.success('Password changed.'))}
         />
       </Dialog>
+      <MyPinDialog open={pinOpen} onClose={() => setPinOpen(false)} hasPin={me.hasPin} />
     </div>
+  );
+}
+
+/** Sets or changes the signed-in user's own PIN, after their password. */
+function MyPinDialog({
+  open,
+  onClose,
+  hasPin,
+}: {
+  open: boolean;
+  onClose: () => void;
+  hasPin: boolean;
+}) {
+  const qc = useQueryClient();
+  const [password, setPassword] = useState('');
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+  const close = () => {
+    setPassword('');
+    setPin('');
+    setError('');
+    onClose();
+  };
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    try {
+      await api.post('/api/auth/my-pin', { password, pin });
+      toast.success(hasPin ? 'Your PIN is changed.' : 'Your PIN is set.');
+      await qc.invalidateQueries({ queryKey: ['me'] });
+      close();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  };
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => (o ? undefined : close())}
+      title={hasPin ? 'Change my PIN' : 'Set my PIN'}
+      description="4 to 6 digits. It opens the locked screen and switches this PC to you. Every PIN in the shop is different."
+    >
+      <form onSubmit={save} className="flex flex-col gap-3">
+        <Field label="My password" htmlFor="my-pin-password">
+          <Input
+            id="my-pin-password"
+            type="password"
+            autoFocus
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </Field>
+        <Field label="New PIN" htmlFor="my-pin">
+          <Input
+            id="my-pin"
+            type="password"
+            inputMode="numeric"
+            maxLength={6}
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+          />
+        </Field>
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+        <Button type="submit" variant="primary" disabled={!password || pin.length < 4}>
+          Save my PIN
+        </Button>
+      </form>
+    </Dialog>
   );
 }

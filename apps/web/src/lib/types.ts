@@ -10,6 +10,8 @@ export interface Me {
     /** The owner: the one top Super Admin, at every shop. */
     owner: boolean;
   };
+  /** False until the user sets a PIN: the screen lock then asks for the password. */
+  hasPin: boolean;
   roles: string[];
   permissions: string[];
   location: { id: string; code: string; name: string } | null;

@@ -12,7 +12,8 @@ export function LockScreen({ me }: { me: Me }) {
   const qc = useQueryClient();
   const [pin, setPin] = useState('');
   const [password, setPassword] = useState('');
-  const [usePassword, setUsePassword] = useState(false);
+  // Someone without a PIN unlocks with their password (another person's PIN still switches).
+  const [usePassword, setUsePassword] = useState(!me.hasPin);
   const [error, setError] = useState('');
 
   const submit = async (e: FormEvent) => {
@@ -75,7 +76,9 @@ export function LockScreen({ me }: { me: Me }) {
         ) : (
           <p className="text-sm text-muted">
             {usePassword
-              ? 'Type your password and press Enter.'
+              ? me.hasPin
+                ? 'Type your password and press Enter.'
+                : 'You have no PIN yet: type your password and press Enter. Set a PIN in My profile.'
               : 'Type a PIN and press Enter to switch user.'}
           </p>
         )}

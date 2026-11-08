@@ -101,6 +101,38 @@ describe('access', () => {
     expect((await shop.cashier.get('/api/values/units')).status).toBe(200);
   });
 
+  it('someone with no PIN unlocks with their password, and sets their own PIN after it', async () => {
+    const roles = (await shop.sa.get('/api/roles')).body.items as { id: string; code: string }[];
+    const made = await shop.sa.post('/api/users', {
+      username: 'nopin',
+      fullName: 'No Pin',
+      password: PASSWORD,
+      roleIds: [roles.find((r) => r.code === 'CASHIER')!.id],
+      mustChangePassword: false,
+    });
+    expect(made.status).toBe(200);
+    const c = new Client(app);
+    await login(c, 'nopin');
+    expect((await c.get('/api/auth/me')).body.hasPin).toBe(false);
+    // Locked: the password opens it (the lock screen shows the password box first).
+    await c.post('/api/auth/lock');
+    expect((await c.get('/api/values/units')).status).toBe(423);
+    expect((await c.post('/api/auth/unlock', { password: PASSWORD })).status).toBe(200);
+    // Their own PIN: the password is checked, and a PIN someone else has is refused.
+    expect((await c.post('/api/auth/my-pin', { password: 'wrong-pass', pin: '8642' })).status).toBe(
+      400,
+    );
+    const taken = await c.post('/api/auth/my-pin', { password: PASSWORD, pin: PINS.cashier });
+    expect(taken.status).toBeGreaterThanOrEqual(400);
+    expect((await c.post('/api/auth/my-pin', { password: PASSWORD, pin: '8642' })).status).toBe(
+      200,
+    );
+    expect((await c.get('/api/auth/me')).body.hasPin).toBe(true);
+    await c.post('/api/auth/lock');
+    expect((await c.post('/api/auth/pin', { pin: '8642' })).status).toBe(200);
+    expect((await c.get('/api/values/units')).status).toBe(200);
+  });
+
   it('locks after the idle time', async () => {
     await app.deps.db.session.updateMany({
       data: { lastActivityAt: new Date(Date.now() - 60 * 60_000) },
