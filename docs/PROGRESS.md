@@ -1,6 +1,6 @@
 # Build progress and handoff
 
-Last updated: 7 Nov 2026, release 1.0.6: a test update (no app changes) for the live pop-up test at the shops.
+Last updated: 8 Nov 2026, release 1.0.7: clean sign-out and sign-in, page permission checks, online user and role changes fully applied at the shop.
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
@@ -175,6 +175,10 @@ These were my calls; confirm them with the owner if any matters:
 22. **One installer for install and update.** The updater runs the same exe silently; there is no separate patch format, so every update is a full, tested install path with backup and rollback.
 
 ## Known gaps and rough edges
+
+- **Fixed in 1.0.7, sign-out:** signing out only forgot who was signed in; the page and everything the previous user had loaded stayed, so an Admin signing in after the Super Admin saw the Super Admin's page (Settings, Users and roles, with their data) until a reload. Now `signOut()`/`startFresh()` (`auth/session.ts`) reload the app on sign-out, sign-in and a PIN switch to another user, and `layout/PageGate.tsx` checks each page against its menu entry's permissions (an address typed in goes to the Main menu). e2e: `session.spec.ts`.
+- **Fixed in 1.0.7, online user changes at the shop** (`beforeOnlineChange`/`afterOnlineChange` in `core/syncagent.ts`): a user deleted online now loses their shop sign-ins first (sessions never sync, and used to make the delete fail); an online password reset (`must_change_password`) or switch-off signs the user out at the shop, as at the shop itself (the owner's account arriving with a new stored hash signs nobody out). A change the shop can't take because something made there since the last sync still points to it is kept, with "It is still in use at the shop…". Tests in `sync.test.ts`: users added/changed/reset/switched off/deleted online; a user who billed at the shop meanwhile; roles added/changed/deleted and one the shop started using; changes queued offline applied in order.
+- The backups taken before updates are kept to the last 10 (`setup.ps1`); nightly backups keep their own rule.
 
 - **Fixed in 1.0.2:** in 1.0.1 a shop linked in the first-run wizard never synced until its server restarted: the installer starts the server before setup, the sync agent read the empty `cloud` setting into the settings cache, and setup didn't clear it, so the owner's account never arrived. Setup now clears the cache and syncs at once (`modules/setup/routes.ts`); the sync test runs a round before setup to cover it. A 1.0.1 shop stuck waiting needs one restart of the **Aruna POS Server** service (or the PC).
 - The online panel's address for shops is `https://arunapaint.vercel.app`. The per-deployment `*-king-upes-projects.vercel.app` addresses sit behind Vercel's login (Deployment Protection), so a shop linked to one never reaches the panel.

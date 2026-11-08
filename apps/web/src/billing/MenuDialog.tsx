@@ -20,13 +20,11 @@ import {
 import { useNavigate } from 'react-router';
 import { useAuth } from '@/auth/AuthProvider';
 import { Dialog } from '@/components/ui/dialog';
-import { api } from '@/lib/api';
-import { useQueryClient } from '@tanstack/react-query';
+import { signOut } from '@/auth/session';
 
 export function MenuDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { me, can } = useAuth();
   const nav = useNavigate();
-  const qc = useQueryClient();
 
   const handleNavigate = (path: string) => {
     onClose();
@@ -35,7 +33,7 @@ export function MenuDialog({ open, onClose }: { open: boolean; onClose: () => vo
 
   const handleLogout = async () => {
     onClose();
-    await api.post('/api/auth/logout', {}).finally(() => qc.setQueryData(['me'], null));
+    await signOut();
   };
 
   return (

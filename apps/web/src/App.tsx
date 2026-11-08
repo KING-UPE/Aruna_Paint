@@ -25,6 +25,7 @@ import { KeymapProvider } from '@/keyboard/keymap';
 import { ShortcutHelp } from '@/keyboard/ShortcutHelp';
 import { AppLayout } from '@/layout/AppLayout';
 import { MenuPage } from '@/layout/MenuPage';
+import { PageGate } from '@/layout/PageGate';
 import { UpdatePrompt } from '@/layout/UpdatePrompt';
 import { firstAllowed } from '@/layout/nav';
 import { api } from '@/lib/api';
@@ -109,7 +110,14 @@ function Session() {
       <UpdatePrompt />
       <Routes>
         {/* Billing runs full screen with no sidebar. */}
-        <Route path="/billing" element={<BillingScreen />} />
+        <Route
+          path="/billing"
+          element={
+            <PageGate>
+              <BillingScreen />
+            </PageGate>
+          }
+        />
         <Route element={<AppLayout />}>
           <Route path="/" element={<MenuPage />} />
           <Route path="/menu" element={<MenuPage />} />

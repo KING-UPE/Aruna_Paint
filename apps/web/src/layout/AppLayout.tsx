@@ -1,7 +1,7 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { LogOut, Menu, Search, X } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { PageGate } from './PageGate';
 import { useAuth } from '@/auth/AuthProvider';
 import { Kbd } from '@/components/ui/kbd';
 import { useHotkeys, useKeyLabel } from '@/keyboard/keymap';
@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { firstAllowed, navItems } from './nav';
 import { StatusBar } from './StatusBar';
 import { CloudBar } from './CloudBar';
+import { signOut } from '@/auth/session';
 
 const SECTIONS = ['Billing', 'Stock', 'HRM', 'Admin'] as const;
 
@@ -18,7 +19,6 @@ export function AppLayout() {
   const { me, can } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
-  const qc = useQueryClient();
   const paletteKey = useKeyLabel('global', 'palette');
   const [mobileOpen, setMobileOpen] = useState(false);
   useGlobalNavKeys();
@@ -98,9 +98,7 @@ export function AppLayout() {
           </NavLink>
           <button
             className="flex w-full items-center gap-2 rounded-[8px] px-3 py-2 text-left text-[15px] hover:bg-surface-2"
-            onClick={() =>
-              void api.post('/api/auth/logout', {}).finally(() => qc.setQueryData(['me'], null))
-            }
+            onClick={() => void signOut()}
           >
             <LogOut size={16} /> Log out
           </button>
@@ -158,7 +156,9 @@ export function AppLayout() {
             </button>
           </header>
           <main className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
-            <Outlet />
+            <PageGate>
+              <Outlet />
+            </PageGate>
           </main>
         </div>
       </div>

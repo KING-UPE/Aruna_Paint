@@ -178,8 +178,8 @@ export async function setupShop(app: FastifyInstance): Promise<Shop> {
   return { sa, admin, stock, cashier, cashier2, recoveryCodes, ids };
 }
 
-export async function login(client: Client, username: string) {
-  const r = await client.post('/api/auth/login', { username, password: PASSWORD });
+export async function login(client: Client, username: string, password = PASSWORD) {
+  const r = await client.post('/api/auth/login', { username, password });
   if (r.status !== 200) throw new Error(`login ${username}: ${JSON.stringify(r.body)}`);
   return r;
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 import type { Db } from '../db';
 import { SHOP_REQUESTS } from '../modules/sync/online';
 import type { ActorRef } from './context';
@@ -84,9 +85,41 @@ function plainError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   if (/unique constraint|duplicate key|23505|already exists/i.test(msg))
     return 'It clashes with something already at the shop (the same name, code or PIN).';
+  if (/foreign key|23503|violates.*constraint.*_fkey/i.test(msg))
+    return 'It is still in use at the shop (something made there since its last sync points to it), so the shop kept it. Switch a user off instead of deleting them.';
   if (/fetch failed|ECONNREFUSED|ENOTFOUND|timeout|aborted/i.test(msg))
     return 'The cloud could not be reached (no internet, or a wrong cloud address).';
   return msg.split('\n').filter(Boolean).pop()!.slice(0, 300);
+}
+
+/**
+ * Rows that live only at the shop and are never synced (its sign-ins) follow an online change to a
+ * user, the way the same change made at the shop would: a user deleted online loses their
+ * sign-ins here first (without that the delete was refused, and the user stayed).
+ */
+async function beforeOnlineChange(tx: Prisma.TransactionClient, ch: RowChange) {
+  const id = (ch.pk as { id?: string } | null)?.id;
+  if (ch.table === 'users' && ch.op === 'DELETE' && id)
+    await tx.session.deleteMany({ where: { userId: id } });
+}
+
+/**
+ * A password reset or switch-off made online signs that user out on every PC at the shop, as the
+ * same change made at the shop does. A reset is a new password the user must change; the owner's
+ * account arriving from the panel (a new stored hash, the same password) signs nobody out.
+ */
+async function afterOnlineChange(tx: Prisma.TransactionClient, ch: RowChange) {
+  const id = (ch.pk as { id?: string } | null)?.id;
+  if (ch.table !== 'users' || ch.op !== 'UPDATE' || !id || !ch.data) return;
+  const reset =
+    ch.data.must_change_password === true &&
+    (ch.old ? ch.old.password_hash !== ch.data.password_hash : false);
+  const switchedOff = ch.data.active === false && ch.old?.active !== false;
+  if (reset || switchedOff)
+    await tx.session.updateMany({
+      where: { userId: id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
 }
 
 /**
@@ -320,7 +353,11 @@ export class SyncAgent {
           async (tx) => {
             if (decision !== 'APPLY') conflicts = await findConflicts(tx, this.catalog, c.changes);
             if (conflicts.length) return;
-            for (const ch of c.changes) await mergeChange(tx, this.catalog, ch);
+            for (const ch of c.changes) {
+              await beforeOnlineChange(tx, ch);
+              await mergeChange(tx, this.catalog, ch);
+              await afterOnlineChange(tx, ch);
+            }
           },
           { maxWait: 10_000, timeout: 60_000 },
         );

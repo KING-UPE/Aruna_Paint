@@ -427,6 +427,10 @@ function Update-Existing {
     if (Test-Path -LiteralPath $prev) { Remove-Item -LiteralPath $prev -Recurse -Force -ErrorAction SilentlyContinue }
   }
   Write-Result $true $from "Updated from $from to $Version."
+  # The backups taken before updates: the last 10 stay (the nightly backups are kept separately).
+  Get-ChildItem -LiteralPath $BackupDir -Filter 'before-update-*.dump' -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -Skip 10 |
+    Remove-Item -Force -ErrorAction SilentlyContinue
   Say "Aruna POS $Version is running."
 }
 

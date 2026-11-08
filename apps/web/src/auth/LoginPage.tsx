@@ -6,6 +6,7 @@ import { Card, CardBody } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
 import { Input, Select } from '@/components/ui/input';
 import { api, errorMessage } from '@/lib/api';
+import { startFresh } from '@/auth/session';
 
 export function AuthShell({
   children,
@@ -36,7 +37,6 @@ export function AuthShell({
 
 /** Username and password login. */
 export function LoginPage() {
-  const qc = useQueryClient();
   // Same answer the app asked for at start (cached): is this the online panel?
   const setup = useQuery({
     queryKey: ['setup-status'],
@@ -78,7 +78,8 @@ export function LoginPage() {
     setError('');
     try {
       await api.post('/api/auth/login', { username, password, ...(cloud ? { shopId } : {}) });
-      await qc.invalidateQueries();
+      // Nothing from whoever used this screen before stays: the app starts again on the menu.
+      return startFresh();
     } catch (err) {
       setError(errorMessage(err));
     } finally {

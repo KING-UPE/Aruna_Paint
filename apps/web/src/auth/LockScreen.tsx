@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, errorMessage } from '@/lib/api';
 import type { Me } from '@/lib/types';
+import { signOut, startFresh } from '@/auth/session';
 
 /** The idle lock. Any user's PIN unlocks it and switches this PC to that user. */
 export function LockScreen({ me }: { me: Me }) {
@@ -19,7 +20,11 @@ export function LockScreen({ me }: { me: Me }) {
     setError('');
     try {
       if (usePassword) await api.post('/api/auth/unlock', { password });
-      else await api.post('/api/auth/pin', { pin });
+      else {
+        const r = await api.post<{ switched?: boolean }>('/api/auth/pin', { pin });
+        // Another person's PIN: their screens start fresh, not on the previous user's page.
+        if (r.switched) return startFresh();
+      }
       setPin('');
       await qc.invalidateQueries();
     } catch (err) {
@@ -83,14 +88,7 @@ export function LockScreen({ me }: { me: Me }) {
           >
             {usePassword ? 'Use a PIN' : 'Use my password'}
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              void api.post('/api/auth/logout', {}).finally(() => qc.setQueryData(['me'], null))
-            }
-          >
+          <Button type="button" variant="ghost" size="sm" onClick={() => void signOut()}>
             Log out
           </Button>
         </div>

@@ -19,17 +19,15 @@ import {
 import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/auth/AuthProvider';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/api';
 import { arrowNav } from '@/lib/arrowNav';
-import { useQueryClient } from '@tanstack/react-query';
+import { signOut } from '@/auth/session';
 
 export function MenuPage() {
   const { me, can } = useAuth();
   const nav = useNavigate();
-  const qc = useQueryClient();
 
   const handleLogout = async () => {
-    await api.post('/api/auth/logout', {}).finally(() => qc.setQueryData(['me'], null));
+    await signOut();
   };
 
   return (

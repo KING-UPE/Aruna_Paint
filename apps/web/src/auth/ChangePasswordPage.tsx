@@ -5,6 +5,7 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { AuthShell } from './LoginPage';
+import { signOut } from '@/auth/session';
 
 /** A reset password must be changed at next login. */
 export function ChangePasswordPage({
@@ -64,13 +65,7 @@ export function ChangePasswordPage({
           Change password
         </Button>
         {forced ? (
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() =>
-              void api.post('/api/auth/logout', {}).finally(() => qc.setQueryData(['me'], null))
-            }
-          >
+          <Button type="button" variant="ghost" onClick={() => void signOut()}>
             Log out
           </Button>
         ) : null}

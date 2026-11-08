@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { dropDatabase } from '../src/db';
 import { withShopData } from '../src/core/dbscope';
+import { resetLocationCache } from '../src/auth/session';
 import type { SyncTransport } from '../src/core/syncagent';
 import {
   Client,
@@ -15,7 +16,7 @@ import {
   type Shop,
   TEST_URL,
 } from './helpers';
-import { createCatalog, type Catalog } from './fixtures';
+import { createCatalog, postGrn, subProducts, type Catalog } from './fixtures';
 
 const KEY = 'test-sync-key-0123456789';
 const dbUrl = (suffix: string) => {
@@ -692,6 +693,160 @@ describe('online panel for several shops', () => {
     } finally {
       server.close();
     }
+  });
+
+  it('users added, changed, reset, switched off and deleted online reach the shop', async () => {
+    const roles = (await owner.get('/api/roles')).body.items as { id: string; code: string }[];
+    const role = (code: string) => roles.find((r) => r.code === code)!.id;
+    // Added online.
+    const made = await owner.post('/api/users', {
+      username: 'helper',
+      fullName: 'Helper',
+      password: 'helper-pass-1',
+      roleIds: [role('CASHIER')],
+      mustChangePassword: false,
+    });
+    expect(made.status).toBe(200);
+    const id = made.body.id as string;
+    await sync(shopA);
+    const atShop = new Client(shopA);
+    await login(atShop, 'helper', 'helper-pass-1');
+    expect((await atShop.get('/api/auth/me')).body.roles).toEqual(['CASHIER']);
+    // Changed online: name and role reach the shop; the PC signed in gets the new rights.
+    expect(
+      (await owner.patch(`/api/users/${id}`, { fullName: 'Helper Two', roleIds: [role('ADMIN')] }))
+        .status,
+    ).toBe(200);
+    await sync(shopA);
+    const me = (await atShop.get('/api/auth/me')).body;
+    expect(me).toMatchObject({ roles: ['ADMIN'], user: { fullName: 'Helper Two' } });
+    // A password reset online signs them out on the shop's PCs, as one made at the shop does.
+    expect(
+      (await owner.post(`/api/users/${id}/reset-password`, { password: 'helper-pass-2' })).status,
+    ).toBe(200);
+    await sync(shopA);
+    expect((await atShop.get('/api/auth/me')).status).toBe(401);
+    const again = new Client(shopA);
+    await login(again, 'helper', 'helper-pass-2');
+    // Switched off online: signed out, and can't sign in.
+    expect((await owner.patch(`/api/users/${id}`, { active: false })).status).toBe(200);
+    await sync(shopA);
+    expect((await again.get('/api/auth/me')).status).toBe(401);
+    expect(
+      (
+        await new Client(shopA).post('/api/auth/login', {
+          username: 'helper',
+          password: 'helper-pass-2',
+        })
+      ).status,
+    ).toBe(401);
+    // Deleted online: gone at the shop too, although it had signed in there (its sign-ins
+    // never leave the shop, and used to stop the delete).
+    expect((await owner.delete(`/api/users/${id}`)).status).toBe(200);
+    await sync(shopA);
+    expect(await shopA.deps.db.user.findUnique({ where: { id } })).toBeNull();
+    expect(await shopA.deps.db.session.count({ where: { userId: id } })).toBe(0);
+    const statuses = (await commands(owner)).map((c: { status: string }) => c.status);
+    expect(statuses.every((st: string) => st === 'APPLIED')).toBe(true);
+  });
+
+  it('a user deleted online who made a bill at the shop meanwhile stays, and shows online again', async () => {
+    // The tests rebuild the shop's database between tests; a real server keeps its location.
+    resetLocationCache();
+    await postGrn(a, cat.supplierA, [{ productId: cat.brush, value: '450', qty: '10' }]);
+    await sync(shopA);
+    const id = a.ids.cashier2!;
+    // Offline: cashier2 sells a brush at the shop.
+    await link(shopA, 'a-wrong-key');
+    const brush = (await subProducts(a, cat.brush))[0]!.id;
+    const sale = await a.cashier2.post('/api/sales', {
+      lines: [{ kind: 'BATCH', subProductId: brush, qty: '1' }],
+    });
+    expect(sale.status).toBe(200);
+    // Online, where that bill hasn't arrived yet, the Super Admin deletes cashier2.
+    expect((await owner.delete(`/api/users/${id}`)).status).toBe(200);
+    await link(shopA);
+    await sync(shopA);
+    const cmd = (await commands(owner)).find((c: { route: string }) =>
+      c.route.startsWith('DELETE /api/users'),
+    );
+    expect(cmd.status).toBe('FAILED');
+    expect(cmd.message).toMatch(/still in use at the shop/);
+    // The shop kept the user and the bill; the panel shows the user again.
+    expect(await shopA.deps.db.user.findUnique({ where: { id } })).not.toBeNull();
+    await sync(shopA);
+    const users = (await owner.get('/api/users')).body.items as { id: string }[];
+    expect(users.some((u) => u.id === id)).toBe(true);
+  });
+
+  it('roles added, changed and deleted online reach the shop; one the shop started using is kept', async () => {
+    const made = await owner.post('/api/roles', {
+      name: 'Helpers',
+      permissions: ['billing.view', 'billing.create'],
+    });
+    expect(made.status).toBe(200);
+    const id = made.body.id as string;
+    await sync(shopA);
+    const atShop = () =>
+      shopA.deps.db.role.findUnique({ where: { id }, include: { permissions: true } });
+    expect((await atShop())?.name).toBe('Helpers');
+    expect(
+      (
+        await owner.patch(`/api/roles/${id}`, {
+          name: 'Helpers',
+          permissions: ['billing.view', 'billing.create', 'bill_history.view'],
+        })
+      ).status,
+    ).toBe(200);
+    await sync(shopA);
+    expect((await atShop())?.permissions.map((p) => p.permission).sort()).toEqual([
+      'bill_history.view',
+      'billing.create',
+      'billing.view',
+    ]);
+    expect((await owner.delete(`/api/roles/${id}`)).status).toBe(200);
+    await sync(shopA);
+    expect(await atShop()).toBeNull();
+
+    // A role deleted online that the shop gave someone meanwhile stays at the shop.
+    const second = (await owner.post('/api/roles', { name: 'Stock helpers', permissions: [] })).body
+      .id as string;
+    await sync(shopA);
+    await link(shopA, 'a-wrong-key');
+    const cashierRole = (await a.sa.get('/api/roles')).body.items.find(
+      (r: { code: string }) => r.code === 'CASHIER',
+    ).id;
+    expect(
+      (await a.sa.patch(`/api/users/${a.ids.cashier2}`, { roleIds: [cashierRole, second] })).status,
+    ).toBe(200);
+    expect((await owner.delete(`/api/roles/${second}`)).status).toBe(200);
+    await link(shopA);
+    await sync(shopA);
+    const cmd = (await commands(owner)).find(
+      (c: { route: string; status: string }) =>
+        c.route.startsWith('DELETE /api/roles') && c.status !== 'APPLIED',
+    );
+    expect(cmd.status).toBe('FAILED');
+    expect(cmd.message).toMatch(/still in use at the shop/);
+    expect(await shopA.deps.db.role.findUnique({ where: { id: second } })).not.toBeNull();
+  });
+
+  it('online changes made while the shop is offline wait, and apply in order when it reconnects', async () => {
+    await link(shopA, 'a-wrong-key');
+    const id = a.ids.cashier!;
+    await owner.patch(`/api/users/${id}`, { fullName: 'First name' });
+    await owner.patch(`/api/users/${id}`, { fullName: 'Second name' });
+    await owner.post(`/api/users/${id}/reset-password`, { password: 'later-pass-1' });
+    expect((await sync(shopA)).online).toBe(false);
+    expect((await shopA.deps.db.user.findUniqueOrThrow({ where: { id } })).fullName).not.toBe(
+      'Second name',
+    );
+    await link(shopA);
+    await sync(shopA);
+    expect((await shopA.deps.db.user.findUniqueOrThrow({ where: { id } })).fullName).toBe(
+      'Second name',
+    );
+    await login(new Client(shopA), 'cashier', 'later-pass-1');
   });
 
   it("the owner's username is never taken from someone else at a shop", async () => {
