@@ -4,7 +4,15 @@
 //                                      and engine and the migrations each shop's copy is built with
 // Vercel builds on the same Linux its functions run on, so the Prisma engine made here fits.
 import { execSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +52,12 @@ await esbuild.build({
   format: 'esm',
   target: 'node22',
   tsconfig: join(server, 'tsconfig.json'),
+  // The panel shows the same version as the shops (the root package.json).
+  define: {
+    'process.env.ARUNA_BUILD_VERSION': JSON.stringify(
+      JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version,
+    ),
+  },
   // Prisma loads its engine from disk; ws's speed-ups are optional.
   external: ['@prisma/client', '.prisma/client', 'bufferutil', 'utf-8-validate'],
   banner: {

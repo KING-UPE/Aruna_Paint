@@ -383,6 +383,19 @@ describe('online panel for several shops', () => {
     ).toBe(403);
   });
 
+  it('Cloud sync lists every shop on a fresh server copy that has opened none of them', async () => {
+    // On Vercel a new copy of the server has only the shop being looked at open, or none.
+    // Cloud sync once failed there with "That shop is not ready" and showed a blank page.
+    const shops = cloudApp.deps.shops!;
+    await shops.close();
+    const r = await owner.get('/api/sync/status');
+    expect(r.status).toBe(200);
+    expect(r.body.nodes.map((n: { id: string }) => n.id).sort()).toEqual(
+      (await shops.list()).map((n) => n.id).sort(),
+    );
+    expect(r.body.nodes.length).toBeGreaterThan(1);
+  });
+
   it('a copy made before full copies existed is filled in: the cloud asks the shop for one', async () => {
     const id = await nodeId(shopA);
     // A copy from before: never started from a full copy, and missing the roles.

@@ -48,7 +48,9 @@ export function scopeShop(): string | null {
 
 /** Runs `fn` on one shop's copy (online panel), outside a request. */
 export function withShopData<T>(shopId: string, fn: () => Promise<T>): Promise<T> {
-  return scopes.run({ test: false, shop: shopId }, fn);
+  // async: a shop whose copy isn't ready throws as soon as `db` is touched; this turns that into
+  // a rejected promise, so a caller's .catch() handles it instead of the whole request failing.
+  return scopes.run({ test: false, shop: shopId }, async () => fn());
 }
 
 /**

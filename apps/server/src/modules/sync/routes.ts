@@ -148,13 +148,29 @@ export async function syncRoutes(app: FastifyInstance) {
         const since = new Date(`${shopDate()}T00:00:00+05:30`);
         const nodes = await Promise.all(
           list.map(async (n) => {
-            const today = await withShopData(n.id, () =>
-              db.sale.aggregate({
-                where: { kind: 'INVOICE', status: 'COMPLETED', completedAt: { gte: since } },
-                _count: true,
-                _sum: { netTotal: true },
-              }),
-            ).catch(() => null);
+            // On Vercel each copy of the server opens only the shops it was asked about: open
+            // every one listed. A shop that can't be read shows no figures, never a blank page.
+            const today = await app.deps
+              .shops!.open(n.id)
+              .then((ok) =>
+                ok
+                  ? withShopData(n.id, () =>
+                      db.sale.aggregate({
+                        where: {
+                          kind: 'INVOICE',
+                          status: 'COMPLETED',
+                          completedAt: { gte: since },
+                        },
+                        _count: true,
+                        _sum: { netTotal: true },
+                      }),
+                    )
+                  : null,
+              )
+              .catch((err) => {
+                req.log.warn({ err, shop: n.id }, 'shop figures unavailable');
+                return null;
+              });
             return {
               id: n.id,
               name: n.name,
@@ -166,7 +182,7 @@ export async function syncRoutes(app: FastifyInstance) {
               lastBillAt: (n.info as { lastBillAt?: string | null } | null)?.lastBillAt ?? null,
               today: {
                 bills: today?._count ?? 0,
-                total: today?._sum.netTotal?.toFixed(2) ?? '0.00',
+                total: today?._sum?.netTotal?.toFixed(2) ?? '0.00',
               },
             };
           }),

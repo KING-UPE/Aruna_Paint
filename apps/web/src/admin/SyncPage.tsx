@@ -241,7 +241,21 @@ export function SyncPage() {
 
   if (q.isLoading) return <Spinner />;
   const s = q.data;
-  if (!s) return null;
+  // Never a blank page: say what went wrong, and offer to try again.
+  if (!s)
+    return (
+      <div className="flex flex-col gap-4">
+        <PageHeader title="Cloud sync" />
+        <Card>
+          <CardBody className="flex flex-col items-start gap-3">
+            <p className="text-danger">Cloud sync could not be loaded: {errorMessage(q.error)}</p>
+            <Button icon={<RefreshCw size={16} />} onClick={() => void q.refetch()}>
+              Try again
+            </Button>
+          </CardBody>
+        </Card>
+      </div>
+    );
   const conflicts = s.commands.filter((c) => c.status === 'CONFLICT');
 
   return (
