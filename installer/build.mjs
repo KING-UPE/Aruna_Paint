@@ -64,14 +64,34 @@ const run = (cmd, cwd = root, env = {}) =>
   execSync(cmd, { cwd, stdio: 'inherit', env: { ...process.env, ...env } });
 const step = (s) => console.log(`\n== ${s}`);
 
-async function download(url, file) {
+/**
+ * Downloads with retries: a download server's passing hiccup (a 5xx, a timeout, a dropped
+ * connection) must not stop a release. Any other 4xx means the file isn't there: fail at once.
+ */
+async function download(url, file, tries = 5) {
   if (existsSync(file) && statSync(file).size > 0) return file;
-  console.log(`Downloading ${url}`);
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok || !res.body) throw new Error(`${url}: HTTP ${res.status}`);
-  await pipeline(res.body, createWriteStream(`${file}.part`));
-  renameSync(`${file}.part`, file);
-  return file;
+  for (let attempt = 1; ; attempt++) {
+    console.log(`Downloading ${url}${attempt > 1 ? ` (try ${attempt} of ${tries})` : ''}`);
+    let failure;
+    try {
+      const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(300_000) });
+      if (res.ok && res.body) {
+        await pipeline(res.body, createWriteStream(`${file}.part`));
+        renameSync(`${file}.part`, file);
+        return file;
+      }
+      const passing = res.status >= 500 || res.status === 408 || res.status === 429;
+      if (!passing) throw Object.assign(new Error(`${url}: HTTP ${res.status}`), { final: true });
+      failure = new Error(`${url}: HTTP ${res.status}`);
+    } catch (err) {
+      if (err.final) throw err;
+      failure = err;
+    }
+    if (attempt >= tries) throw failure;
+    const wait = 5_000 * 2 ** (attempt - 1);
+    console.log(`  ${failure.message}; trying again in ${wait / 1000} s`);
+    await new Promise((r) => setTimeout(r, wait));
+  }
 }
 
 function unzip(zip, to) {
