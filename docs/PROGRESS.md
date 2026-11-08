@@ -1,6 +1,6 @@
 # Build progress and handoff
 
-Last updated: 8 Nov 2026, release 1.0.8: the screen lock asks for the password when the user has no PIN; anyone sets their own PIN in My profile.
+Last updated: 8 Nov 2026, release 1.0.9: open screens reload themselves after an update (never mid-bill); the online panel's Cloud sync works with several shops, and the owner removes one shop or all of them behind a typed confirmation.
 This file is for whoever continues the work: a person or a new Claude session. The spec is `docs/POS_System_Plan.pdf`; section names below match the plan's headings.
 
 ## State in one paragraph
@@ -177,6 +177,9 @@ These were my calls; confirm them with the owner if any matters:
 ## Known gaps and rough edges
 
 - **Fixed in 1.0.8:** a user with no PIN (the owner's account from the panel has none until one is set online or here) was asked for a PIN by the screen lock. `GET /api/auth/me` now carries `hasPin`; `LockScreen` opens on the password box when it is false. `POST /api/auth/my-pin` (shop only, password checked, PIN unique via `resetPin`) backs **My profile → Set my PIN / Change my PIN**. Tests: `foundation.test.ts`, e2e `session.spec.ts`.
+- **New in 1.0.9: screens follow updates.** The web build defines `__APP_VERSION__` (root `package.json`, `vite.config.ts`); `lib/version.ts` compares it with `/api/health`'s version when the live socket reconnects (the server restarts after an update), when the window is shown again and every 5 minutes, and reloads on a difference. The billing screen calls `setScreenBusy(lines.length > 0)`, so a bill being rung up is never thrown away: the reload waits until it is paid or held, with a "Reload now" toast. A screen reloads at most once per server version (`sessionStorage`), so a mismatch can never loop. Run from source, the server reads the root `package.json` (`sourceVersion()` in `system/routes.ts`); the Vercel build defines `ARUNA_BUILD_VERSION` too. Tests: e2e `version.spec.ts`.
+- **Fixed in 1.0.9 (online panel):** Cloud sync went blank with more than one shop. On Vercel each server copy opens only the shop being looked at; reading another shop's figures threw "That shop is not ready" synchronously, past the `.catch`. The route now `open()`s each shop first, `withShopData` always returns a promise, and the page shows an error with Try again instead of nothing. The owner can now remove the shop being looked at (`DELETE /api/cloud/shops/:id` clears that shop's cookies) or every shop (`POST /api/cloud/shops/remove-all`, body `{confirm: "REMOVE ALL"}`), behind `RemoveShopDialog` (type the shop name or REMOVE ALL). With no shop left, sign-in says no shop is linked yet. Tests: `sync.test.ts`.
+- Installer build: `download()` retries 5xx, 408, 429, timeouts and dropped connections (5 tries, doubling from 5 s); GitHub's 504 had stopped the first 1.0.8 run.
 - The e2e test "a resting mouse never changes which suggestion Enter takes" failed once in a full local run and passed in every rerun (timing); watch it if it fails in CI.
 
 - **Fixed in 1.0.7, sign-out:** signing out only forgot who was signed in; the page and everything the previous user had loaded stayed, so an Admin signing in after the Super Admin saw the Super Admin's page (Settings, Users and roles, with their data) until a reload. Now `signOut()`/`startFresh()` (`auth/session.ts`) reload the app on sign-out, sign-in and a PIN switch to another user, and `layout/PageGate.tsx` checks each page against its menu entry's permissions (an address typed in goes to the Main menu). e2e: `session.spec.ts`.

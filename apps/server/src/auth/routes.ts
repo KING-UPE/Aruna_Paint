@@ -48,8 +48,14 @@ export async function authRoutes(app: FastifyInstance) {
     const body = loginSchema.parse(req.body);
     if (app.deps.shops) {
       // Online panel: users and passwords are each shop's own.
-      if (!body.shopId || !(await app.deps.shops.open(body.shopId)))
+      if (!body.shopId || !(await app.deps.shops.open(body.shopId))) {
+        if ((await app.deps.shops.list()).length === 0)
+          throw new DomainError(
+            'INVALID_STATE',
+            'No shop is linked to the online panel yet. Install Aruna POS at the shop and link it in its first-run setup; then sign in here.',
+          );
         throw new DomainError('VALIDATION', 'Choose the shop first.', 'shopId');
+      }
       useShopData(body.shopId);
       // An owner (a Super Admin who signed in here before) opens every shop with their one
       // password: their account at this shop is made right first.

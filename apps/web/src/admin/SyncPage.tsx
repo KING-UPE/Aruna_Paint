@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { useAuth } from '@/auth/AuthProvider';
+import { startFresh } from '@/auth/session';
 import { useConfirm } from '@/components/AskDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,6 +13,7 @@ import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { IconButton } from '@/components/ui/icon-button';
 import { EmptyState, PageHeader, Spinner } from '@/components/ui/misc';
 import { api, errorMessage } from '@/lib/api';
+import { RemoveShopDialog, type RemoveTarget } from './RemoveShopDialog';
 
 interface Conflict {
   table: string;
@@ -174,23 +176,23 @@ export function SyncPage() {
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ['sync-status'] });
   // Look at another shop: its own sign-in, the first time.
-  const removeShop = async (n: { id: string; name: string }) => {
-    const ok = await confirm({
-      title: `Remove ${n.name} from the panel?`,
-      message:
-        'Its copy here is deleted; the shop itself keeps all its data. If its server connects again, it comes back as a new shop with a full copy.',
-      confirmLabel: 'Remove shop',
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await api.delete(`/api/cloud/shops/${n.id}`);
-      toast.success(`${n.name} is off the panel.`);
+  const [removing, setRemoving] = useState<RemoveTarget | null>(null);
+  const afterRemove = async (removedCurrent: boolean) => {
+    setRemoving(null);
+    toast.success('Removed from the online panel.');
+    await qc.invalidateQueries({ queryKey: ['cloud-shops'] });
+    if (!removedCurrent) {
       await qc.invalidateQueries({ queryKey: ['sync-status'] });
-      await qc.invalidateQueries({ queryKey: ['cloud-shops'] });
-    } catch (err) {
-      toast.error(errorMessage(err));
+      return;
     }
+    // The shop being looked at is gone: move to another one, or to the sign-in page.
+    const left = await api
+      .get<{ items: { id: string }[] }>('/api/cloud/shops')
+      .catch(() => ({ items: [] }));
+    if (left.items[0]) {
+      await api.post('/api/cloud/switch', { shopId: left.items[0].id }).catch(() => undefined);
+      startFresh('/admin/sync');
+    } else startFresh('/');
   };
   const openShop = async (shopId: string) => {
     try {
@@ -328,6 +330,17 @@ export function SyncPage() {
           <CardHeader>
             <CardTitle>Shops</CardTitle>
             <span className="text-sm text-muted">Each shop as of its last sync</span>
+            {me.user.owner && s.nodes.length > 1 ? (
+              <Button
+                size="sm"
+                variant="danger"
+                icon={<Trash2 size={15} />}
+                className="ml-auto"
+                onClick={() => setRemoving({ all: s.nodes.length })}
+              >
+                Remove all shops
+              </Button>
+            ) : null}
           </CardHeader>
           {s.nodes.length ? (
             <table className="w-full text-sm">
@@ -379,22 +392,24 @@ export function SyncPage() {
                       </td>
                       <td className="px-4 py-2.5 text-muted">v{n.version}</td>
                       <td className="px-4 py-2.5 text-right">
-                        {!n.current ? (
-                          <span className="inline-flex gap-0.5">
+                        <span className="inline-flex gap-0.5">
+                          {!n.current ? (
                             <IconButton
                               label={`Open ${n.name}`}
                               icon={<ArrowRightLeft size={16} />}
                               onClick={() => void openShop(n.id)}
                             />
-                            {me.user.owner ? (
-                              <IconButton
-                                label={`Remove ${n.name} from the panel`}
-                                icon={<Trash2 size={16} />}
-                                onClick={() => void removeShop(n)}
-                              />
-                            ) : null}
-                          </span>
-                        ) : null}
+                          ) : null}
+                          {me.user.owner ? (
+                            <IconButton
+                              label={`Remove ${n.name} from the panel`}
+                              icon={<Trash2 size={16} />}
+                              onClick={() =>
+                                setRemoving({ id: n.id, name: n.name, current: n.current })
+                              }
+                            />
+                          ) : null}
+                        </span>
                       </td>
                     </tr>
                   );
@@ -521,6 +536,11 @@ export function SyncPage() {
           </CardBody>
         )}
       </Card>
+      <RemoveShopDialog
+        target={removing}
+        onClose={() => setRemoving(null)}
+        onRemoved={(c) => void afterRemove(c)}
+      />
     </div>
   );
 }

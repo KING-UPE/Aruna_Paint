@@ -33,6 +33,7 @@ import { ItemEntry, type EmptyKey, type ItemEntryHandle } from './ItemEntry';
 import { OpenCanDialog, type OpenCanRequest } from './OpenCanDialog';
 import { PayDialog } from './PayDialog';
 import { MenuDialog } from './MenuDialog';
+import { setScreenBusy } from '@/lib/version';
 
 /**
  * The billing screen, built for one hand on the keyboard: type, Enter, repeat, then F10 to pay.
@@ -52,6 +53,9 @@ export function BillingScreen() {
   const [noDiscount, setNoDiscount] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [lines, setLines] = useState<BillLine[]>([]);
+  // A bill being rung up lives only on this screen: an update's reload waits until it is done.
+  useEffect(() => setScreenBusy(lines.length > 0), [lines.length]);
+  useEffect(() => () => setScreenBusy(false), []);
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState(-1);
   const [heldSaleId, setHeldSaleId] = useState<string | undefined>();

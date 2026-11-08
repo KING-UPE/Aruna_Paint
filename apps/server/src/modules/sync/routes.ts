@@ -1,5 +1,5 @@
 import { DomainError, idSchema, shopDate } from '@aruna/shared';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { perm, superAdminOnly } from '../../auth/guard';
 import { ownerSession, SESSION_COOKIE, SHOP_COOKIE } from '../../auth/session';
@@ -100,17 +100,46 @@ export async function syncRoutes(app: FastifyInstance) {
       };
     });
 
-    // The Super Admin takes a shop off the panel (one linked by mistake, or a PC set up again).
+    // The owner takes a shop off the panel (one linked by mistake, a test shop, a PC set up
+    // again), the one being looked at included: its copy here goes, the shop keeps its own data.
     // Only the owner: other Super Admins belong to their own shops.
-    app.delete('/api/cloud/shops/:id', { preHandler: superAdminOnly() }, async (req) => {
+    const ownerOnly = (req: FastifyRequest) => {
       if (!req.ctx.user.owner)
         throw new DomainError('FORBIDDEN', 'Only the owner takes a shop off the panel.');
+    };
+    const forget = (reply: FastifyReply, ids: string[], current: string | null) => {
+      for (const id of ids) reply.clearCookie(`${SESSION_COOKIE}_${id}`, { path: '/' });
+      if (current && ids.includes(current)) reply.clearCookie(SHOP_COOKIE, { path: '/' });
+    };
+    app.delete('/api/cloud/shops/:id', { preHandler: superAdminOnly() }, async (req, reply) => {
+      ownerOnly(req);
       const id = z.string().parse((req.params as { id: string }).id);
-      if (id === scopeShop())
-        throw new DomainError('INVALID_STATE', 'Switch to another shop before removing this one.');
+      const current = scopeShop();
       if (!(await shops.remove(id))) throw new DomainError('NOT_FOUND', 'That shop was not found.');
-      return { ok: true };
+      req.log.info({ shop: id, by: req.ctx.user.username }, 'shop removed from the panel');
+      forget(reply, [id], current);
+      return { ok: true, removedCurrent: id === current };
     });
+
+    // Every shop at once, for a fresh start. The words typed in the warning come with it.
+    app.post(
+      '/api/cloud/shops/remove-all',
+      { preHandler: superAdminOnly() },
+      async (req, reply) => {
+        ownerOnly(req);
+        const { confirm } = z.object({ confirm: z.string() }).parse(req.body);
+        if (confirm.trim().toUpperCase() !== 'REMOVE ALL')
+          throw new DomainError('VALIDATION', 'Type REMOVE ALL to confirm.', 'confirm');
+        const current = scopeShop();
+        const ids = (await shops.control.syncNode.findMany({ select: { id: true } })).map(
+          (n) => n.id,
+        );
+        for (const id of ids) await shops.remove(id);
+        req.log.info({ shops: ids, by: req.ctx.user.username }, 'all shops removed from the panel');
+        forget(reply, ids, current);
+        return { removed: ids.length };
+      },
+    );
 
     // Look at another shop; its own sign-in is kept, so going back needs none.
     app.post('/api/cloud/switch', { config: { public: true } }, async (req, reply) => {

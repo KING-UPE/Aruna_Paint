@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { checkServerVersion } from './version';
 
 /**
  * Listens to the server's live events (a sale or purchase anywhere) and refreshes the lists that
@@ -12,6 +13,12 @@ export function connectLive(queryClient: QueryClient): () => void {
   const open = () => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
     socket = new WebSocket(`${proto}://${window.location.host}/api/live`);
+    // Connected again after a drop: the server may have restarted on a new version.
+    let dropped = retry !== undefined;
+    socket.onopen = () => {
+      if (dropped) void checkServerVersion();
+      dropped = false;
+    };
     socket.onmessage = (msg) => {
       const event = JSON.parse(String(msg.data)) as { type: string };
       if (event.type === 'stock' || event.type === 'products') {

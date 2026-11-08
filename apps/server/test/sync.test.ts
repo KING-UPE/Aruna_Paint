@@ -376,11 +376,45 @@ describe('online panel for several shops', () => {
     expect(await names()).toContain(oldId);
     expect((await owner.delete(`/api/cloud/shops/${oldId}`)).status).toBe(200);
     expect(await names()).not.toContain(oldId);
-    // Not the shop being looked at, and only the Super Admin.
-    expect((await owner.delete(`/api/cloud/shops/${await nodeId(shopA)}`)).status).toBe(409);
+    // Only the owner.
     expect(
       (await (await online('admin', shopA)).c.delete(`/api/cloud/shops/${newId}`)).status,
     ).toBe(403);
+  });
+
+  it('the owner removes the shop being looked at, then all shops with the typed words', async () => {
+    const idA = await nodeId(shopA);
+    const idB = await nodeId(shopB);
+    const admin = (await online('admin', shopA)).c;
+    expect(
+      (await admin.post('/api/cloud/shops/remove-all', { confirm: 'REMOVE ALL' })).status,
+    ).toBe(403);
+    // The shop being looked at can go too: the browser is taken off it.
+    const r = await owner.delete(`/api/cloud/shops/${idA}`);
+    expect(r.status).toBe(200);
+    expect(r.body.removedCurrent).toBe(true);
+    expect(owner.cookie).not.toContain('aruna_shop=');
+    expect(owner.cookie).not.toContain(idA);
+    // Every shop at once needs the words typed in the warning.
+    expect((await owner.post('/api/cloud/switch', { shopId: idB })).body.signedIn).toBe(true);
+    const wrong = await owner.post('/api/cloud/shops/remove-all', { confirm: 'yes' });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.error.message).toBe('Type REMOVE ALL to confirm.');
+    const all = await owner.post('/api/cloud/shops/remove-all', { confirm: 'remove all' });
+    expect(all.body).toEqual({ removed: 1 });
+    expect((await new Client(cloudApp).get('/api/cloud/shops')).body.items).toEqual([]);
+    expect(await cloudApp.deps.shops!.control.syncNode.count()).toBe(0);
+    // With no shop left, signing in says so plainly.
+    const login = await new Client(cloudApp).post('/api/auth/login', {
+      username: 'owner',
+      password: PASSWORD,
+    });
+    expect(login.body.error.message).toMatch(/^No shop is linked to the online panel yet/);
+    // A shop server that connects again comes back as a shop, with a full copy.
+    // (It is told its copy is gone, and sends a full one at its next round, 15 s later.)
+    expect((await sync(shopA)).lastError).toBe('');
+    expect((await sync(shopA)).lastError).toBe('');
+    expect((await online('owner', shopA)).status).toBe(200);
   });
 
   it('Cloud sync lists every shop on a fresh server copy that has opened none of them', async () => {

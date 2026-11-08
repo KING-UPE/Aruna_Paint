@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { DomainError } from '@aruna/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -8,10 +9,21 @@ import { actorOf } from '../../core/context';
 
 /**
  * The installed build has its version written in by the installer build (`installer/build.mjs`
- * defines ARUNA_BUILD_VERSION); `pnpm dev` and `pnpm start` read it from package.json.
+ * defines ARUNA_BUILD_VERSION); `pnpm dev` and `pnpm start` read it from package.json, and
+ * anything else run from the source reads the root package.json.
  */
 export const APP_VERSION =
-  process.env.ARUNA_BUILD_VERSION ?? process.env.npm_package_version ?? '0.1.0';
+  process.env.ARUNA_BUILD_VERSION ?? process.env.npm_package_version ?? sourceVersion();
+
+/** Run from the source (tests, `npx tsx`): the root package.json, the same one the screens use. */
+function sourceVersion(): string {
+  try {
+    const file = new URL('../../../../../package.json', import.meta.url);
+    return (JSON.parse(readFileSync(file, 'utf8')) as { version?: string }).version ?? '0.1.0';
+  } catch {
+    return '0.1.0';
+  }
+}
 
 /**
  * For the status bar. At the shop: "Online · synced 10 s ago" or "Offline · 128 changes waiting".

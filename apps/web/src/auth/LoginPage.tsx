@@ -99,7 +99,7 @@ export function LoginPage() {
         {cloud ? (
           <p className="rounded-[8px] bg-surface-2 px-3 py-2 text-sm text-muted">
             {setup.data?.waitingForShop
-              ? 'The online panel is waiting for the shop’s first sync. Link the shop in its Settings → Cloud mirror, then sign in here with your shop username and password.'
+              ? 'No shop is linked to the online panel yet. Install Aruna POS at the shop and link it in its first-run setup (or later in Settings → Cloud mirror); once it has synced, sign in here.'
               : 'The online panel: see each shop as of its last sync. The Super Admin signs in once and sees every shop; others sign in with their username and password at that shop.'}
           </p>
         ) : null}

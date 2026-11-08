@@ -30,6 +30,7 @@ import { UpdatePrompt } from '@/layout/UpdatePrompt';
 import { firstAllowed } from '@/layout/nav';
 import { api } from '@/lib/api';
 import { connectLive } from '@/lib/live';
+import { watchServerVersion } from '@/lib/version';
 import { applyAppearance } from '@/lib/theme';
 import { StockRoutes } from '@/stock/routes';
 import { AdminRoutes } from '@/admin/routes';
@@ -95,6 +96,8 @@ function Session() {
   useIdleLock(me.settings.idleLockMinutes, me.locked, me.settings.screenLock);
   // Live updates come from the shop server; the online panel (on Vercel) refreshes on a timer.
   useEffect(() => (me.mode === 'shop' ? connectLive(qc) : undefined), [qc, me.mode]);
+  // An open screen reloads itself when the server has been updated.
+  useEffect(() => watchServerVersion(), []);
   const home =
     me.mode === 'shop' && can('billing.view', 'quotations.view')
       ? '/billing'
